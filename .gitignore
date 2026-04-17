@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+*.log
+
+# Node / Frontend
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Data / Model
+datasets/raw/
+models/checkpoints/
+models/scalers/
+models/clusterers/
+
+# Runtime
+logs/
