@@ -1,0 +1,3 @@
+# RailPHM Server dependencies
+# 当前阶段仅作为占位
+Flask>=3.0.0
