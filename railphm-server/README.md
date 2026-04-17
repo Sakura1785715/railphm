@@ -6,25 +6,11 @@
 - Task 1 - 最小 Flask 启动入口已完成。
 - Task 2 - 最小配置管理能力已实现。
 
-## 运行环境与配置
+### 开发进度说明
+- **Task 3 已完成**: 实现了基于 `app/core/response.py` 的统一 JSON 响应封装 (`success_response`, `error_response`)。
+- **Task 4 已完成**: 已使用 Flask Blueprint 正式注册 `/api/v1/health` 接口，作为系统基础健康度探针。服务启动后可通过 `GET /api/v1/health` 获取标准状态响应（原 Task 3 用于测试的临时探针 `/__probe/response` 已在此阶段清理）。
+- **Task 5 已完成**: 已使用 Flask Blueprint 正式注册 `/api/v1/system` 接口，作为系统管理探针。服务启动后可通过 `GET /api/v1/system` 获取标准状态响应
 
-1. **安装依赖**
-   建议在虚拟环境中执行：
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **环境变量配置**
-   项目使用系统环境变量进行基础配置。您可以参考项目根目录下的 `.env.example` 文件了解所需的配置项。
-   
-   在 macOS 终端中，您可以通过 `export` 命令临时覆盖默认配置来启动服务，例如：
-   ```bash
-   export APP_PORT=8080
-   python run.py
-   ```
-
-3. **启动服务**
-   ```bash
-   python run.py
-   ```
-   服务默认将在 `http://127.0.0.1:5000` 启动。当 `APP_ENV` 为 `development`（默认值）时，Flask 会自动开启 `debug` 模式。
+- ### 异常处理说明
+当前已启用全局统一异常处理，任何错误（404/500/业务异常）均会返回标准化 JSON。
+存在 `/__probe/business-error` 和 `/__probe/runtime-error` 两个临时接口，仅供开发阶段调试使用，勿用于生产环境。

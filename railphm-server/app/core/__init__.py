@@ -1,0 +1,1 @@
+from app.core.errors import register_error_handlers
