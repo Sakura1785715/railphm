@@ -1,18 +1,19 @@
-# 实现全局异常处理
+# app/core/errors.py
 from werkzeug.exceptions import HTTPException
 from app.core.response import error_response
 
 class BusinessException(Exception):
     """通用业务异常类"""
-    def __init__(self, code=400, message="business error", data=None):
+    def __init__(self, code=400, message="business error", data=None, status_code=400):
         super().__init__()
         self.code = code
         self.message = message
         self.data = data
+        self.status_code = status_code  
 
 def handle_business_exception(e):
-    # 捕获主动抛出的业务异常
-    return error_response(code=e.code, message=e.message, data=e.data, status_code=400)
+    # 捕获主动抛出的业务异常，使用 e.status_code
+    return error_response(code=e.code, message=e.message, data=e.data, status_code=e.status_code)
 
 def handle_404_error(e):
     # 捕获 404 路由不存在的情况
@@ -30,7 +31,7 @@ def handle_generic_exception(e):
 
 def register_error_handlers(app):
     """
-    注册全局异常处理器（使用最稳妥的显式注册方式）
+    注册全局异常处理器
     """
     app.register_error_handler(BusinessException, handle_business_exception)
     app.register_error_handler(404, handle_404_error)

@@ -1,0 +1,1 @@
+from app.api.prediction.routes import prediction_bp

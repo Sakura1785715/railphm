@@ -1,0 +1,1 @@
+from app.api.monitor.routes import monitor_bp

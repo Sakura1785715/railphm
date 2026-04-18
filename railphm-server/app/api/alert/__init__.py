@@ -1,0 +1,1 @@
+from app.api.alert.routes import alert_bp

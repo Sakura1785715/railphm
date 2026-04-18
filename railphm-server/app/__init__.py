@@ -14,6 +14,9 @@ def create_app(config_name="default") -> Flask:
     """
     app = Flask(__name__)
 
+    # 正常显示中文
+    app.json.ensure_ascii = False
+
     # 加载配置
     config_obj = get_config()
     app.config.from_object(config_obj)

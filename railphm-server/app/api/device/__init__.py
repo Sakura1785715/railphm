@@ -1,0 +1,1 @@
+from app.api.device.routes import device_bp
