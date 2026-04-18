@@ -9,6 +9,3 @@ def register_blueprints(app: Flask) -> None:
     # 注册健康检查模块，指定前缀
     app.register_blueprint(health_bp, url_prefix='/api/v1/health')
     app.register_blueprint(system_bp, url_prefix='/api/v1/system')
-    # 后续任务中，可以在此处按需扩展，例如：
-    # from app.api.system import system_bp
-    # app.register_blueprint(system_bp, url_prefix='/api/v1/system')

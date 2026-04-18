@@ -4,6 +4,6 @@ from app.core.response import success_response
 
 system_bp = Blueprint('system', __name__)
 
-@system_bp.route('', methods=['GET'])
+@system_bp.route('ping', methods=['GET'])
 def ping():
     return success_response(data={"system-ping" : "system-pong"})

@@ -4,6 +4,8 @@ from app.core.response import success_response
 from app.core.errors import BusinessException
 from app.core import register_error_handlers
 from app.api import register_blueprints
+from app.core.logging import init_logging
+from app.extensions import init_extensions
 
 def create_app(config_name="default") -> Flask:
     """
@@ -16,9 +18,17 @@ def create_app(config_name="default") -> Flask:
     config_obj = get_config()
     app.config.from_object(config_obj)
 
-    # 注册蓝图
+    # 初始化日志，以便后续过程可以使用规范的 logger
+    init_logging(app)
+    app.logger.info(f"App starting with environment: {app.config.get('APP_ENV', 'development')}")
+
+    # 初始化第三方扩展 (Extensions)
+    init_extensions(app)
+
+    # 注册蓝图与全局异常
     register_blueprints(app)
     register_error_handlers(app)
+    app.logger.info("Blueprints and error handlers registered.")
 
     # 临时测试接口
     @app.route('/__probe/business-error')
@@ -30,7 +40,5 @@ def create_app(config_name="default") -> Flask:
         raise Exception("This is a simulated runtime error")
 
 
-    # TODO: 后续任务 - 在此处初始化第三方扩展 (Extensions, 例如 SQLAlchemy, Marshmallow 等)
-
-
+    app.logger.info("Flask application initialized successfully.")
     return app
