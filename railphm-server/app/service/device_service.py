@@ -1,5 +1,5 @@
 # 业务逻辑编排与抛出异常
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.repository.device_repository import DeviceRepository
 from app.schema.device_schema import DeviceSchema
 from app.core.errors import BusinessException
@@ -11,14 +11,26 @@ class DeviceService:
     """
     
     @staticmethod
-    def get_device_list(page: int = 1, size: int = 10) -> Dict[str, Any]:
+    def get_device_list(
+        page: int = 1,
+        size: int = 10,
+        device_id: Optional[int] = None,
+        car_no: Optional[str] = None,
+        device_status: Optional[int] = None
+    ) -> Dict[str, Any]:
         """获取设备分页列表"""
-        all_devices = DeviceRepository.find_all()
+        normalized_page = max(page, 1)
+        normalized_size = max(size, 1)
+        all_devices = DeviceRepository.find_filtered(
+            device_id=device_id,
+            car_no=car_no,
+            device_status=device_status
+        )
         total = len(all_devices)
-        
+
         # 内存级模拟分页
-        start_idx = (page - 1) * size
-        end_idx = start_idx + size
+        start_idx = (normalized_page - 1) * normalized_size
+        end_idx = start_idx + normalized_size
         paged_devices = all_devices[start_idx:end_idx]
         
         # 经 Schema 序列化处理
@@ -27,8 +39,8 @@ class DeviceService:
         return {
             "items": items,
             "total": total,
-            "page": page,
-            "size": size
+            "page": normalized_page,
+            "size": normalized_size
         }
 
     @staticmethod

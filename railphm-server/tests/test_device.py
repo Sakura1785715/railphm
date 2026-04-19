@@ -33,6 +33,33 @@ def test_get_device_detail_success(client):
     assert data["device_id"] == 1
     assert data["car_no"] == "CR400AF-0201" # Mock的第一条数据
 
+def test_get_devices_with_filters_success(client):
+    """测试设备列表最小筛选能力"""
+    response = client.get('/api/v1/devices?device_id=1&car_no=0201&device_status=1')
+    assert response.status_code == 200
+
+    json_data = response.get_json()
+    assert json_data["code"] == 200
+
+    data = json_data.get("data", {})
+    items = data["items"]
+    assert data["total"] == 1
+    assert len(items) == 1
+    assert items[0]["device_id"] == 1
+    assert items[0]["car_no"] == "CR400AF-0201"
+
+def test_get_devices_with_filters_empty_result(client):
+    """测试设备筛选无结果时仍返回统一结构"""
+    response = client.get('/api/v1/devices?car_no=NOT-EXISTS')
+    assert response.status_code == 200
+
+    json_data = response.get_json()
+    assert json_data["code"] == 200
+
+    data = json_data.get("data", {})
+    assert data["total"] == 0
+    assert data["items"] == []
+
 def test_get_device_detail_not_found(client):
     """测试获取不存在的设备，验证全局异常链路和统一 JSON 返回"""
     response = client.get('/api/v1/devices/999999')

@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
+import DeviceDetailView from '../views/DeviceDetailView.vue'
+import DeviceLedgerView from '../views/DeviceLedgerView.vue'
 import HealthCheckView from '../views/HealthCheckView.vue'
 import ModulePlaceholderView from '../views/ModulePlaceholderView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
@@ -24,10 +26,18 @@ const routes = [
   {
     path: '/devices',
     name: 'devices',
-    component: ModulePlaceholderView,
+    component: DeviceLedgerView,
     meta: {
-      title: '设备管理',
-      description: '后续将在这里接入设备台账列表、设备详情和设备健康信息展示能力。'
+      title: '设备台账',
+      description: '查看设备基础档案信息，并支持最小范围筛选与详情跳转。'
+    }
+  },
+  {
+    path: '/devices/:id',
+    name: 'device-detail',
+    component: DeviceDetailView,
+    meta: {
+      title: '设备详情'
     }
   },
   {

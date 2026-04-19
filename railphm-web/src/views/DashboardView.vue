@@ -1,140 +1,106 @@
 <template>
   <section class="dashboard-page">
-    <div class="page-card dashboard-hero">
-      <div class="page-heading">
+    <div class="dashboard-topbar">
+      <div class="dashboard-topbar__content">
         <p class="page-tag">系统首页</p>
-        <h2>RailPHM 运行总览</h2>
+        <h2>运行总览</h2>
         <p class="page-description">
-          展示系统当前服务状态、设备与告警概况，以及默认设备的最新风险结果，
-          作为后续设备管理、运行监测、风险预测和告警中心模块的统一入口。
+          展示系统服务状态、设备概况、默认设备风险结果与业务入口，首页核心聚焦默认设备的最新健康评估。
         </p>
       </div>
 
-      <div class="action-bar">
-        <button class="primary-button" type="button" @click="loadDashboard" :disabled="isRefreshing">
-          {{ isRefreshing ? '刷新中...' : '刷新首页数据' }}
+      <div class="dashboard-topbar__meta">
+        <span :class="['status-pill', `status-pill--${systemStatus.tone}`]">{{ systemStatus.label }}</span>
+        <span class="dashboard-topbar__timestamp">最近更新 {{ lastUpdatedText }}</span>
+        <button class="secondary-button" type="button" @click="loadDashboard" :disabled="isRefreshing">
+          {{ isRefreshing ? '更新中...' : '刷新数据' }}
         </button>
-        <RouterLink to="/health" class="secondary-link">查看系统联通测试</RouterLink>
       </div>
     </div>
 
     <section class="metric-grid">
       <MetricCard
-        title="服务状态"
+        eyebrow="服务健康"
+        title="系统服务状态"
         :value="serviceMetric.value"
         :description="serviceMetric.description"
+        :helper="serviceMetric.helper"
         :badge="serviceMetric.badge"
         :badge-tone="serviceMetric.badgeTone"
         :loading="serviceMetric.loading"
         :error="serviceMetric.error"
+        :tone="serviceMetric.tone"
+        icon="service"
+        :icon-tone="serviceMetric.iconTone"
       />
       <MetricCard
+        eyebrow="设备概况"
         title="设备总数"
         :value="deviceMetric.value"
         :description="deviceMetric.description"
+        :helper="deviceMetric.helper"
         :badge="deviceMetric.badge"
         :badge-tone="deviceMetric.badgeTone"
         :loading="deviceMetric.loading"
         :error="deviceMetric.error"
+        :tone="deviceMetric.tone"
+        icon="device"
+        :icon-tone="deviceMetric.iconTone"
       />
       <MetricCard
+        eyebrow="告警态势"
         title="告警数量"
         :value="alertMetric.value"
         :description="alertMetric.description"
+        :helper="alertMetric.helper"
         :badge="alertMetric.badge"
         :badge-tone="alertMetric.badgeTone"
         :loading="alertMetric.loading"
         :error="alertMetric.error"
+        :tone="alertMetric.tone"
+        icon="alert"
+        :icon-tone="alertMetric.iconTone"
+      />
+      <MetricCard
+        eyebrow="默认设备"
+        title="默认设备健康概况"
+        :value="predictionMetric.value"
+        value-suffix="/ 100"
+        :description="predictionMetric.description"
+        :helper="predictionMetric.helper"
+        :badge="predictionMetric.badge"
+        :badge-tone="predictionMetric.badgeTone"
+        :loading="predictionMetric.loading"
+        :error="predictionMetric.error"
+        :tone="predictionMetric.tone"
+        icon="risk"
+        :icon-tone="predictionMetric.iconTone"
+        emphasis
       />
     </section>
 
     <section class="dashboard-content-grid">
-      <article class="page-card dashboard-section">
-        <div class="dashboard-section__header">
+      <RiskSummaryCard
+        :loading="predictionState.loading"
+        :error="predictionState.error"
+        :prediction="predictionState.data"
+        :device="defaultDevice"
+        :device-error="defaultDeviceError"
+        :default-device-id="DEFAULT_DASHBOARD_DEVICE_ID"
+        @retry="loadDashboard"
+      />
+
+      <article class="quick-entry-panel">
+        <div class="quick-entry-panel__header">
           <div>
-            <p class="page-tag">默认观测对象</p>
-            <h3>最新风险结果</h3>
-          </div>
-          <span class="status-pill status-pill--muted">
-            设备 ID {{ DEFAULT_DASHBOARD_DEVICE_ID }}
-          </span>
-        </div>
-
-        <p class="section-description">
-          当前阶段首页默认展示设备 {{ DEFAULT_DASHBOARD_DEVICE_ID }} 的最新一次风险分析结果，接口来自
-          <code>/api/v1/predictions/latest</code>。
-        </p>
-
-        <div v-if="predictionState.loading" class="state-panel loading-state">
-          正在获取默认设备的最新风险结果...
-        </div>
-
-        <div v-else-if="predictionState.error" class="state-panel error-state">
-          <h3>风险结果加载失败</h3>
-          <p>{{ predictionState.error }}</p>
-          <p class="subtle-text">首页其他区域仍可继续使用，你可以稍后重新刷新数据。</p>
-        </div>
-
-        <div v-else-if="!predictionState.data" class="state-panel empty-state">
-          当前默认设备暂无最新风险结果，请在后端补充 mock 数据或后续接入真实结果后再查看。
-        </div>
-
-        <div v-else class="result-panel result-panel--compact">
-          <div class="result-panel__headline">
-            <div>
-              <p class="result-panel__eyebrow">观测设备</p>
-              <h4>{{ defaultDeviceTitle }}</h4>
-            </div>
-            <span :class="['status-pill', riskStatusClass]">{{ riskStatusText }}</span>
-          </div>
-
-          <dl class="dashboard-data-list">
-            <div>
-              <dt>设备编号</dt>
-              <dd>{{ predictionState.data.device_id }}</dd>
-            </div>
-            <div>
-              <dt>车号</dt>
-              <dd>{{ defaultDeviceCarNo }}</dd>
-            </div>
-            <div>
-              <dt>风险分数</dt>
-              <dd>{{ formatDecimal(predictionState.data.risk_score) }}</dd>
-            </div>
-            <div>
-              <dt>风险波动</dt>
-              <dd>{{ formatDecimal(predictionState.data.risk_std) }}</dd>
-            </div>
-            <div>
-              <dt>健康度</dt>
-              <dd>{{ formatDecimal(predictionState.data.health_score) }}</dd>
-            </div>
-            <div>
-              <dt>模型版本</dt>
-              <dd>{{ predictionState.data.model_version || '未返回' }}</dd>
-            </div>
-            <div>
-              <dt>时间窗口</dt>
-              <dd>{{ predictionState.data.window_start_time }} ~ {{ predictionState.data.window_end_time }}</dd>
-            </div>
-          </dl>
-
-          <p v-if="defaultDeviceError" class="subtle-text">
-            设备详情补充信息加载失败：{{ defaultDeviceError }}
-          </p>
-        </div>
-      </article>
-
-      <article class="page-card dashboard-section">
-        <div class="dashboard-section__header">
-          <div>
-            <p class="page-tag">模块导航</p>
+            <p class="page-tag">业务入口</p>
             <h3>快速跳转入口</h3>
           </div>
+          <span class="status-pill status-pill--muted">统一入口</span>
         </div>
 
         <p class="section-description">
-          以下入口用于后续模块扩展。当前未完成的页面会进入明确的占位页，不会出现空白或死链接。
+          保留当前系统已存在的业务入口，未完成模块继续进入占位页，避免出现空白页或死链。
         </p>
 
         <div class="quick-link-grid">
@@ -146,14 +112,25 @@
         </div>
       </article>
     </section>
+
+    <RiskDetailTable
+      title="风险结果明细"
+      description="展示当前默认设备最新风险结果的结构化字段信息，用于辅助查看模型输出与评估摘要。"
+      :columns="detailColumns"
+      :rows="detailRows"
+      :loading="predictionState.loading"
+      :error="predictionState.error"
+      empty-text="当前默认设备暂无最新风险结果，待接口返回后将在此处自动补齐结构化明细。"
+    />
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
 import MetricCard from '../components/dashboard/MetricCard.vue'
 import QuickLinkCard from '../components/dashboard/QuickLinkCard.vue'
+import RiskDetailTable from '../components/dashboard/RiskDetailTable.vue'
+import RiskSummaryCard from '../components/dashboard/RiskSummaryCard.vue'
 import { getAlertList } from '../api/alert'
 import { getDeviceDetail, getDeviceList } from '../api/device'
 import { getHealthStatus } from '../api/health'
@@ -164,10 +141,19 @@ import {
   DASHBOARD_QUICK_LINKS,
   DEFAULT_DASHBOARD_DEVICE_ID
 } from '../constants/dashboard'
+import {
+  formatCount,
+  formatDateTime,
+  formatDecimal,
+  formatModelVersion,
+  getRiskLevelMeta,
+  getServiceStatusMeta
+} from '../utils/dashboard'
 
 const serviceMetric = ref(createMetricState())
 const deviceMetric = ref(createMetricState())
 const alertMetric = ref(createMetricState())
+const predictionMetric = ref(createMetricState())
 const predictionState = ref({
   loading: true,
   error: '',
@@ -175,6 +161,7 @@ const predictionState = ref({
 })
 const defaultDevice = ref(null)
 const defaultDeviceError = ref('')
+const lastLoadedAt = ref(null)
 
 function createMetricState() {
   return {
@@ -182,69 +169,96 @@ function createMetricState() {
     error: '',
     value: '--',
     description: '',
+    helper: '',
     badge: '',
-    badgeTone: 'default'
+    badgeTone: 'default',
+    tone: 'default',
+    iconTone: 'accent'
   }
 }
 
 const isRefreshing = computed(
-  () => serviceMetric.value.loading || deviceMetric.value.loading || alertMetric.value.loading || predictionState.value.loading
+  () =>
+    serviceMetric.value.loading ||
+    deviceMetric.value.loading ||
+    alertMetric.value.loading ||
+    predictionMetric.value.loading ||
+    predictionState.value.loading
 )
 
-const defaultDeviceTitle = computed(() => {
-  if (!defaultDevice.value) {
-    return `默认设备 ${DEFAULT_DASHBOARD_DEVICE_ID}`
+const systemStatus = computed(() => {
+  if (serviceMetric.value.loading) {
+    return {
+      label: '系统状态获取中',
+      tone: 'muted'
+    }
   }
 
-  return `${defaultDevice.value.car_no} / 设备 ${defaultDevice.value.device_id}`
+  if (serviceMetric.value.error) {
+    return {
+      label: '系统状态待确认',
+      tone: 'warning'
+    }
+  }
+
+  return {
+    label: serviceMetric.value.value === '系统在线' ? '系统在线' : '状态待确认',
+    tone: serviceMetric.value.value === '系统在线' ? 'success' : 'warning'
+  }
 })
 
-const defaultDeviceCarNo = computed(() => defaultDevice.value?.car_no || '暂无设备详情')
-
-const riskStatusText = computed(() => {
-  const score = predictionState.value.data?.health_score
-
-  if (typeof score !== 'number') {
-    return '结果已更新'
+const lastUpdatedText = computed(() => {
+  if (!lastLoadedAt.value) {
+    return '尚未更新'
   }
 
-  if (score <= 30) {
-    return '高风险'
-  }
-
-  if (score <= 70) {
-    return '需关注'
-  }
-
-  return '状态良好'
+  return formatDateTime(lastLoadedAt.value)
 })
 
-const riskStatusClass = computed(() => {
-  const score = predictionState.value.data?.health_score
+// 首页底部明细表仅展示默认设备最新风险结果及其必要补充字段。
+// 保持“结构化结果展示”语义，不引入筛选、操作列等新业务能力。
+const detailColumns = [
+  { key: 'device_id', title: '设备编号' },
+  { key: 'car_no', title: '车组编号' },
+  { key: 'risk_score', title: '风险分数' },
+  { key: 'health_score', title: '健康度' },
+  { key: 'risk_std', title: '风险波动' },
+  { key: 'risk_level', title: '风险等级' },
+  { key: 'model_version', title: '模型版本' },
+  { key: 'window_start_time', title: '窗口开始时间' },
+  { key: 'window_end_time', title: '窗口结束时间' },
+  { key: 'updated_at', title: '最近更新时间' }
+]
 
-  if (typeof score !== 'number') {
-    return 'status-pill--muted'
+const detailRows = computed(() => {
+  if (!predictionState.value.data) {
+    return []
   }
 
-  if (score <= 30) {
-    return 'status-pill--danger'
-  }
+  const riskLevelMeta = getRiskLevelMeta(predictionState.value.data.health_score)
 
-  if (score <= 70) {
-    return 'status-pill--warning'
-  }
-
-  return 'status-pill--success'
+  return [
+    {
+      device_id: String(predictionState.value.data.device_id ?? DEFAULT_DASHBOARD_DEVICE_ID),
+      car_no: defaultDevice.value?.car_no || '未返回',
+      risk_score: formatDecimal(predictionState.value.data.risk_score),
+      health_score: formatDecimal(predictionState.value.data.health_score, 1),
+      risk_std: formatDecimal(predictionState.value.data.risk_std),
+      risk_level: riskLevelMeta.label,
+      risk_levelTone: riskLevelMeta.tone,
+      model_version: predictionState.value.data.model_version || '未返回',
+      window_start_time: formatDateTime(predictionState.value.data.window_start_time),
+      window_end_time: formatDateTime(predictionState.value.data.window_end_time),
+      updated_at: formatDateTime(predictionState.value.data.window_end_time)
+    }
+  ]
 })
-
-function formatDecimal(value) {
-  return typeof value === 'number' ? value.toFixed(2) : '未返回'
-}
 
 async function loadDashboard() {
   serviceMetric.value = createMetricState()
   deviceMetric.value = createMetricState()
   alertMetric.value = createMetricState()
+  predictionMetric.value = createMetricState()
   predictionState.value = {
     loading: true,
     error: '',
@@ -252,6 +266,7 @@ async function loadDashboard() {
   }
   defaultDeviceError.value = ''
 
+  // 首页数据全部来自现有后端接口，不新增任何接口语义。
   const [healthResult, deviceListResult, alertListResult, latestPredictionResult, deviceDetailResult] =
     await Promise.allSettled([
       getHealthStatus(),
@@ -263,22 +278,30 @@ async function loadDashboard() {
 
   if (healthResult.status === 'fulfilled') {
     const payload = healthResult.value.data || {}
+    const serviceMeta = getServiceStatusMeta(payload.status)
+
     serviceMetric.value = {
       loading: false,
       error: '',
-      value: payload.status === 'running' ? '正常' : payload.status || '未知',
+      value: serviceMeta.label,
       description: `${payload.service || '未知服务'} · 版本 ${payload.version || '未返回'}`,
-      badge: payload.status === 'running' ? '已联通' : '待确认',
-      badgeTone: payload.status === 'running' ? 'success' : 'warning'
+      helper: serviceMeta.description,
+      badge: serviceMeta.badge,
+      badgeTone: serviceMeta.tone,
+      tone: serviceMeta.tone === 'warning' ? 'warning' : 'success',
+      iconTone: serviceMeta.tone === 'warning' ? 'warning' : 'success'
     }
   } else {
     serviceMetric.value = {
       loading: false,
-      error: healthResult.reason?.message || '服务状态获取失败',
+      error: healthResult.reason?.message || '服务状态加载失败',
       value: '--',
       description: '',
+      helper: '',
       badge: '',
-      badgeTone: 'default'
+      badgeTone: 'default',
+      tone: 'warning',
+      iconTone: 'warning'
     }
   }
 
@@ -289,10 +312,13 @@ async function loadDashboard() {
     deviceMetric.value = {
       loading: false,
       error: '',
-      value: payload.total ?? items.length,
-      description: '来自设备列表接口的当前台账总量',
-      badge: '台账',
-      badgeTone: 'default'
+      value: formatCount(payload.total ?? items.length),
+      description: '来自设备台账的当前设备总量',
+      helper: '数据来源：/api/v1/devices',
+      badge: '设备台账',
+      badgeTone: 'default',
+      tone: 'default',
+      iconTone: 'accent'
     }
 
     if (!defaultDevice.value) {
@@ -301,60 +327,246 @@ async function loadDashboard() {
   } else {
     deviceMetric.value = {
       loading: false,
-      error: deviceListResult.reason?.message || '设备总数获取失败',
+      error: deviceListResult.reason?.message || '设备总数加载失败',
       value: '--',
       description: '',
+      helper: '',
       badge: '',
-      badgeTone: 'default'
+      badgeTone: 'default',
+      tone: 'warning',
+      iconTone: 'warning'
     }
   }
 
   if (alertListResult.status === 'fulfilled') {
     const payload = alertListResult.value.data || {}
+    const total = payload.total ?? 0
 
     alertMetric.value = {
       loading: false,
       error: '',
-      value: payload.total ?? 0,
-      description: '来自告警列表接口的当前总量',
-      badge: '总量',
-      badgeTone: (payload.total ?? 0) > 0 ? 'warning' : 'success'
+      value: formatCount(total),
+      description: '当前系统告警记录总数',
+      helper: '数据来源：/api/v1/alerts',
+      badge: '告警记录',
+      badgeTone: total > 0 ? 'warning' : 'success',
+      tone: total > 0 ? 'warning' : 'default',
+      iconTone: total > 0 ? 'warning' : 'accent'
     }
   } else {
     alertMetric.value = {
       loading: false,
-      error: alertListResult.reason?.message || '告警数量获取失败',
+      error: alertListResult.reason?.message || '告警数量加载失败',
       value: '--',
       description: '',
+      helper: '',
       badge: '',
-      badgeTone: 'default'
+      badgeTone: 'default',
+      tone: 'warning',
+      iconTone: 'warning'
     }
   }
 
   if (latestPredictionResult.status === 'fulfilled') {
+    const payload = latestPredictionResult.value.data || null
+    const riskLevelMeta = getRiskLevelMeta(payload?.health_score)
+
     predictionState.value = {
       loading: false,
       error: '',
-      data: latestPredictionResult.value.data || null
+      data: payload
+    }
+
+    predictionMetric.value = {
+      loading: false,
+      error: '',
+      value: payload ? formatDecimal(payload.health_score, 1) : '--',
+      description: payload
+        ? `设备 ${payload.device_id} · ${riskLevelMeta.label}`
+        : '当前暂无默认设备风险结果',
+      helper: payload
+        ? `风险分数 ${formatDecimal(payload.risk_score)} · ${formatModelVersion(payload.model_version)}`
+        : '数据来源：/api/v1/predictions/latest',
+      badge: payload ? riskLevelMeta.label : '暂无结果',
+      badgeTone: payload ? riskLevelMeta.tone : 'muted',
+      tone: payload ? (riskLevelMeta.tone === 'muted' ? 'focus' : riskLevelMeta.tone) : 'default',
+      iconTone: payload ? (riskLevelMeta.tone === 'muted' ? 'accent' : riskLevelMeta.tone) : 'accent'
     }
   } else {
     predictionState.value = {
       loading: false,
-      error: latestPredictionResult.reason?.message || '最新风险结果获取失败',
+      error: latestPredictionResult.reason?.message || '风险结果加载失败',
       data: null
+    }
+
+    predictionMetric.value = {
+      loading: false,
+      error: latestPredictionResult.reason?.message || '风险结果加载失败',
+      value: '--',
+      description: '',
+      helper: '',
+      badge: '',
+      badgeTone: 'default',
+      tone: 'warning',
+      iconTone: 'warning'
     }
   }
 
   if (deviceDetailResult.status === 'fulfilled') {
     defaultDevice.value = deviceDetailResult.value.data || defaultDevice.value
-  } else if (!defaultDevice.value) {
-    defaultDeviceError.value = deviceDetailResult.reason?.message || '默认设备详情获取失败'
   } else {
-    defaultDeviceError.value = deviceDetailResult.reason?.message || '默认设备详情获取失败'
+    defaultDeviceError.value = deviceDetailResult.reason?.message || '默认设备详情加载失败'
   }
+
+  lastLoadedAt.value = new Date()
 }
 
 onMounted(() => {
   loadDashboard()
 })
 </script>
+
+<style scoped>
+.dashboard-page {
+  display: grid;
+  gap: 22px;
+}
+
+.dashboard-topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 30px;
+  background: #ffffff;
+  border: 1px solid #d7e1ee;
+  border-radius: 22px;
+  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.05);
+}
+
+.dashboard-topbar__content {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-topbar__meta {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 12px;
+}
+
+.dashboard-topbar__timestamp {
+  color: #607189;
+  font-size: 0.95rem;
+}
+
+.page-tag,
+.page-description,
+.section-description {
+  margin: 0;
+}
+
+.page-tag {
+  color: #0f6c85;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-topbar h2,
+.quick-entry-panel h3 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.page-description,
+.section-description {
+  max-width: 760px;
+  color: #5b6d86;
+  line-height: 1.7;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-content-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.95fr);
+  align-items: start;
+}
+
+.quick-entry-panel {
+  display: grid;
+  gap: 18px;
+  padding: 26px;
+  background: #ffffff;
+  border: 1px solid #d7e1ee;
+  border-radius: 22px;
+  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.05);
+}
+
+.quick-entry-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.quick-link-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.secondary-button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #cfe0eb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f6c85;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+@media (max-width: 1200px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-topbar,
+  .dashboard-topbar__meta,
+  .quick-entry-panel__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-topbar__meta {
+    justify-items: start;
+  }
+
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-topbar,
+  .quick-entry-panel {
+    padding: 22px;
+  }
+}
+</style>
