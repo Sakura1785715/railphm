@@ -2,11 +2,11 @@
   <div class="basic-layout">
     <header class="layout-header">
       <div class="title-group">
-        <p class="eyebrow">RailPHM 前端基础框架</p>
+        <p class="eyebrow">RailPHM 最小仪表盘</p>
         <h1>高铁列控设备故障预测与健康管理系统</h1>
       </div>
       <nav class="main-nav" aria-label="主导航">
-        <RouterLink to="/" class="nav-link">首页</RouterLink>
+        <RouterLink to="/" class="nav-link">系统首页</RouterLink>
         <RouterLink to="/health" class="nav-link">系统联通测试</RouterLink>
       </nav>
     </header>

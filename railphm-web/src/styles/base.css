@@ -170,6 +170,18 @@ pre {
   cursor: pointer;
 }
 
+.secondary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  background: rgba(255, 255, 255, 0.8);
+  color: #0f766e;
+}
+
 .primary-button:disabled {
   opacity: 0.72;
   cursor: wait;
@@ -192,6 +204,10 @@ pre {
 .error-state {
   border-color: rgba(220, 38, 38, 0.24);
   color: #991b1b;
+}
+
+.empty-state {
+  color: #475569;
 }
 
 .data-list {
@@ -228,6 +244,184 @@ pre {
   text-align: center;
 }
 
+.dashboard-page {
+  display: grid;
+  gap: 18px;
+}
+
+.dashboard-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.dashboard-hero .page-heading {
+  flex: 1;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metric-card,
+.quick-link-card {
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(10px);
+}
+
+.metric-card {
+  padding: 20px 22px;
+}
+
+.metric-card__header,
+.quick-link-card__header,
+.dashboard-section__header,
+.result-panel__headline {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.metric-card__title,
+.result-panel__eyebrow {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.metric-card__body {
+  margin-top: 18px;
+}
+
+.metric-card__value {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.metric-card__value--error {
+  font-size: 1.25rem;
+  color: #991b1b;
+}
+
+.metric-card__meta,
+.section-description,
+.quick-link-card__header p {
+  margin: 8px 0 0;
+  color: #64748b;
+}
+
+.dashboard-content-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+}
+
+.dashboard-section {
+  display: grid;
+  gap: 18px;
+}
+
+.dashboard-section h3,
+.result-panel__headline h4,
+.quick-link-card__header h3 {
+  margin: 6px 0 0;
+}
+
+.result-panel--compact {
+  padding: 22px;
+}
+
+.dashboard-data-list {
+  display: grid;
+  gap: 14px;
+  margin: 20px 0 0;
+}
+
+.dashboard-data-list div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dashboard-data-list div:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.dashboard-data-list dt {
+  color: #64748b;
+}
+
+.dashboard-data-list dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-pill--default,
+.status-pill--muted {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+}
+
+.status-pill--success {
+  background: rgba(15, 118, 110, 0.14);
+  color: #0f766e;
+}
+
+.status-pill--warning {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+
+.status-pill--danger {
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+}
+
+.quick-link-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.quick-link-card {
+  padding: 18px 20px;
+}
+
+.text-link {
+  display: inline-flex;
+  margin-top: 18px;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.module-placeholder {
+  display: grid;
+  gap: 18px;
+}
+
 @media (max-width: 768px) {
   .basic-layout {
     padding: 16px;
@@ -239,7 +433,9 @@ pre {
   }
 
   .info-grid,
-  .result-grid {
+  .result-grid,
+  .metric-grid,
+  .dashboard-content-grid {
     grid-template-columns: 1fr;
   }
 
@@ -247,8 +443,17 @@ pre {
     padding: 20px;
   }
 
-  .data-list div {
+  .data-list div,
+  .dashboard-data-list div {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .dashboard-hero,
+  .metric-card__header,
+  .quick-link-card__header,
+  .dashboard-section__header,
+  .result-panel__headline {
+    flex-direction: column;
   }
 }
