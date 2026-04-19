@@ -2,6 +2,7 @@
 import os
 from typing import Any
 
+
 class BaseConfig:
     """
     基础配置类
@@ -17,10 +18,16 @@ class BaseConfig:
     
     # 日志配置 (预留项，供后续任务使用)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    
+
     # 数据库配置 (预留项，供后续任务使用)
     MYSQL_URL: str = os.getenv("MYSQL_URL", "")
     INFLUXDB_URL: str = os.getenv("INFLUXDB_URL", "")
+
+    # 独立 AI mock 服务配置。
+    # 默认端口 5001 需与 railphm-ai 的启动端口保持一致。
+    AI_SERVICE_BASE_URL: str = os.getenv("AI_SERVICE_BASE_URL", "http://127.0.0.1:5001")
+    AI_SERVICE_TIMEOUT: int = int(os.getenv("AI_SERVICE_TIMEOUT", 3))
+
 
 def get_config() -> Any:
     """
