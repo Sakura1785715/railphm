@@ -1,0 +1,63 @@
+:root {
+  color-scheme: light;
+
+  --rail-bg: #f6f3ed;
+  --rail-bg-soft: #f8f6f1;
+  --rail-surface: #ffffff;
+  --rail-surface-soft: #fbfaf7;
+  --rail-surface-muted: #f1eee7;
+
+  --rail-text: #161a1d;
+  --rail-text-strong: #0f172a;
+  --rail-text-muted: #667085;
+  --rail-text-subtle: #8a93a3;
+
+  --rail-border: #e1ddd4;
+  --rail-border-strong: #d4cfc5;
+  --rail-border-soft: rgba(22, 26, 29, 0.08);
+
+  --rail-brand: #235f68;
+  --rail-brand-strong: #164e57;
+  --rail-brand-soft: rgba(35, 95, 104, 0.1);
+  --rail-brand-softer: rgba(35, 95, 104, 0.06);
+
+  --rail-blue: #2f5f8f;
+  --rail-blue-soft: rgba(47, 95, 143, 0.1);
+
+  --rail-green: #2f7d57;
+  --rail-green-soft: rgba(47, 125, 87, 0.12);
+
+  --rail-amber: #9a6a20;
+  --rail-amber-soft: rgba(154, 106, 32, 0.13);
+
+  --rail-red: #a24b3f;
+  --rail-red-soft: rgba(162, 75, 63, 0.13);
+
+  --rail-gray-soft: rgba(102, 112, 133, 0.12);
+
+  --rail-radius-xs: 10px;
+  --rail-radius-sm: 14px;
+  --rail-radius-md: 18px;
+  --rail-radius-lg: 22px;
+  --rail-radius-xl: 28px;
+  --rail-radius-pill: 999px;
+
+  --rail-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --rail-shadow-md: 0 16px 34px rgba(23, 27, 31, 0.06);
+  --rail-shadow-lg: 0 24px 60px rgba(23, 27, 31, 0.08);
+
+  --rail-page-max: 1480px;
+  --rail-sidebar-width: 304px;
+
+  --rail-gap-xs: 8px;
+  --rail-gap-sm: 12px;
+  --rail-gap-md: 18px;
+  --rail-gap-lg: 24px;
+  --rail-gap-xl: 32px;
+
+
+  --rail-font-sans: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --rail-font-ui: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --rail-font-mono: "SFMono-Regular", Menlo, Consolas, monospace;
+
+}

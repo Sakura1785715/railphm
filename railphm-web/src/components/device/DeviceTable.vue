@@ -300,3 +300,4 @@ function buildDetailRoute(deviceId) {
   }
 }
 </style>
+

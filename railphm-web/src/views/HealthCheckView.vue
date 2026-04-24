@@ -9,6 +9,33 @@
       </p>
     </div>
 
+    <div class="system-state-grid">
+      <article class="placeholder-card">
+        <span
+          :class="[
+            'status-pill',
+            loading ? 'status-pill--muted' : errorMessage ? 'status-pill--danger' : healthResult ? 'status-pill--success' : 'status-pill--default'
+          ]"
+        >
+          {{ loading ? '检测中' : errorMessage ? '联通失败' : healthResult ? '联通正常' : '待检测' }}
+        </span>
+        <h3>服务健康状态</h3>
+        <p>{{ loading ? '正在请求后端健康接口。' : errorMessage || '健康检查接口已返回稳定响应。' }}</p>
+      </article>
+
+      <article class="placeholder-card">
+        <span class="status-pill status-pill--default">接口地址</span>
+        <h3>/api/v1/health</h3>
+        <p>保持当前 Axios 请求封装与 Vite 代理配置不变，仅对页面视觉进行统一包装。</p>
+      </article>
+
+      <article class="placeholder-card">
+        <span class="status-pill status-pill--muted">运维辅助</span>
+        <h3>联调入口</h3>
+        <p>用于快速判断前端、代理和后端服务是否处于可联通状态。</p>
+      </article>
+    </div>
+
     <div class="action-bar">
       <button class="primary-button" type="button" @click="loadHealthStatus" :disabled="loading">
         {{ loading ? '检测中...' : '重新检测' }}

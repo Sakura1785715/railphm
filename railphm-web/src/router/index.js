@@ -3,6 +3,7 @@ import DashboardView from '../views/DashboardView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
 import DeviceLedgerView from '../views/DeviceLedgerView.vue'
 import HealthCheckView from '../views/HealthCheckView.vue'
+import MonitorView from '../views/MonitorView.vue'
 import ModulePlaceholderView from '../views/ModulePlaceholderView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 
@@ -43,10 +44,10 @@ const routes = [
   {
     path: '/monitor',
     name: 'monitor',
-    component: ModulePlaceholderView,
+    component: MonitorView,
     meta: {
       title: '运行监测',
-      description: '后续将在这里接入历史监测曲线、关键指标查询与运行状态监测能力。'
+      description: '查询并展示 ATP 车载监测数据的时序变化。'
     }
   },
   {
