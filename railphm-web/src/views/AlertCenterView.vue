@@ -67,7 +67,7 @@
       </div>
     </form>
 
-    <section class="alert-layout">
+    <section class="alert-main-grid">
       <article class="device-table-card alert-list-card">
         <div class="device-table-card__header">
           <div>
@@ -90,7 +90,7 @@
           <button class="secondary-button" type="button" @click="fetchAlerts">重新加载</button>
         </div>
 
-        <div v-else class="alert-table-shell">
+        <div v-else class="alert-table-wrapper">
           <table class="alert-table">
             <thead>
               <tr>
@@ -98,17 +98,16 @@
                 <th>设备编号</th>
                 <th>告警等级</th>
                 <th>告警状态</th>
-                <th>告警时间</th>
+                <th class="alert-table__time-col">告警时间</th>
                 <th>告警位置</th>
-                <th>告警来源</th>
                 <th>告警信息</th>
-                <th>操作</th>
+                <th class="alert-table__action-col">操作</th>
               </tr>
             </thead>
 
             <tbody v-if="listLoading">
               <tr>
-                <td colspan="9" class="alert-table__placeholder">正在加载告警列表...</td>
+                <td colspan="8" class="alert-table__placeholder">正在加载告警列表...</td>
               </tr>
             </tbody>
 
@@ -125,7 +124,7 @@
                 <td class="alert-table__mono">{{ displayValue(item.alert_id) }}</td>
                 <td>{{ displayValue(item.device_id) }}</td>
                 <td>
-                  <span :class="['alert-badge', getLevelClass(item.alert_level)]">
+                  <span :class="['alert-badge', getRiskLevelClass(item.alert_level)]">
                     {{ getLevelLabel(item.alert_level) }}
                   </span>
                 </td>
@@ -134,13 +133,12 @@
                     {{ getStatusLabel(item.alert_status) }}
                   </span>
                 </td>
-                <td>{{ displayValue(item.alert_time) }}</td>
-                <td>{{ displayValue(item.alert_position) }}</td>
-                <td>{{ displayValue(item.alert_source) }}</td>
+                <td class="alert-table__time">{{ formatDateTimeForList(item.alert_time) }}</td>
+                <td class="alert-table__position">{{ displayValue(item.alert_position) }}</td>
                 <td class="alert-table__message" :title="displayValue(item.message)">
                   {{ displayValue(item.message) }}
                 </td>
-                <td>
+                <td class="alert-table__action-cell">
                   <button
                     class="secondary-button alert-table__action"
                     type="button"
@@ -154,7 +152,7 @@
 
             <tbody v-else>
               <tr>
-                <td colspan="9" class="alert-table__placeholder">{{ emptyText }}</td>
+                <td colspan="8" class="alert-table__placeholder">{{ emptyText }}</td>
               </tr>
             </tbody>
           </table>
@@ -187,10 +185,7 @@
         <div class="device-table-card__header alert-detail-card__header">
           <div>
             <p class="section-tag">告警详情</p>
-            <h3>记录详情面板</h3>
-            <p class="device-table-card__description">
-              选中左侧记录后调用详情接口，展示告警对象、风险关联与处理信息等字段。
-            </p>
+            <h3>告警记录详情</h3>
           </div>
 
           <div class="device-table-card__meta">
@@ -200,7 +195,7 @@
         </div>
 
         <div v-if="!selectedAlertId" class="state-panel empty-state alert-detail-state">
-          请选择左侧告警记录查看详情。
+          请选择一条告警记录查看详情
         </div>
 
         <div v-else-if="detailLoading" class="state-panel loading-state alert-detail-state">
@@ -221,7 +216,7 @@
 
         <div v-else-if="alertDetail" class="alert-detail-content">
           <div class="alert-detail-summary">
-            <span :class="['alert-badge', getLevelClass(alertDetail.alert_level)]">
+            <span :class="['alert-badge', getRiskLevelClass(alertDetail.alert_level)]">
               {{ getLevelLabel(alertDetail.alert_level) }}
             </span>
             <span :class="['alert-badge', getStatusClass(alertDetail.alert_status)]">
@@ -229,10 +224,18 @@
             </span>
           </div>
 
-          <div class="alert-detail-grid">
-            <div v-for="field in detailFields" :key="field.key" class="alert-detail-item">
-              <span>{{ field.label }}</span>
-              <strong :title="field.value">{{ field.value }}</strong>
+          <div class="alert-detail-message">
+            <span>告警信息</span>
+            <strong>{{ displayValue(alertDetail.message) }}</strong>
+          </div>
+
+          <div v-for="group in detailGroups" :key="group.title" class="alert-detail-section">
+            <h4>{{ group.title }}</h4>
+            <div class="alert-detail-grid">
+              <div v-for="field in group.fields" :key="field.key" class="alert-detail-item">
+                <span>{{ field.label }}</span>
+                <strong :title="field.value">{{ field.value }}</strong>
+              </div>
             </div>
           </div>
         </div>
@@ -370,26 +373,40 @@ const rangeText = computed(() => {
   return `当前显示 ${start}-${end} 条，共 ${pagination.total} 条记录，每页 ${pagination.size} 条`
 })
 
-const detailFields = computed(() => {
+const detailGroups = computed(() => {
   if (!alertDetail.value) {
     return []
   }
 
   return [
-    { key: 'alert_id', label: '告警ID', value: displayValue(alertDetail.value.alert_id) },
-    { key: 'device_id', label: '设备编号', value: displayValue(alertDetail.value.device_id) },
-    { key: 'alert_level', label: '告警等级', value: displayValue(getLevelLabel(alertDetail.value.alert_level)) },
-    { key: 'alert_status', label: '告警状态', value: displayValue(getStatusLabel(alertDetail.value.alert_status)) },
-    { key: 'alert_time', label: '告警时间', value: displayValue(alertDetail.value.alert_time) },
-    { key: 'message', label: '告警信息', value: displayValue(alertDetail.value.message) },
-    { key: 'alert_source', label: '告警来源', value: displayValue(alertDetail.value.alert_source) },
-    { key: 'alert_position', label: '告警位置', value: displayValue(alertDetail.value.alert_position) },
-    { key: 'alert_object_type', label: '告警对象类型', value: displayValue(alertDetail.value.alert_object_type) },
-    { key: 'alert_object_code', label: '告警对象编号', value: displayValue(alertDetail.value.alert_object_code) },
-    { key: 'risk_result_id', label: '风险结果ID', value: displayValue(alertDetail.value.risk_result_id) },
-    { key: 'handler_id', label: '处理人ID', value: displayValue(alertDetail.value.handler_id) },
-    { key: 'handle_time', label: '处理时间', value: displayValue(alertDetail.value.handle_time) },
-    { key: 'handle_desc', label: '处理说明', value: displayValue(alertDetail.value.handle_desc) }
+    {
+      title: '基础信息',
+      fields: [
+        { key: 'alert_id', label: '告警ID', value: displayValue(alertDetail.value.alert_id) },
+        { key: 'device_id', label: '设备编号', value: displayValue(alertDetail.value.device_id) },
+        { key: 'alert_level', label: '告警等级', value: displayValue(getLevelLabel(alertDetail.value.alert_level)) },
+        { key: 'alert_status', label: '告警状态', value: displayValue(getStatusLabel(alertDetail.value.alert_status)) },
+        { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(alertDetail.value.alert_time) }
+      ]
+    },
+    {
+      title: '告警对象',
+      fields: [
+        { key: 'alert_position', label: '告警位置', value: displayValue(alertDetail.value.alert_position) },
+        { key: 'alert_source', label: '告警来源', value: displayValue(alertDetail.value.alert_source) },
+        { key: 'alert_object_type', label: '对象类型', value: displayValue(alertDetail.value.alert_object_type) },
+        { key: 'alert_object_code', label: '对象编号', value: displayValue(alertDetail.value.alert_object_code) }
+      ]
+    },
+    {
+      title: '关联与处理',
+      fields: [
+        { key: 'risk_result_id', label: '风险结果ID', value: displayValue(alertDetail.value.risk_result_id) },
+        { key: 'handler_id', label: '处理人ID', value: displayValue(alertDetail.value.handler_id) },
+        { key: 'handle_time', label: '处理时间', value: formatDateTimeForDetail(alertDetail.value.handle_time) },
+        { key: 'handle_desc', label: '处理说明', value: displayValue(alertDetail.value.handle_desc) }
+      ]
+    }
   ]
 })
 
@@ -411,8 +428,13 @@ async function fetchAlerts() {
     }
 
     const pageData = normalizeAlertPage(normalizePayload(result))
+    const items = await enrichAlertListItems(pageData.items, requestId)
 
-    alertItems.value = pageData.items
+    if (requestId !== listRequestId) {
+      return
+    }
+
+    alertItems.value = items
     pagination.total = pageData.total
     pagination.page = pageData.page
     pagination.size = pageData.size
@@ -581,25 +603,61 @@ function normalizeAlertRecord(record) {
   const source = record && typeof record === 'object' ? record : {}
 
   return {
-    alert_id: source.alert_id ?? source.id ?? source.alertId ?? '',
-    device_id: source.device_id ?? source.deviceId ?? '',
-    alert_level: source.alert_level ?? source.level ?? source.severity ?? '',
-    alert_status: source.alert_status ?? source.status ?? '',
-    alert_time: source.alert_time ?? source.created_at ?? source.updated_at ?? source.timestamp ?? '',
-    alert_position: source.alert_position ?? source.position ?? '',
-    alert_source: source.alert_source ?? source.source ?? '',
-    message: source.message ?? source.alert_message ?? source.content ?? '',
-    alert_object_type: source.alert_object_type ?? source.object_type ?? '',
-    alert_object_code: source.alert_object_code ?? source.object_code ?? '',
-    risk_result_id: source.risk_result_id ?? source.risk_id ?? '',
-    handler_id: source.handler_id ?? source.owner_id ?? '',
-    handle_time: source.handle_time ?? source.handled_at ?? '',
-    handle_desc: source.handle_desc ?? source.handle_description ?? ''
+    alert_id: source.alert_id ?? '',
+    device_id: source.device_id ?? '',
+    alert_level: source.alert_level ?? '',
+    alert_status: source.alert_status ?? '',
+    alert_time: source.alert_time ?? '',
+    alert_position: source.alert_position ?? '',
+    alert_source: source.alert_source ?? '',
+    message: source.message ?? '',
+    alert_object_type: source.alert_object_type ?? '',
+    alert_object_code: source.alert_object_code ?? '',
+    risk_result_id: source.risk_result_id ?? '',
+    handler_id: source.handler_id ?? '',
+    handle_time: source.handle_time ?? '',
+    handle_desc: source.handle_desc ?? ''
   }
 }
 
 function normalizeAlertDetail(result) {
   return normalizeAlertRecord(normalizePayload(result))
+}
+
+async function enrichAlertListItems(items, requestId) {
+  if (!items.length || items.every((item) => displayValue(item.alert_position) !== '-')) {
+    return items
+  }
+
+  const settledDetails = await Promise.allSettled(
+    items.map((item) => (item.alert_id ? getAlertDetail(item.alert_id) : Promise.resolve(null)))
+  )
+
+  if (requestId !== listRequestId) {
+    return items
+  }
+
+  return items.map((item, index) => {
+    const settledDetail = settledDetails[index]
+
+    if (settledDetail.status !== 'fulfilled' || !settledDetail.value) {
+      return item
+    }
+
+    const detail = normalizeAlertDetail(settledDetail.value)
+
+    return {
+      ...item,
+      alert_position: detail.alert_position || item.alert_position,
+      alert_source: detail.alert_source || item.alert_source,
+      alert_object_type: detail.alert_object_type || item.alert_object_type,
+      alert_object_code: detail.alert_object_code || item.alert_object_code,
+      risk_result_id: detail.risk_result_id || item.risk_result_id,
+      handler_id: detail.handler_id || item.handler_id,
+      handle_time: detail.handle_time || item.handle_time,
+      handle_desc: detail.handle_desc || item.handle_desc
+    }
+  })
 }
 
 function displayValue(value) {
@@ -614,6 +672,20 @@ function displayValue(value) {
   return String(value)
 }
 
+function formatDateTimeForList(value) {
+  const displayText = displayValue(value)
+
+  if (displayText === '-') {
+    return displayText
+  }
+
+  return displayText.replace('T', ' ').slice(0, 16)
+}
+
+function formatDateTimeForDetail(value) {
+  return displayValue(value).replace('T', ' ')
+}
+
 function getLevelLabel(level) {
   const normalizedLevel = String(level || '').toUpperCase()
   return normalizedLevel || '-'
@@ -624,7 +696,7 @@ function getStatusLabel(status) {
   return normalizedStatus || '-'
 }
 
-function getLevelClass(level) {
+function getRiskLevelClass(level) {
   const normalizedLevel = String(level || '').toUpperCase()
 
   if (normalizedLevel === 'HIGH') {
@@ -707,7 +779,7 @@ function toNonNegativeInteger(value, fallback) {
 
 .alert-filter-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) minmax(180px, auto);
   gap: 16px;
   align-items: end;
 }
@@ -754,11 +826,12 @@ function toNonNegativeInteger(value, fallback) {
 .filter-actions {
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.alert-layout {
+.alert-main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1.8fr) minmax(320px, 0.8fr);
   gap: 20px;
   align-items: start;
 }
@@ -773,24 +846,26 @@ function toNonNegativeInteger(value, fallback) {
   margin: 0;
 }
 
-.alert-table-shell {
+.alert-table-wrapper {
   overflow-x: auto;
   border: 1px solid #deebf3;
-  border-radius: 18px;
+  border-radius: 12px;
 }
 
 .alert-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 960px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .alert-table th,
 .alert-table td {
-  padding: 15px 16px;
+  padding: 13px 14px;
   border-bottom: 1px solid #e6eef5;
   text-align: left;
   vertical-align: middle;
+  line-height: 1.45;
 }
 
 .alert-table th {
@@ -816,7 +891,42 @@ function toNonNegativeInteger(value, fallback) {
 }
 
 .alert-table__row--active {
-  background: rgba(15, 108, 133, 0.08);
+  background: rgba(15, 108, 133, 0.09);
+  box-shadow: inset 3px 0 0 #0f6c85;
+}
+
+.alert-table th:nth-child(1),
+.alert-table td:nth-child(1) {
+  width: 86px;
+}
+
+.alert-table th:nth-child(2),
+.alert-table td:nth-child(2) {
+  width: 92px;
+}
+
+.alert-table th:nth-child(3),
+.alert-table td:nth-child(3),
+.alert-table th:nth-child(4),
+.alert-table td:nth-child(4) {
+  width: 110px;
+}
+
+.alert-table__time-col,
+.alert-table__time {
+  width: 150px;
+  white-space: nowrap;
+}
+
+.alert-table__position {
+  width: 150px;
+  min-width: 150px;
+}
+
+.alert-table__action-col,
+.alert-table__action-cell {
+  width: 108px;
+  white-space: nowrap;
 }
 
 .alert-table__mono {
@@ -825,7 +935,6 @@ function toNonNegativeInteger(value, fallback) {
 }
 
 .alert-table__message {
-  max-width: 320px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -892,36 +1001,67 @@ function toNonNegativeInteger(value, fallback) {
   flex-direction: column;
 }
 
-.alert-detail-grid {
+.alert-detail-message,
+.alert-detail-section {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
-.alert-detail-item {
-  display: grid;
-  gap: 8px;
-  min-height: 88px;
+.alert-detail-message {
   padding: 16px;
   background: #f8fbfd;
   border: 1px solid #deebf3;
-  border-radius: 16px;
+  border-radius: 12px;
+}
+
+.alert-detail-message span,
+.alert-detail-section h4 {
+  margin: 0;
+  color: #45617f;
+  font-size: 0.9rem;
+  font-weight: 760;
+}
+
+.alert-detail-message strong {
+  color: #17253a;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.alert-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.alert-detail-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 0;
+  padding: 12px 14px;
+  background: #f8fbfd;
+  border: 1px solid #deebf3;
+  border-radius: 10px;
 }
 
 .alert-detail-item span {
+  flex: 0 0 86px;
   color: #5b6d86;
   font-size: 0.88rem;
   font-weight: 600;
 }
 
 .alert-detail-item strong {
+  min-width: 0;
   color: #17253a;
-  line-height: 1.6;
+  text-align: right;
+  line-height: 1.5;
   word-break: break-word;
 }
 
 @media (max-width: 1200px) {
-  .alert-layout {
+  .alert-main-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -929,6 +1069,10 @@ function toNonNegativeInteger(value, fallback) {
 @media (max-width: 1080px) {
   .alert-filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-actions {
+    justify-content: flex-start;
   }
 }
 
@@ -954,6 +1098,18 @@ function toNonNegativeInteger(value, fallback) {
 
   .alert-table {
     min-width: 980px;
+  }
+
+  .alert-detail-item {
+    display: grid;
+  }
+
+  .alert-detail-item span {
+    flex-basis: auto;
+  }
+
+  .alert-detail-item strong {
+    text-align: left;
   }
 }
 </style>

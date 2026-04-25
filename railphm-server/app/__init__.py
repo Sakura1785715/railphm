@@ -18,7 +18,7 @@ def create_app(config_name="default") -> Flask:
     app.json.ensure_ascii = False
 
     # 加载配置
-    config_obj = get_config()
+    config_obj = get_config(config_name)
     app.config.from_object(config_obj)
 
     # 初始化日志，以便后续过程可以使用规范的 logger
