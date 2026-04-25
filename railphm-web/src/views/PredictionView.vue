@@ -272,6 +272,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { MetricTrendChart } from '../components/chart'
 import {
   getLatestPrediction,
@@ -279,6 +280,8 @@ import {
   inferPrediction
 } from '../api/prediction'
 import { getRiskLevelMeta } from '../utils/dashboard'
+
+const route = useRoute()
 
 const DEFAULT_FILTERS = {
   deviceId: '1',
@@ -292,8 +295,15 @@ const DEFAULT_INFER_FORM = {
   windowMinutes: '5'
 }
 
-const filters = reactive({ ...DEFAULT_FILTERS })
-const inferForm = reactive({ ...DEFAULT_INFER_FORM })
+const queryDeviceId = normalizeQueryDeviceId(route.query.device_id)
+const filters = reactive({
+  ...DEFAULT_FILTERS,
+  deviceId: queryDeviceId || DEFAULT_FILTERS.deviceId
+})
+const inferForm = reactive({
+  ...DEFAULT_INFER_FORM,
+  deviceId: filters.deviceId
+})
 
 const queryLoading = ref(false)
 const validationMessage = ref('')
@@ -674,6 +684,14 @@ function getRecordTime(record) {
 
 function displayText(value) {
   return value === null || value === undefined || value === '' ? '-' : String(value)
+}
+
+function normalizeQueryDeviceId(value) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0].trim() : ''
+  }
+
+  return typeof value === 'string' ? value.trim() : ''
 }
 </script>
 

@@ -5,7 +5,7 @@
         <p class="page-tag">告警中心</p>
         <h2>设备告警中心</h2>
         <p class="page-description">
-          集中展示系统生成的设备告警记录，支持按告警等级、告警状态和设备编号进行筛选，并查看告警详情。
+          集中展示系统生成的设备告警记录，支持按设备编号、告警等级和告警状态进行查询，并查看单条告警详情。
         </p>
       </div>
 
@@ -16,12 +16,11 @@
     </div>
 
     <form class="device-filter-card alert-filter-card" @submit.prevent="handleSearch">
-      <div class="device-filter-card__header">
+      <div class="device-filter-card__header alert-filter-card__header">
         <div>
           <p class="section-tag">条件筛选</p>
           <h3>告警查询条件</h3>
         </div>
-        <p class="device-filter-card__hint">当前直接使用后端告警接口进行分页与筛选，不扩展处理流转操作。</p>
       </div>
 
       <div class="alert-filter-grid">
@@ -67,14 +66,14 @@
       </div>
     </form>
 
-    <section class="alert-main-grid">
+    <section class="alert-content">
       <article class="device-table-card alert-list-card">
         <div class="device-table-card__header">
           <div>
             <p class="section-tag">告警列表</p>
             <h3>告警记录清单</h3>
             <p class="device-table-card__description">
-              当前展示告警摘要字段，支持按页查看并选中单条记录获取右侧详情。
+              当前展示告警摘要字段，点击“查看详情”后在下方展示完整告警信息。
             </p>
           </div>
 
@@ -100,14 +99,13 @@
                 <th>告警状态</th>
                 <th class="alert-table__time-col">告警时间</th>
                 <th>告警位置</th>
-                <th>告警信息</th>
                 <th class="alert-table__action-col">操作</th>
               </tr>
             </thead>
 
             <tbody v-if="listLoading">
               <tr>
-                <td colspan="8" class="alert-table__placeholder">正在加载告警列表...</td>
+                <td colspan="7" class="alert-table__placeholder">正在加载告警列表...</td>
               </tr>
             </tbody>
 
@@ -134,9 +132,8 @@
                   </span>
                 </td>
                 <td class="alert-table__time">{{ formatDateTimeForList(item.alert_time) }}</td>
-                <td class="alert-table__position">{{ displayValue(item.alert_position) }}</td>
-                <td class="alert-table__message" :title="displayValue(item.message)">
-                  {{ displayValue(item.message) }}
+                <td class="alert-table__position" :title="displayValue(item.alert_position)">
+                  {{ displayValue(item.alert_position) }}
                 </td>
                 <td class="alert-table__action-cell">
                   <button
@@ -152,7 +149,7 @@
 
             <tbody v-else>
               <tr>
-                <td colspan="8" class="alert-table__placeholder">{{ emptyText }}</td>
+                <td colspan="7" class="alert-table__placeholder">{{ emptyText }}</td>
               </tr>
             </tbody>
           </table>
@@ -181,7 +178,7 @@
         </div>
       </article>
 
-      <aside class="device-table-card alert-detail-card">
+      <article class="device-table-card alert-detail-card">
         <div class="device-table-card__header alert-detail-card__header">
           <div>
             <p class="section-tag">告警详情</p>
@@ -194,7 +191,7 @@
           </div>
         </div>
 
-        <div v-if="!selectedAlertId" class="state-panel empty-state alert-detail-state">
+        <div v-if="!selectedAlertId" class="alert-detail-placeholder">
           请选择一条告警记录查看详情
         </div>
 
@@ -215,42 +212,48 @@
         </div>
 
         <div v-else-if="alertDetail" class="alert-detail-content">
-          <div class="alert-detail-summary">
-            <span :class="['alert-badge', getRiskLevelClass(alertDetail.alert_level)]">
-              {{ getLevelLabel(alertDetail.alert_level) }}
-            </span>
-            <span :class="['alert-badge', getStatusClass(alertDetail.alert_status)]">
-              {{ getStatusLabel(alertDetail.alert_status) }}
-            </span>
-          </div>
-
           <div class="alert-detail-message">
-            <span>告警信息</span>
+            <div class="alert-detail-message__header">
+              <span>告警信息</span>
+              <div class="alert-detail-summary">
+                <span :class="['alert-badge', getRiskLevelClass(alertDetail.alert_level)]">
+                  {{ getLevelLabel(alertDetail.alert_level) }}
+                </span>
+                <span :class="['alert-badge', getStatusClass(alertDetail.alert_status)]">
+                  {{ getStatusLabel(alertDetail.alert_status) }}
+                </span>
+              </div>
+            </div>
             <strong>{{ displayValue(alertDetail.message) }}</strong>
           </div>
 
-          <div v-for="group in detailGroups" :key="group.title" class="alert-detail-section">
-            <h4>{{ group.title }}</h4>
-            <div class="alert-detail-grid">
-              <div v-for="field in group.fields" :key="field.key" class="alert-detail-item">
-                <span>{{ field.label }}</span>
-                <strong :title="field.value">{{ field.value }}</strong>
+          <div class="alert-detail-groups">
+            <div v-for="group in detailGroups" :key="group.title" class="alert-detail-section">
+              <h4>{{ group.title }}</h4>
+              <div class="alert-detail-grid">
+                <div v-for="field in group.fields" :key="field.key" class="alert-detail-item">
+                  <span>{{ field.label }}</span>
+                  <strong :title="field.value">{{ field.value }}</strong>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div v-else class="state-panel empty-state alert-detail-state">
-          当前告警暂无可展示的详情信息。
+        <div v-else class="alert-detail-placeholder">
+          当前告警暂无可展示的详情信息
         </div>
-      </aside>
+      </article>
     </section>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { getAlertDetail, getAlertList } from '../api/alert'
+
+const route = useRoute()
 
 const DEFAULT_PAGE_SIZE = 5
 const DEFAULT_FILTERS = {
@@ -262,7 +265,11 @@ const DEFAULT_FILTERS = {
 const levelOptions = ['HIGH', 'MEDIUM', 'LOW']
 const statusOptions = ['PENDING', 'PROCESSING', 'RESOLVED']
 
-const filters = reactive({ ...DEFAULT_FILTERS })
+const queryDeviceId = normalizeQueryDeviceId(route.query.device_id)
+const filters = reactive({
+  ...DEFAULT_FILTERS,
+  deviceId: queryDeviceId || DEFAULT_FILTERS.deviceId
+})
 const pagination = reactive({
   page: 1,
   size: DEFAULT_PAGE_SIZE,
@@ -336,7 +343,7 @@ const statusDescription = computed(() => {
   }
 
   if (listLoading.value) {
-    return '正在请求 /api/v1/alerts 获取告警记录。'
+    return '正在请求告警列表。'
   }
 
   if (listError.value) {
@@ -349,7 +356,7 @@ const statusDescription = computed(() => {
 
   return pagination.total > 0
     ? `当前共接入 ${pagination.total} 条告警记录。`
-    : '当前暂无告警记录，可继续尝试筛选或稍后刷新。'
+    : '当前暂无告警记录。'
 })
 
 const pageCount = computed(() => Math.max(1, Math.ceil(pagination.total / pagination.size) || 1))
@@ -749,18 +756,26 @@ function toNonNegativeInteger(value, fallback) {
   const parsedValue = Number.parseInt(value, 10)
   return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : fallback
 }
+
+function normalizeQueryDeviceId(value) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0].trim() : ''
+  }
+
+  return typeof value === 'string' ? value.trim() : ''
+}
 </script>
 
 <style scoped>
 .alert-center-page {
   display: grid;
-  gap: 20px;
+  gap: 18px;
 }
 
 .monitor-topbar,
 .monitor-topbar__meta,
-.alert-detail-card__header,
-.alert-pagination {
+.alert-pagination,
+.alert-detail-card__header {
   display: flex;
   justify-content: space-between;
   gap: 18px;
@@ -777,9 +792,17 @@ function toNonNegativeInteger(value, fallback) {
   text-align: right;
 }
 
+.alert-filter-card {
+  padding-bottom: 18px;
+}
+
+.alert-filter-card__header {
+  margin-bottom: 14px;
+}
+
 .alert-filter-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr)) minmax(180px, auto);
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) auto;
   gap: 16px;
   align-items: end;
 }
@@ -816,24 +839,17 @@ function toNonNegativeInteger(value, fallback) {
   background: #ffffff;
 }
 
-.filter-actions,
-.alert-detail-summary,
-.alert-detail-content {
-  display: flex;
-  gap: 12px;
-}
-
 .filter-actions {
+  display: flex;
+  gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  white-space: nowrap;
 }
 
-.alert-main-grid {
+.alert-content {
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(320px, 0.8fr);
-  gap: 20px;
-  align-items: start;
+  gap: 18px;
 }
 
 .alert-list-card,
@@ -847,25 +863,37 @@ function toNonNegativeInteger(value, fallback) {
 }
 
 .alert-table-wrapper {
+  width: 100%;
   overflow-x: auto;
   border: 1px solid #deebf3;
-  border-radius: 12px;
+  border-radius: 14px;
 }
 
 .alert-table {
   width: 100%;
-  min-width: 960px;
+  min-width: 900px;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
 .alert-table th,
 .alert-table td {
-  padding: 13px 14px;
+  padding: 14px 18px;
   border-bottom: 1px solid #e6eef5;
   text-align: left;
   vertical-align: middle;
   line-height: 1.45;
+}
+
+/* 关键修复1：给表格左右两端留出更明显的呼吸空间 */
+.alert-table th:first-child,
+.alert-table td:first-child {
+  padding-left: 24px;
+}
+
+.alert-table th:last-child,
+.alert-table td:last-child {
+  padding-right: 26px;
 }
 
 .alert-table th {
@@ -892,52 +920,50 @@ function toNonNegativeInteger(value, fallback) {
 
 .alert-table__row--active {
   background: rgba(15, 108, 133, 0.09);
-  box-shadow: inset 3px 0 0 #0f6c85;
+  box-shadow: inset 4px 0 0 #0f6c85;
 }
 
 .alert-table th:nth-child(1),
 .alert-table td:nth-child(1) {
-  width: 86px;
+  width: 110px;
 }
 
 .alert-table th:nth-child(2),
 .alert-table td:nth-child(2) {
-  width: 92px;
+  width: 120px;
 }
 
 .alert-table th:nth-child(3),
 .alert-table td:nth-child(3),
 .alert-table th:nth-child(4),
 .alert-table td:nth-child(4) {
-  width: 110px;
+  width: 140px;
 }
 
 .alert-table__time-col,
 .alert-table__time {
-  width: 150px;
+  width: 180px;
   white-space: nowrap;
 }
 
 .alert-table__position {
-  width: 150px;
-  min-width: 150px;
+  width: auto;
+  min-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .alert-table__action-col,
 .alert-table__action-cell {
-  width: 108px;
+  width: 132px;
   white-space: nowrap;
+  text-align: right;
 }
 
 .alert-table__mono {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-weight: 700;
-}
-
-.alert-table__message {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .alert-table__placeholder {
@@ -997,21 +1023,43 @@ function toNonNegativeInteger(value, fallback) {
   border-color: #d7e1ee;
 }
 
-.alert-detail-content {
-  flex-direction: column;
+.alert-detail-card {
+  scroll-margin-top: 20px;
 }
 
-.alert-detail-message,
-.alert-detail-section {
+.alert-detail-placeholder {
+  padding: 18px 22px;
+  color: #5b6d86;
+  background: #f8fbfd;
+  border: 1px dashed #cfe0eb;
+  border-radius: 14px;
+}
+
+/* 关键修复2：详情区整体左右留白更舒展 */
+.alert-detail-content {
   display: grid;
-  gap: 10px;
+  gap: 18px;
+  padding-right: 2px;
 }
 
 .alert-detail-message {
-  padding: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 20px 24px;
   background: #f8fbfd;
   border: 1px solid #deebf3;
-  border-radius: 12px;
+  border-radius: 14px;
+}
+
+.alert-detail-message__header,
+.alert-detail-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-detail-message__header {
+  justify-content: space-between;
 }
 
 .alert-detail-message span,
@@ -1028,25 +1076,36 @@ function toNonNegativeInteger(value, fallback) {
   word-break: break-word;
 }
 
-.alert-detail-grid {
+.alert-detail-groups {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.alert-detail-section {
+  display: grid;
   gap: 10px;
 }
 
+.alert-detail-grid {
+  display: grid;
+  gap: 10px;
+}
+
+/* 关键修复3：详情项内部右侧不要贴边 */
 .alert-detail-item {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
   min-height: 0;
-  padding: 12px 14px;
+  padding: 14px 20px 14px 16px;
   background: #f8fbfd;
   border: 1px solid #deebf3;
   border-radius: 10px;
 }
 
 .alert-detail-item span {
-  flex: 0 0 86px;
+  flex: 0 0 88px;
   color: #5b6d86;
   font-size: 0.88rem;
   font-weight: 600;
@@ -1058,30 +1117,37 @@ function toNonNegativeInteger(value, fallback) {
   text-align: right;
   line-height: 1.5;
   word-break: break-word;
+  padding-right: 4px;
 }
 
-@media (max-width: 1200px) {
-  .alert-main-grid {
-    grid-template-columns: 1fr;
+/* 关键修复4：中等屏幕下减少拥挤 */
+@media (max-width: 1280px) {
+  .alert-detail-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1180px) {
   .alert-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .filter-actions {
+    grid-column: 1 / -1;
     justify-content: flex-start;
+  }
+
+  .alert-detail-groups {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 768px) {
   .monitor-topbar,
   .monitor-topbar__meta,
-  .alert-detail-card__header,
   .alert-pagination,
-  .filter-actions {
+  .alert-detail-card__header,
+  .alert-detail-message__header {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -1091,17 +1157,21 @@ function toNonNegativeInteger(value, fallback) {
     text-align: left;
   }
 
-  .alert-filter-grid,
-  .alert-detail-grid {
+  .alert-filter-grid {
     grid-template-columns: 1fr;
   }
 
+  .filter-actions {
+    justify-content: flex-start;
+  }
+
   .alert-table {
-    min-width: 980px;
+    min-width: 820px;
   }
 
   .alert-detail-item {
     display: grid;
+    padding: 14px 18px;
   }
 
   .alert-detail-item span {
@@ -1110,6 +1180,120 @@ function toNonNegativeInteger(value, fallback) {
 
   .alert-detail-item strong {
     text-align: left;
+    padding-right: 0;
+  }
+}/* 修复：告警列表卡片头部内容贴边问题 */
+.alert-list-card.device-table-card > .device-table-card__header {
+  padding: 24px 24px 18px;
+  box-sizing: border-box;
+}
+
+/* 修复：告警列表标题与说明文字的层级和间距 */
+.alert-list-card .device-table-card__header h3 {
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.alert-list-card .device-table-card__description {
+  margin: 0;
+  max-width: 680px;
+  line-height: 1.7;
+}
+
+/* 修复：右侧统计信息不要贴边 */
+.alert-list-card .device-table-card__meta {
+  padding-top: 4px;
+  padding-right: 2px;
+  flex-shrink: 0;
+}
+/* 统一修复：筛选卡片、告警列表卡片、告警详情卡片内部内容贴边问题 */
+
+/* 条件筛选卡片头部：条件筛选 / 告警查询条件 */
+.alert-filter-card.device-filter-card > .device-filter-card__header {
+  padding: 24px 32px 14px;
+  box-sizing: border-box;
+}
+
+/* 条件筛选卡片表单区：设备编号 / 告警等级 / 告警状态 / 查询按钮 */
+.alert-filter-card .alert-filter-grid {
+  padding: 0 32px 24px;
+  box-sizing: border-box;
+}
+
+/* 告警列表卡片头部：告警列表 / 告警记录清单 / 统计信息 */
+.alert-list-card.device-table-card > .device-table-card__header {
+  padding: 24px 32px 18px;
+  box-sizing: border-box;
+}
+
+/* 告警列表底部分页区域也同步留白 */
+.alert-list-card .alert-pagination {
+  padding: 18px 32px 22px;
+  box-sizing: border-box;
+}
+
+/* 告警详情卡片头部：告警详情 / 告警记录详情 */
+.alert-detail-card.device-table-card > .device-table-card__header {
+  padding: 24px 32px 18px;
+  box-sizing: border-box;
+}
+
+/* 告警详情内容区：未选择提示、告警信息、基础信息等 */
+.alert-detail-card > .alert-detail-placeholder,
+.alert-detail-card > .alert-detail-content,
+.alert-detail-card > .alert-detail-state {
+  margin-left: 32px;
+  margin-right: 32px;
+}
+
+/* 告警详情卡片底部留白，避免内容贴住卡片底边 */
+.alert-detail-card {
+  padding-bottom: 24px;
+}
+
+/* 标题间距统一优化 */
+.alert-filter-card .device-filter-card__header h3,
+.alert-list-card .device-table-card__header h3,
+.alert-detail-card .device-table-card__header h3 {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* 说明文字统一不要贴边、不要过长 */
+.alert-list-card .device-table-card__description {
+  margin: 0;
+  max-width: 720px;
+  line-height: 1.7;
+}
+
+/* 右侧统计信息不要贴边 */
+.alert-list-card .device-table-card__meta,
+.alert-detail-card .device-table-card__meta {
+  padding-top: 4px;
+  flex-shrink: 0;
+}
+
+/* 小屏幕下适当收窄左右留白 */
+@media (max-width: 768px) {
+  .alert-filter-card.device-filter-card > .device-filter-card__header,
+  .alert-list-card.device-table-card > .device-table-card__header,
+  .alert-detail-card.device-table-card > .device-table-card__header {
+    padding: 20px 22px 14px;
+  }
+
+  .alert-filter-card .alert-filter-grid {
+    padding: 0 22px 20px;
+  }
+
+  .alert-list-card .alert-pagination {
+    padding: 16px 22px 20px;
+  }
+
+  .alert-detail-card > .alert-detail-placeholder,
+  .alert-detail-card > .alert-detail-content,
+  .alert-detail-card > .alert-detail-state {
+    margin-left: 22px;
+    margin-right: 22px;
   }
 }
 </style>

@@ -153,8 +153,11 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { LineTrendChart, MetricTrendChart } from '../components/chart'
 import { getMonitorSeries } from '../api/monitor'
+
+const route = useRoute()
 
 const DEFAULT_FILTERS = {
   deviceId: '1',
@@ -162,7 +165,11 @@ const DEFAULT_FILTERS = {
   endTime: '2015-01-09 10:25:00'
 }
 
-const filters = reactive({ ...DEFAULT_FILTERS })
+const queryDeviceId = normalizeQueryDeviceId(route.query.device_id)
+const filters = reactive({
+  ...DEFAULT_FILTERS,
+  deviceId: queryDeviceId || DEFAULT_FILTERS.deviceId
+})
 const monitorData = ref(null)
 const loading = ref(false)
 const errorMessage = ref('')
@@ -359,5 +366,13 @@ function buildMetricDescription(item) {
   const unitText = item.unit ? `，单位 ${item.unit}` : ''
 
   return `后端指标 ${item.metric || item.name || '未命名'}${unitText}，当前 ${count} 个点位。`
+}
+
+function normalizeQueryDeviceId(value) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0].trim() : ''
+  }
+
+  return typeof value === 'string' ? value.trim() : ''
 }
 </script>
