@@ -22,6 +22,34 @@ class DeviceRepository:
         return cls._mock_data
 
     @classmethod
+    def find_filtered(
+        cls,
+        device_id: Optional[int] = None,
+        car_no: Optional[str] = None,
+        device_status: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """按最小台账条件筛选设备列表"""
+        devices = cls.find_all()
+
+        if device_id is not None:
+            devices = [device for device in devices if device.get("device_id") == device_id]
+
+        if car_no:
+            keyword = car_no.strip().lower()
+            devices = [
+                device for device in devices
+                if keyword in str(device.get("car_no", "")).lower()
+            ]
+
+        if device_status is not None:
+            devices = [
+                device for device in devices
+                if device.get("device_status") == device_status
+            ]
+
+        return devices
+
+    @classmethod
     def find_by_id(cls, device_id: int) -> Optional[Dict[str, Any]]:
         """根据 ID 查询设备"""
         for device in cls._mock_data:
