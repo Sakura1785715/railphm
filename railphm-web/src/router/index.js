@@ -1,11 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AlertCenterView from '../views/AlertCenterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
 import DeviceLedgerView from '../views/DeviceLedgerView.vue'
 import HealthCheckView from '../views/HealthCheckView.vue'
 import MonitorView from '../views/MonitorView.vue'
-import ModulePlaceholderView from '../views/ModulePlaceholderView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
+import PredictionView from '../views/PredictionView.vue'
 
 const routes = [
   {
@@ -53,19 +54,19 @@ const routes = [
   {
     path: '/predictions',
     name: 'predictions',
-    component: ModulePlaceholderView,
+    component: PredictionView,
     meta: {
       title: '风险预测',
-      description: '后续将在这里接入风险趋势、模型输出结果和预测分析页面。'
+      description: '展示设备最新风险结果、历史趋势和 mock 推理演示页面。'
     }
   },
   {
     path: '/alerts',
     name: 'alerts',
-    component: ModulePlaceholderView,
+    component: AlertCenterView,
     meta: {
       title: '告警中心',
-      description: '后续将在这里接入告警列表、告警详情和告警处理流程。'
+      description: '集中展示系统告警记录，支持筛选、分页与详情查看。'
     }
   },
   {
