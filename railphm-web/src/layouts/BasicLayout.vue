@@ -1,5 +1,7 @@
 <template>
-  <div class="enterprise-layout">
+  <RouterView v-if="isPublicPage" />
+
+  <div v-else class="enterprise-layout">
     <aside class="enterprise-sidebar">
       <div class="brand-block">
         <div class="brand-mark">PHM</div>
@@ -16,7 +18,7 @@
         <div class="section-heading">业务功能</div>
         <nav class="nav-list" aria-label="主导航">
           <RouterLink
-            v-for="item in LAYOUT_NAV_ITEMS"
+            v-for="item in navItems"
             :key="item.to"
             :to="item.to"
             :class="['nav-item', { 'nav-item--active': isNavItemActive(item.to) }]"
@@ -32,11 +34,11 @@
         </nav>
       </section>
 
-      <section class="nav-section">
+      <section v-if="supportItems.length" class="nav-section">
         <div class="section-heading">系统管理</div>
         <nav class="nav-list" aria-label="辅助导航">
           <RouterLink
-            v-for="item in LAYOUT_SUPPORT_ITEMS"
+            v-for="item in supportItems"
             :key="item.to"
             :to="item.to"
             :class="[
@@ -86,6 +88,18 @@
 
         <div class="header-right">
           <span class="header-tag">RailPHM Platform</span>
+          <div v-if="currentUser" class="header-user">
+            <div class="header-user__text">
+              <strong>{{ currentUser.display_name || currentUser.username }}</strong>
+              <small>{{ currentRoleLabel }}</small>
+            </div>
+            <button class="header-auth-button" type="button" :disabled="loggingOut" @click="handleLogout">
+              {{ loggingOut ? '退出中...' : '退出登录' }}
+            </button>
+          </div>
+          <RouterLink v-else class="header-auth-link" to="/login">
+            登录
+          </RouterLink>
         </div>
       </header>
 
@@ -97,16 +111,26 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { logout } from '../api/auth'
 import DashboardIcon from '../components/dashboard/DashboardIcon.vue'
 import { LAYOUT_NAV_ITEMS, LAYOUT_SUPPORT_ITEMS } from '../constants/dashboard'
+import { clearAuth, getStoredUser } from '../utils/auth'
 
 const route = useRoute()
+const router = useRouter()
 const now = ref(new Date())
+const currentUser = ref(getStoredUser())
+const loggingOut = ref(false)
 let timerId = 0
 
 const currentPageTitle = computed(() => route.meta?.title || '系统首页')
+const isPublicPage = computed(() => route.meta?.public === true)
+const currentRole = computed(() => currentUser.value?.role || '')
+const currentRoleLabel = computed(() => getRoleLabel(currentRole.value))
+const navItems = computed(() => filterItemsByRole(LAYOUT_NAV_ITEMS, currentRole.value))
+const supportItems = computed(() => filterItemsByRole(LAYOUT_SUPPORT_ITEMS, currentRole.value))
 
 const currentTimeText = computed(() =>
   new Intl.DateTimeFormat('zh-CN', {
@@ -124,6 +148,49 @@ function isNavItemActive(targetPath) {
   }
   return route.path === targetPath || route.path.startsWith(`${targetPath}/`)
 }
+
+function filterItemsByRole(items, role) {
+  return items.filter((item) => Array.isArray(item.roles) && item.roles.includes(role))
+}
+
+function getRoleLabel(role) {
+  if (role === 'ADMIN') {
+    return '系统管理员'
+  }
+
+  if (role === 'OPS') {
+    return '运维用户'
+  }
+
+  return '未知角色'
+}
+
+async function handleLogout() {
+  if (loggingOut.value) {
+    return
+  }
+
+  loggingOut.value = true
+
+  try {
+    await logout()
+  } catch {
+    // mock 阶段退出以清理本地登录态为准
+  } finally {
+    clearAuth()
+    currentUser.value = null
+    loggingOut.value = false
+    router.replace('/login')
+  }
+}
+
+watch(
+  () => route.fullPath,
+  () => {
+    currentUser.value = getStoredUser()
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   timerId = window.setInterval(() => {
@@ -376,6 +443,34 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.header-user__text {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.header-user__text strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.header-user__text small {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .header-tag,
 .header-time {
   display: inline-flex;
@@ -397,6 +492,28 @@ onBeforeUnmount(() => {
   background: #f8fafc;
   color: #475569;
   border: 1px solid #e2e8f0;
+}
+
+.header-auth-button,
+.header-auth-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #cfe0eb;
+  background: #ffffff;
+  color: #0f6c85;
+  font-size: 12px;
+  font-weight: 760;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.header-auth-button:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
 }
 
 .enterprise-content {

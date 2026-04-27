@@ -5,6 +5,7 @@ from app.api.device import device_bp
 from app.api.monitor import monitor_bp
 from app.api.prediction import prediction_bp
 from app.api.alert import alert_bp
+from app.api.auth import auth_bp
 
 def register_blueprints(app: Flask) -> None:
     """
@@ -17,3 +18,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(monitor_bp, url_prefix='/api/v1/monitor')
     app.register_blueprint(prediction_bp, url_prefix='/api/v1/predictions')
     app.register_blueprint(alert_bp, url_prefix='/api/v1/alerts')
+    app.register_blueprint(auth_bp, url_prefix='/api/v1/auth')

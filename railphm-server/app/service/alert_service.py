@@ -1,4 +1,5 @@
 # app/service/alert_service.py
+from datetime import datetime
 from typing import Dict, Any, Optional
 from app.core.errors import BusinessException
 from app.repository.alert_repository import AlertRepository
@@ -9,6 +10,7 @@ class AlertService:
     告警业务层 (Service)
     负责分页校验与业务流转编排
     """
+    VALID_ALERT_STATUSES = {"PENDING", "PROCESSING", "RESOLVED"}
 
     @staticmethod
     def _parse_pagination(page_str: Any, size_str: Any) -> tuple[int, int]:
@@ -43,4 +45,48 @@ class AlertService:
         record = AlertRepository.get_alert_by_id(alert_id)
         if not record:
             raise BusinessException(code=404, message=f"未找到告警ID为 {alert_id} 的告警记录", status_code=404)
+        return AlertSchema.dump_detail(record)
+
+    @staticmethod
+    def update_alert_status(alert_id: int, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not payload or not isinstance(payload, dict):
+            raise BusinessException(code=400, message="请求体不能为空", status_code=400)
+
+        alert_status = payload.get("alert_status")
+        if not alert_status:
+            raise BusinessException(code=400, message="alert_status 不能为空", status_code=400)
+        if alert_status not in AlertService.VALID_ALERT_STATUSES:
+            raise BusinessException(code=400, message="非法告警状态", status_code=400)
+
+        handler_id = None
+        if "handler_id" in payload:
+            if isinstance(payload["handler_id"], bool):
+                raise BusinessException(code=400, message="handler_id 必须为正整数", status_code=400)
+            try:
+                handler_id = int(payload["handler_id"])
+            except (ValueError, TypeError):
+                raise BusinessException(code=400, message="handler_id 必须为正整数", status_code=400)
+            if handler_id <= 0:
+                raise BusinessException(code=400, message="handler_id 必须为正整数", status_code=400)
+
+        handle_note = None
+        if "handle_note" in payload:
+            handle_note = payload["handle_note"]
+            if not isinstance(handle_note, str):
+                raise BusinessException(code=400, message="handle_note 必须为字符串", status_code=400)
+
+        handle_time = None
+        if alert_status in {"PROCESSING", "RESOLVED"}:
+            handle_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        record = AlertRepository.update_alert_status(
+            alert_id=alert_id,
+            alert_status=alert_status,
+            handler_id=handler_id,
+            handle_note=handle_note,
+            handle_time=handle_time,
+        )
+        if not record:
+            raise BusinessException(code=404, message=f"未找到告警ID为 {alert_id} 的告警记录", status_code=404)
+
         return AlertSchema.dump_detail(record)

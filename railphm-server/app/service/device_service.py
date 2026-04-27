@@ -9,6 +9,41 @@ class DeviceService:
     设备业务逻辑层 (Service)
     负责分页计算、异常抛出与 DTO 转换
     """
+    REQUIRED_TEXT_FIELDS = {
+        "car_no": "car_no 不能为空",
+        "atp_type": "atp_type 不能为空",
+        "attach_bureau": "attach_bureau 不能为空"
+    }
+
+    @staticmethod
+    def _validate_device_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """校验并规范化设备台账请求体"""
+        if not payload or not isinstance(payload, dict):
+            raise BusinessException(code=400, message="请求体不能为空", status_code=400)
+
+        validated: Dict[str, Any] = {}
+        for field, message in DeviceService.REQUIRED_TEXT_FIELDS.items():
+            value = payload.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise BusinessException(code=400, message=message, status_code=400)
+            validated[field] = value.strip()
+
+        if "device_status" not in payload:
+            raise BusinessException(code=400, message="device_status 不能为空", status_code=400)
+
+        if isinstance(payload["device_status"], bool):
+            raise BusinessException(code=400, message="device_status 只能为 0 或 1", status_code=400)
+
+        try:
+            device_status = int(payload["device_status"])
+        except (ValueError, TypeError):
+            raise BusinessException(code=400, message="device_status 只能为 0 或 1", status_code=400)
+
+        if device_status not in (0, 1):
+            raise BusinessException(code=400, message="device_status 只能为 0 或 1", status_code=400)
+
+        validated["device_status"] = device_status
+        return validated
     
     @staticmethod
     def get_device_list(
@@ -56,4 +91,26 @@ class DeviceService:
                 status_code=404
             )
             
+        return DeviceSchema.dump(device)
+
+    @staticmethod
+    def create_device(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """新增设备台账"""
+        validated_payload = DeviceService._validate_device_payload(payload)
+        device = DeviceRepository.create_device(validated_payload)
+        return DeviceSchema.dump(device)
+
+    @staticmethod
+    def update_device(device_id: int, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """编辑设备台账"""
+        validated_payload = DeviceService._validate_device_payload(payload)
+        device = DeviceRepository.update_device(device_id, validated_payload)
+
+        if not device:
+            raise BusinessException(
+                code=404,
+                message=f"未找到设备ID为 {device_id} 的设备",
+                status_code=404
+            )
+
         return DeviceSchema.dump(device)

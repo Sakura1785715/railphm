@@ -56,3 +56,29 @@ class DeviceRepository:
             if device["device_id"] == device_id:
                 return device
         return None
+
+    @classmethod
+    def create_device(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """新增设备台账记录"""
+        new_id = max((device["device_id"] for device in cls._mock_data), default=0) + 1
+        device = {
+            "device_id": new_id,
+            "car_no": payload["car_no"],
+            "atp_type": payload["atp_type"],
+            "attach_bureau": payload["attach_bureau"],
+            "device_status": payload["device_status"]
+        }
+        cls._mock_data.append(device)
+        return device
+
+    @classmethod
+    def update_device(cls, device_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """编辑设备台账记录"""
+        for device in cls._mock_data:
+            if device["device_id"] == device_id:
+                device["car_no"] = payload["car_no"]
+                device["atp_type"] = payload["atp_type"]
+                device["attach_bureau"] = payload["attach_bureau"]
+                device["device_status"] = payload["device_status"]
+                return device
+        return None

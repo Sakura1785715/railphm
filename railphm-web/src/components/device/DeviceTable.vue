@@ -5,7 +5,7 @@
         <p class="section-tag">设备列表</p>
         <h3>设备台账清单</h3>
         <p class="device-table-card__description">
-          当前展示设备基础档案字段，支持查看单台设备详情，不扩展编辑与批量操作。
+          当前展示设备基础档案字段，支持查看详情与维护设备基础信息。
         </p>
       </div>
 
@@ -52,9 +52,19 @@
               </span>
             </td>
             <td>
-              <RouterLink :to="buildDetailRoute(row.device_id)" class="table-link">
-                查看详情
-              </RouterLink>
+              <div class="device-table__actions">
+                <RouterLink :to="buildDetailRoute(row.device_id)" class="table-link">
+                  查看详情
+                </RouterLink>
+                <button
+                  v-if="canEdit"
+                  class="table-action-button"
+                  type="button"
+                  @click="$emit('edit', row)"
+                >
+                  编辑
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -128,10 +138,14 @@ const props = defineProps({
   detailQuery: {
     type: Object,
     default: () => ({})
+  },
+  canEdit: {
+    type: Boolean,
+    default: false
   }
 })
 
-defineEmits(['retry', 'page-change'])
+defineEmits(['retry', 'page-change', 'edit'])
 
 const pageCount = computed(() => Math.max(1, Math.ceil(props.total / props.size) || 1))
 
@@ -258,8 +272,26 @@ function buildDetailRoute(deviceId) {
   font-weight: 700;
 }
 
-.table-link:hover {
+.table-link:hover,
+.table-action-button:hover {
   color: #1d4ed8;
+}
+
+.device-table__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.table-action-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f6c85;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .device-table-state {
@@ -300,4 +332,3 @@ function buildDetailRoute(deviceId) {
   }
 }
 </style>
-

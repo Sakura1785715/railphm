@@ -17,31 +17,36 @@ export const LAYOUT_NAV_ITEMS = [
     title: '系统首页',
     description: '系统运行总览与默认设备风险概况',
     to: '/',
-    icon: 'home'
+    icon: 'home',
+    roles: ['OPS', 'ADMIN']
   },
   {
     title: '设备台账',
     description: '设备主数据与台账入口',
     to: '/devices',
-    icon: 'device'
+    icon: 'device',
+    roles: ['ADMIN']
   },
   {
     title: '运行监测',
     description: '监测序列与运行状态入口',
     to: '/monitor',
-    icon: 'monitor'
+    icon: 'monitor',
+    roles: ['OPS', 'ADMIN']
   },
   {
     title: '风险预测',
     description: '模型结果与风险评估入口',
     to: '/predictions',
-    icon: 'prediction'
+    icon: 'prediction',
+    roles: ['OPS', 'ADMIN']
   },
   {
     title: '告警中心',
     description: '告警记录与处理入口',
     to: '/alerts',
-    icon: 'alert'
+    icon: 'alert',
+    roles: ['OPS', 'ADMIN']
   }
 ]
 
@@ -50,7 +55,8 @@ export const LAYOUT_SUPPORT_ITEMS = [
     title: '系统联通测试',
     description: '验证前后端健康接口联通情况',
     to: '/health',
-    icon: 'health'
+    icon: 'health',
+    roles: []
   }
 ]
 

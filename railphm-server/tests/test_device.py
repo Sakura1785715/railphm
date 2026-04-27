@@ -1,4 +1,22 @@
 
+ADMIN_HEADERS = {
+    "Authorization": "Bearer mock-token-admin"
+}
+
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
+def build_device_payload(car_no="CR400AF-AUTH-01"):
+    return {
+        "car_no": car_no,
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": 1
+    }
+
+
 def test_get_devices_success(client):
     """测试获取设备列表成功与分页结构"""
     response = client.get('/api/v1/devices')
@@ -72,3 +90,147 @@ def test_get_device_detail_not_found(client):
     assert json_data is not None
     assert json_data["code"] == 404
     assert "未找到设备ID为" in json_data["message"]
+
+def test_create_device_success(client):
+    """测试新增设备成功"""
+    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-TEST29",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": 1
+    })
+
+    json_data = response.get_json()
+    data = json_data["data"]
+
+    assert response.status_code == 200
+    assert json_data["code"] == 200
+    assert data["device_id"]
+    assert data["car_no"] == "CR400AF-TEST29"
+    assert data["atp_type"] == "CTCS-3"
+    assert data["attach_bureau"] == "北京局"
+    assert data["device_status"] == 1
+
+def test_update_device_success(client):
+    """测试编辑自己新增的设备成功"""
+    create_response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-TEST29-NEW",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": 1
+    })
+    device_id = create_response.get_json()["data"]["device_id"]
+
+    response = client.put(f'/api/v1/devices/{device_id}', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-TEST29-UPDATED",
+        "atp_type": "CTCS-2",
+        "attach_bureau": "上海局",
+        "device_status": 0
+    })
+
+    json_data = response.get_json()
+    data = json_data["data"]
+
+    assert response.status_code == 200
+    assert json_data["code"] == 200
+    assert data["device_id"] == device_id
+    assert data["car_no"] == "CR400AF-TEST29-UPDATED"
+    assert data["atp_type"] == "CTCS-2"
+    assert data["attach_bureau"] == "上海局"
+    assert data["device_status"] == 0
+
+def test_create_device_missing_required_field(client):
+    """测试新增设备缺少必填字段"""
+    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-MISSING",
+        "atp_type": "CTCS-3",
+        "device_status": 1
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "attach_bureau" in json_data["message"] or "配属铁路局" in json_data["message"]
+
+def test_create_device_invalid_status(client):
+    """测试新增设备状态非法"""
+    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-INVALID",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": 9
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "0" in json_data["message"] or "1" in json_data["message"] or "非法" in json_data["message"]
+
+def test_update_device_not_found(client):
+    """测试编辑不存在的设备"""
+    response = client.put('/api/v1/devices/999999', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-NOTFOUND",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": 1
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 404
+    assert json_data["code"] == 404
+    assert "未找到设备ID为" in json_data["message"]
+
+def test_update_device_missing_required_field(client):
+    """测试编辑设备缺少有效必填字段"""
+    response = client.put('/api/v1/devices/1', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-BAD",
+        "atp_type": "CTCS-3",
+        "attach_bureau": ""
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+
+def test_create_device_requires_login(client):
+    """测试未登录不能新增设备"""
+    response = client.post('/api/v1/devices', json=build_device_payload("CR400AF-AUTH-01"))
+    json_data = response.get_json()
+
+    assert response.status_code == 401
+    assert json_data["code"] == 401
+    assert "未登录" in json_data["message"] or "无效" in json_data["message"]
+
+def test_create_device_forbidden_for_ops(client):
+    """测试运维用户不能新增设备"""
+    response = client.post(
+        '/api/v1/devices',
+        headers=OPS_HEADERS,
+        json=build_device_payload("CR400AF-AUTH-02")
+    )
+    json_data = response.get_json()
+
+    assert response.status_code == 403
+    assert json_data["code"] == 403
+    assert "权限不足" in json_data["message"]
+
+def test_update_device_requires_login(client):
+    """测试未登录不能编辑设备"""
+    response = client.put('/api/v1/devices/1', json=build_device_payload("CR400AF-AUTH-03"))
+    json_data = response.get_json()
+
+    assert response.status_code == 401
+    assert json_data["code"] == 401
+
+def test_update_device_forbidden_for_ops(client):
+    """测试运维用户不能编辑设备"""
+    response = client.put(
+        '/api/v1/devices/1',
+        headers=OPS_HEADERS,
+        json=build_device_payload("CR400AF-AUTH-04")
+    )
+    json_data = response.get_json()
+
+    assert response.status_code == 403
+    assert json_data["code"] == 403
+    assert "权限不足" in json_data["message"]

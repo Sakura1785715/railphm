@@ -43,3 +43,25 @@ class AlertRepository:
             if r["alert_id"] == alert_id:
                 return r
         return None
+
+    @classmethod
+    def update_alert_status(
+        cls,
+        alert_id: int,
+        alert_status: str,
+        handler_id: Optional[int] = None,
+        handle_note: Optional[str] = None,
+        handle_time: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """更新告警处理状态"""
+        for record in cls._mock_data:
+            if record["alert_id"] == alert_id:
+                record["alert_status"] = alert_status
+                if handler_id is not None:
+                    record["handler_id"] = handler_id
+                if handle_note is not None:
+                    record["handle_desc"] = handle_note
+                if handle_time is not None:
+                    record["handle_time"] = handle_time
+                return record
+        return None

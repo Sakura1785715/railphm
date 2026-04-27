@@ -10,10 +10,17 @@
       </div>
 
       <div class="device-ledger-topbar__meta">
-        <span :class="['status-pill', `status-pill--${summaryTone}`]">{{ summaryLabel }}</span>
-        <span class="device-ledger-topbar__summary">{{ summaryDescription }}</span>
+        <div class="device-ledger-topbar__status">
+          <span :class="['status-pill', `status-pill--${summaryTone}`]">{{ summaryLabel }}</span>
+          <span class="device-ledger-topbar__summary">{{ summaryDescription }}</span>
+        </div>
+        <button v-if="canManageDevice" class="primary-button" type="button" @click="openCreateDeviceForm">
+          新增设备
+        </button>
       </div>
     </div>
+
+    <p v-if="operationMessage" class="device-operation-message">{{ operationMessage }}</p>
 
     <DeviceFilterBar
       v-model:device-id="filters.deviceId"
@@ -34,8 +41,20 @@
       :total="pagination.total"
       :empty-text="emptyText"
       :detail-query="detailQuery"
+      :can-edit="canManageDevice"
       @retry="fetchDevices"
       @page-change="handlePageChange"
+      @edit="openEditDeviceForm"
+    />
+
+    <DeviceFormModal
+      :visible="formVisible"
+      :mode="formMode"
+      :initial-device="editingDevice"
+      :submitting="formSubmitting"
+      :error-message="formError"
+      @submit="handleDeviceFormSubmit"
+      @close="closeDeviceForm"
     />
   </section>
 </template>
@@ -44,8 +63,10 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DeviceFilterBar from '../components/device/DeviceFilterBar.vue'
+import DeviceFormModal from '../components/device/DeviceFormModal.vue'
 import DeviceTable from '../components/device/DeviceTable.vue'
-import { getDeviceList } from '../api/device'
+import { createDevice, getDeviceList, updateDevice } from '../api/device'
+import { getStoredRole } from '../utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,6 +86,13 @@ const pagination = reactive({
 const devices = ref([])
 const loading = ref(false)
 const errorMessage = ref('')
+const formVisible = ref(false)
+const formMode = ref('create')
+const editingDevice = ref(null)
+const formSubmitting = ref(false)
+const formError = ref('')
+const operationMessage = ref('')
+const canManageDevice = computed(() => getStoredRole() === 'ADMIN')
 
 const statusOptions = [
   {
@@ -158,7 +186,74 @@ async function fetchDevices() {
   }
 }
 
+function openCreateDeviceForm() {
+  formMode.value = 'create'
+  editingDevice.value = null
+  formError.value = ''
+  operationMessage.value = ''
+  formVisible.value = true
+}
+
+function openEditDeviceForm(device) {
+  formMode.value = 'edit'
+  editingDevice.value = device
+  formError.value = ''
+  operationMessage.value = ''
+  formVisible.value = true
+}
+
+function closeDeviceForm() {
+  if (formSubmitting.value) {
+    return
+  }
+
+  formVisible.value = false
+}
+
+async function handleDeviceFormSubmit(payload) {
+  if (formSubmitting.value) {
+    return
+  }
+
+  formSubmitting.value = true
+  formError.value = ''
+
+  try {
+    if (formMode.value === 'edit') {
+      await updateDevice(editingDevice.value.device_id, payload)
+      operationMessage.value = '设备信息编辑成功，列表已刷新'
+      formVisible.value = false
+      await fetchDevices()
+      return
+    }
+
+    await createDevice(payload)
+    operationMessage.value = '设备新增成功，列表已刷新'
+    formVisible.value = false
+    await refreshCreatedDevicePage()
+  } catch (error) {
+    formError.value = error.message || '设备信息保存失败，请稍后重试'
+  } finally {
+    formSubmitting.value = false
+  }
+}
+
+async function refreshCreatedDevicePage() {
+  filters.deviceId = ''
+  filters.carNo = ''
+  filters.deviceStatus = ''
+  const nextPage = Math.max(1, Math.ceil((pagination.total + 1) / pagination.size))
+  pagination.page = nextPage
+
+  await router.push({
+    name: 'devices',
+    query: nextPage > 1 ? { page: String(nextPage) } : {}
+  })
+  await fetchDevices()
+}
+
 function handleSearch() {
+  operationMessage.value = ''
   router.push({
     name: 'devices',
     query: buildRouteQuery({
@@ -168,6 +263,7 @@ function handleSearch() {
 }
 
 function handleReset() {
+  operationMessage.value = ''
   router.push({
     name: 'devices'
   })
@@ -178,6 +274,7 @@ function handlePageChange(nextPage) {
     return
   }
 
+  operationMessage.value = ''
   router.push({
     name: 'devices',
     query: buildRouteQuery({
@@ -272,10 +369,31 @@ function toPositiveInteger(value, fallback) {
   line-height: 1.6;
 }
 
+.device-ledger-topbar__status {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.device-operation-message {
+  margin: 0;
+  padding: 12px 16px;
+  color: #027a48;
+  background: #ecfdf3;
+  border: 1px solid #abefc6;
+  border-radius: 14px;
+  font-size: 0.94rem;
+  font-weight: 650;
+}
+
 @media (max-width: 768px) {
   .device-ledger-topbar,
   .device-ledger-topbar__meta {
     flex-direction: column;
+  }
+
+  .device-ledger-topbar__status {
+    justify-items: start;
   }
 
   .device-ledger-topbar__summary {
