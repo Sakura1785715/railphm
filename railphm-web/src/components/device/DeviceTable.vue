@@ -16,19 +16,17 @@
     </div>
 
     <div v-if="error" class="state-panel error-state device-table-state">
-      <h3>设备列表加载失败</h3>
-      <p>{{ error }}</p>
-      <button class="secondary-button" type="button" @click="$emit('retry')">重新加载</button>
+      <ErrorState title="设备列表加载失败" :message="error" retry-text="重新加载" @retry="$emit('retry')" />
     </div>
 
     <div v-else class="device-table-shell">
       <table class="device-table">
         <thead>
           <tr>
-            <th>设备编号</th>
+            <th>设备 ID</th>
             <th>车号</th>
             <th>ATP 类型</th>
-            <th>配属单位</th>
+            <th>配属铁路局</th>
             <th>设备状态</th>
             <th>操作</th>
           </tr>
@@ -36,7 +34,9 @@
 
         <tbody v-if="loading">
           <tr>
-            <td colspan="6" class="device-table__placeholder">正在加载设备台账数据...</td>
+            <td colspan="6" class="device-table__placeholder">
+              <LoadingBlock text="正在加载设备台账数据..." type="inline" />
+            </td>
           </tr>
         </tbody>
 
@@ -47,9 +47,11 @@
             <td>{{ row.atp_type || '未返回' }}</td>
             <td>{{ row.attach_bureau || '未返回' }}</td>
             <td>
-              <span :class="['status-pill', `status-pill--${getDeviceStatusMeta(row.device_status).tone}`]">
-                {{ getDeviceStatusMeta(row.device_status).label }}
-              </span>
+              <StatusTag
+                :label="getDeviceStatusMeta(row.device_status).label"
+                :type="getDeviceStatusMeta(row.device_status).tone"
+                size="small"
+              />
             </td>
             <td>
               <div class="device-table__actions">
@@ -71,7 +73,9 @@
 
         <tbody v-else>
           <tr>
-            <td colspan="6" class="device-table__placeholder">{{ emptyText }}</td>
+            <td colspan="6" class="device-table__placeholder">
+              <EmptyState title="暂无设备数据" :description="emptyText" />
+            </td>
           </tr>
         </tbody>
       </table>
@@ -80,6 +84,17 @@
     <div class="device-table-footer">
       <p class="device-table-footer__summary">{{ rangeText }}</p>
       <div class="device-table-footer__actions">
+        <label class="device-table-footer__size">
+          <span>每页</span>
+          <select
+            :value="size"
+            :disabled="loading"
+            @change="$emit('size-change', Number($event.target.value))"
+          >
+            <option v-for="option in sizeOptions" :key="option" :value="option">{{ option }} 条</option>
+          </select>
+        </label>
+        <span class="device-table-card__page">第 {{ page }} / {{ pageCount }} 页</span>
         <button
           class="secondary-button"
           type="button"
@@ -104,6 +119,10 @@
 <script setup>
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import EmptyState from '../common/EmptyState.vue'
+import ErrorState from '../common/ErrorState.vue'
+import LoadingBlock from '../common/LoadingBlock.vue'
+import StatusTag from '../common/StatusTag.vue'
 import { getDeviceStatusMeta } from '../../utils/dashboard'
 
 const props = defineProps({
@@ -142,10 +161,14 @@ const props = defineProps({
   canEdit: {
     type: Boolean,
     default: false
+  },
+  sizeOptions: {
+    type: Array,
+    default: () => [5, 10, 20, 50]
   }
 })
 
-defineEmits(['retry', 'page-change', 'edit'])
+defineEmits(['retry', 'page-change', 'size-change', 'edit'])
 
 const pageCount = computed(() => Math.max(1, Math.ceil(props.total / props.size) || 1))
 
@@ -180,10 +203,10 @@ function buildDetailRoute(deviceId) {
   display: grid;
   gap: 20px;
   padding: 24px 26px;
-  background: #ffffff;
-  border: 1px solid #d7e1ee;
-  border-radius: 22px;
-  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.05);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
 }
 
 .device-table-card__header,
@@ -203,22 +226,22 @@ function buildDetailRoute(deviceId) {
 }
 
 .section-tag {
-  color: #0f6c85;
+  color: var(--color-primary);
   font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .device-table-card h3 {
   margin: 8px 0 0;
-  color: #0f172a;
+  color: var(--color-text-primary);
 }
 
 .device-table-card__description,
 .device-table-card__page,
 .device-table-footer__summary {
-  color: #5b6d86;
+  color: var(--color-text-secondary);
 }
 
 .device-table-card__meta {
@@ -228,8 +251,8 @@ function buildDetailRoute(deviceId) {
 
 .device-table-shell {
   overflow-x: auto;
-  border: 1px solid #deebf3;
-  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .device-table {
@@ -241,19 +264,19 @@ function buildDetailRoute(deviceId) {
 .device-table th,
 .device-table td {
   padding: 16px 18px;
-  border-bottom: 1px solid #e6eef5;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 
 .device-table th {
-  color: #45617f;
+  color: var(--color-text-secondary);
   font-size: 0.92rem;
   font-weight: 700;
-  background: #f8fbfd;
+  background: var(--color-bg-soft);
 }
 
 .device-table tbody tr:hover {
-  background: rgba(15, 108, 133, 0.04);
+  background: rgba(29, 79, 145, 0.045);
 }
 
 .device-table__mono {
@@ -263,18 +286,18 @@ function buildDetailRoute(deviceId) {
 
 .device-table__placeholder {
   padding: 44px 24px;
-  color: #5b6d86;
+  color: var(--color-text-secondary);
   text-align: center;
 }
 
 .table-link {
-  color: #0f6c85;
+  color: var(--color-primary);
   font-weight: 700;
 }
 
 .table-link:hover,
 .table-action-button:hover {
-  color: #1d4ed8;
+  color: var(--color-primary-hover);
 }
 
 .device-table__actions {
@@ -288,7 +311,7 @@ function buildDetailRoute(deviceId) {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #0f6c85;
+  color: var(--color-primary);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -298,22 +321,23 @@ function buildDetailRoute(deviceId) {
   margin-top: 0;
 }
 
-.secondary-button {
+.device-table-footer__size {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: 12px;
-  border: 1px solid #cfe0eb;
-  background: rgba(255, 255, 255, 0.84);
-  color: #0f6c85;
-  cursor: pointer;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+  font-weight: 650;
 }
 
-.secondary-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.device-table-footer__size select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
+  outline: none;
 }
 
 @media (max-width: 768px) {

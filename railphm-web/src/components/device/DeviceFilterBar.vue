@@ -2,20 +2,21 @@
   <section class="device-filter-card">
     <div class="device-filter-card__header">
       <div>
-        <p class="section-tag">最小筛选</p>
+        <p class="section-tag">筛选查询</p>
         <h3>基础查询条件</h3>
       </div>
-      <p class="device-filter-card__hint">当前筛选直接使用设备列表真实接口，不扩展高级检索能力。</p>
+      <p class="device-filter-card__hint">按设备 ID、车号和设备状态定位台账记录，点击查询后发起请求。</p>
     </div>
 
     <form class="device-filter-form" @submit.prevent="$emit('search')">
       <label class="filter-field">
-        <span>设备编号</span>
+        <span>设备 ID</span>
         <input
           :value="deviceId"
           type="search"
           inputmode="numeric"
-          placeholder="请输入设备编号"
+          placeholder="例如：1"
+          :disabled="loading"
           @input="$emit('update:deviceId', $event.target.value)"
         />
       </label>
@@ -25,7 +26,8 @@
         <input
           :value="carNo"
           type="search"
-          placeholder="请输入车号"
+          placeholder="例如：CR400AF"
+          :disabled="loading"
           @input="$emit('update:carNo', $event.target.value)"
         />
       </label>
@@ -34,9 +36,10 @@
         <span>设备状态</span>
         <select
           :value="deviceStatus"
+          :disabled="loading"
           @change="$emit('update:deviceStatus', $event.target.value)"
         >
-          <option value="">全部状态</option>
+          <option value="">全部</option>
           <option
             v-for="option in statusOptions"
             :key="option.value"
@@ -91,10 +94,10 @@ defineEmits(['update:deviceId', 'update:carNo', 'update:deviceStatus', 'search',
   display: grid;
   gap: 20px;
   padding: 24px 26px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
-  border: 1px solid #d7e1ee;
-  border-radius: 22px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.05);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
 }
 
 .device-filter-card__header,
@@ -112,21 +115,21 @@ defineEmits(['update:deviceId', 'update:carNo', 'update:deviceStatus', 'search',
 }
 
 .section-tag {
-  color: #0f6c85;
+  color: var(--color-primary);
   font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .device-filter-card h3 {
   margin: 8px 0 0;
-  color: #0f172a;
+  color: var(--color-text-primary);
 }
 
 .device-filter-card__hint {
   max-width: 360px;
-  color: #5b6d86;
+  color: var(--color-text-secondary);
   line-height: 1.6;
   text-align: right;
 }
@@ -144,7 +147,7 @@ defineEmits(['update:deviceId', 'update:carNo', 'update:deviceStatus', 'search',
 }
 
 .filter-field span {
-  color: #45617f;
+  color: var(--color-text-secondary);
   font-size: 0.92rem;
   font-weight: 600;
 }
@@ -154,41 +157,30 @@ defineEmits(['update:deviceId', 'update:carNo', 'update:deviceStatus', 'search',
   width: 100%;
   min-height: 46px;
   padding: 0 14px;
-  border: 1px solid #cfe0eb;
-  border-radius: 12px;
-  background: #f8fbfd;
-  color: #17253a;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .filter-field input:focus,
 .filter-field select:focus {
-  border-color: #0f6c85;
-  box-shadow: 0 0 0 4px rgba(15, 108, 133, 0.12);
-  background: #ffffff;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px rgba(29, 79, 145, 0.12);
+  background: var(--color-bg-panel);
+}
+
+.filter-field input:disabled,
+.filter-field select:disabled {
+  background: var(--color-neutral-soft);
+  color: var(--color-text-muted);
+  cursor: wait;
 }
 
 .filter-actions {
   gap: 12px;
-}
-
-.secondary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 12px;
-  border: 1px solid #cfe0eb;
-  background: rgba(255, 255, 255, 0.84);
-  color: #0f6c85;
-  cursor: pointer;
-}
-
-.secondary-button:disabled {
-  opacity: 0.72;
-  cursor: wait;
 }
 
 @media (max-width: 1080px) {

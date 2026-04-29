@@ -6,6 +6,7 @@
           <div>
             <p class="section-tag">设备台账</p>
             <h3>{{ modalTitle }}</h3>
+            <p>{{ modalDescription }}</p>
           </div>
           <button
             class="device-form-modal__close"
@@ -26,7 +27,9 @@
               type="text"
               placeholder="请输入车号"
               :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.carNo)"
             />
+            <small v-if="fieldErrors.carNo">{{ fieldErrors.carNo }}</small>
           </label>
 
           <label class="device-form__field">
@@ -36,7 +39,9 @@
               type="text"
               placeholder="请输入 ATP 类型"
               :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.atpType)"
             />
+            <small v-if="fieldErrors.atpType">{{ fieldErrors.atpType }}</small>
           </label>
 
           <label class="device-form__field">
@@ -46,16 +51,23 @@
               type="text"
               placeholder="请输入配属铁路局"
               :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.attachBureau)"
             />
+            <small v-if="fieldErrors.attachBureau">{{ fieldErrors.attachBureau }}</small>
           </label>
 
           <label class="device-form__field">
             <span>设备状态</span>
-            <select v-model="form.deviceStatus" :disabled="submitting">
+            <select
+              v-model="form.deviceStatus"
+              :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.deviceStatus)"
+            >
               <option value="">请选择设备状态</option>
-              <option value="1">在册运行</option>
-              <option value="0">停用观察</option>
+              <option value="1">正常 / 在册运行</option>
+              <option value="0">停用 / 停用观察</option>
             </select>
+            <small v-if="fieldErrors.deviceStatus">{{ fieldErrors.deviceStatus }}</small>
           </label>
 
           <p v-if="displayError" class="device-form__error">{{ displayError }}</p>
@@ -109,8 +121,17 @@ const form = reactive({
   deviceStatus: '1'
 })
 const validationError = ref('')
+const fieldErrors = reactive({
+  carNo: '',
+  atpType: '',
+  attachBureau: '',
+  deviceStatus: ''
+})
 
 const modalTitle = computed(() => (props.mode === 'edit' ? '编辑设备' : '新增设备'))
+const modalDescription = computed(() =>
+  props.mode === 'edit' ? '调整设备基础档案字段，保存后自动刷新台账列表。' : '录入设备基础档案，设备 ID 由后端生成。'
+)
 const displayError = computed(() => validationError.value || props.errorMessage)
 
 watch(
@@ -124,7 +145,7 @@ watch(
 )
 
 function syncForm() {
-  validationError.value = ''
+  resetErrors()
 
   if (props.mode === 'edit' && props.initialDevice) {
     form.carNo = props.initialDevice.car_no ? String(props.initialDevice.car_no) : ''
@@ -141,11 +162,10 @@ function syncForm() {
 }
 
 function handleSubmit() {
-  validationError.value = ''
+  resetErrors()
 
-  const error = validateForm()
-  if (error) {
-    validationError.value = error
+  if (!validateForm()) {
+    validationError.value = '请修正表单中的必填项后再提交'
     return
   }
 
@@ -159,26 +179,24 @@ function handleSubmit() {
 
 function validateForm() {
   if (!form.carNo.trim()) {
-    return '请输入车号'
+    fieldErrors.carNo = '请输入车号'
   }
 
   if (!form.atpType.trim()) {
-    return '请输入 ATP 类型'
+    fieldErrors.atpType = '请输入 ATP 类型'
   }
 
   if (!form.attachBureau.trim()) {
-    return '请输入配属铁路局'
+    fieldErrors.attachBureau = '请输入配属铁路局'
   }
 
   if (form.deviceStatus === '') {
-    return '请选择设备状态'
+    fieldErrors.deviceStatus = '请选择设备状态'
+  } else if (!['0', '1'].includes(String(form.deviceStatus))) {
+    fieldErrors.deviceStatus = '设备状态只能为 0 或 1'
   }
 
-  if (!['0', '1'].includes(String(form.deviceStatus))) {
-    return '请选择设备状态'
-  }
-
-  return ''
+  return !fieldErrors.carNo && !fieldErrors.atpType && !fieldErrors.attachBureau && !fieldErrors.deviceStatus
 }
 
 function handleClose() {
@@ -192,6 +210,14 @@ function handleClose() {
 function normalizeDeviceStatus(status) {
   const normalized = String(status)
   return normalized === '0' || normalized === '1' ? normalized : ''
+}
+
+function resetErrors() {
+  validationError.value = ''
+  fieldErrors.carNo = ''
+  fieldErrors.atpType = ''
+  fieldErrors.attachBureau = ''
+  fieldErrors.deviceStatus = ''
 }
 </script>
 
@@ -211,9 +237,9 @@ function normalizeDeviceStatus(status) {
   display: grid;
   gap: 18px;
   padding: 24px;
-  background: #ffffff;
-  border: 1px solid #d7e1ee;
-  border-radius: 22px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
   box-shadow: 0 28px 70px rgba(15, 23, 42, 0.22);
 }
 
@@ -227,25 +253,31 @@ function normalizeDeviceStatus(status) {
 
 .section-tag {
   margin: 0;
-  color: #0f6c85;
+  color: var(--color-primary);
   font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .device-form-modal__header h3 {
   margin: 8px 0 0;
-  color: #0f172a;
+  color: var(--color-text-primary);
+}
+
+.device-form-modal__header p:not(.section-tag) {
+  margin: 8px 0 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
 }
 
 .device-form-modal__close {
   width: 36px;
   height: 36px;
-  border: 1px solid #cfe0eb;
-  border-radius: 12px;
-  background: #f8fbfd;
-  color: #45617f;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
   font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
@@ -267,9 +299,14 @@ function normalizeDeviceStatus(status) {
 }
 
 .device-form__field span {
-  color: #45617f;
+  color: var(--color-text-secondary);
   font-size: 0.92rem;
   font-weight: 650;
+}
+
+.device-form__field small {
+  color: var(--color-danger);
+  line-height: 1.5;
 }
 
 .device-form__field input,
@@ -277,19 +314,25 @@ function normalizeDeviceStatus(status) {
   width: 100%;
   min-height: 46px;
   padding: 0 14px;
-  border: 1px solid #cfe0eb;
-  border-radius: 12px;
-  background: #f8fbfd;
-  color: #17253a;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
+.device-form__field input[aria-invalid="true"],
+.device-form__field select[aria-invalid="true"] {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-soft);
+}
+
 .device-form__field input:focus,
 .device-form__field select:focus {
-  border-color: #0f6c85;
-  box-shadow: 0 0 0 4px rgba(15, 108, 133, 0.12);
-  background: #ffffff;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px rgba(29, 79, 145, 0.12);
+  background: var(--color-bg-panel);
 }
 
 .device-form__field input:disabled,
@@ -301,10 +344,10 @@ function normalizeDeviceStatus(status) {
 .device-form__error {
   margin: 0;
   padding: 12px 14px;
-  color: #b42318;
-  background: #fef3f2;
-  border: 1px solid #fecdca;
-  border-radius: 12px;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-lg);
   font-size: 0.92rem;
   font-weight: 650;
 }
@@ -327,6 +370,11 @@ function normalizeDeviceStatus(status) {
   .device-form__actions {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .device-form__actions,
+  .device-form__actions button {
+    width: 100%;
   }
 }
 </style>
