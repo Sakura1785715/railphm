@@ -4,15 +4,15 @@ import pytest
 # ==========================================
 # 1. 业务逻辑分支覆盖测试 (核心 Mock 规则与时间计算)
 # ==========================================
-@pytest.mark.parametrize("device_id, expected_level, expected_label, expected_score", [
-    (1, "HIGH", "abnormal-trend", 0.82),     # 取模 1
-    (4, "HIGH", "abnormal-trend", 0.82),     # 取模 1
-    (2, "MEDIUM", "normal-cruise", 0.52),    # 取模 2
-    (5, "MEDIUM", "normal-cruise", 0.52),    # 取模 2
-    (3, "LOW", "stable", 0.21),              # 取模 0
-    (6, "LOW", "stable", 0.21),              # 取模 0
+@pytest.mark.parametrize("device_id, expected_label, expected_score", [
+    (1, "abnormal-trend", 0.82),     # 取模 1
+    (4, "abnormal-trend", 0.82),     # 取模 1
+    (2, "normal-cruise", 0.52),      # 取模 2
+    (5, "normal-cruise", 0.52),      # 取模 2
+    (3, "stable", 0.21),             # 取模 0
+    (6, "stable", 0.21),             # 取模 0
 ])
-def test_infer_business_mock_branches(client, device_id, expected_level, expected_label, expected_score):
+def test_infer_business_mock_branches(client, device_id, expected_label, expected_score):
     """全覆盖测试：设备ID的取模分支逻辑"""
     payload = {
         "device_id": device_id,
@@ -24,9 +24,15 @@ def test_infer_business_mock_branches(client, device_id, expected_level, expecte
     data = response.get_json()["data"]
     
     assert data["device_id"] == device_id
-    assert data["alert_level"] == expected_level
     assert data["condition_label"] == expected_label
     assert data["risk_score"] == expected_score
+    assert isinstance(data["risk_score"], (int, float))
+    assert isinstance(data["risk_std"], (int, float))
+    assert data["model_version"] == "mock-bilstm-attention-v1"
+    assert data["window_start_time"] == "2026-04-19 10:00:00"
+    assert data["window_end_time"] == "2026-04-19 10:05:00"
+    assert "health_score" not in data
+    assert "alert_level" not in data
 
 def test_infer_time_calculation_cross_hour(client):
     """全覆盖测试：时间跨小时/跨天的窗口倒推逻辑计算"""

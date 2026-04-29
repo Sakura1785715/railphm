@@ -10,12 +10,12 @@ def clamp_risk_score(risk_score: float) -> float:
 def calculate_health_score(risk_score: float) -> float:
     """
     健康度计算规则：
-    health_score = 100 - risk_score * 100
+    health_score = round((1 - risk_score) * 100, 1)
 
     先对 risk_score 做 clamp，再保留 1 位小数。
     """
     clamped_risk_score = clamp_risk_score(risk_score)
-    return round(100 - clamped_risk_score * 100, 1)
+    return round((1 - clamped_risk_score) * 100, 1)
 
 
 def map_alert_level(health_score: float) -> str:

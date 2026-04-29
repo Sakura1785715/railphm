@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 from app.core.errors import BusinessException
 from app.repository.auth_repository import AuthRepository
 from app.schema.auth_schema import AuthSchema
+from app.service.captcha_service import CaptchaService
 
 class AuthService:
     """
@@ -19,12 +20,22 @@ class AuthService:
 
         username = payload.get("username")
         password = payload.get("password")
+        captcha_id = payload.get("captcha_id")
+        captcha_code = payload.get("captcha_code")
 
         if not isinstance(username, str) or not username.strip():
             raise BusinessException(code=400, message="username 不能为空", status_code=400)
 
         if not isinstance(password, str) or not password.strip():
             raise BusinessException(code=400, message="password 不能为空", status_code=400)
+
+        if not isinstance(captcha_id, str) or not captcha_id.strip():
+            raise BusinessException(code=400, message="captcha_id 不能为空", status_code=400)
+
+        if not isinstance(captcha_code, str) or not captcha_code.strip():
+            raise BusinessException(code=400, message="captcha_code 不能为空", status_code=400)
+
+        CaptchaService.validate_captcha(captcha_id, captcha_code)
 
         user = AuthRepository.find_by_username(username.strip())
         if not user or user["password"] != password:

@@ -31,14 +31,10 @@ class DeviceService:
         if "device_status" not in payload:
             raise BusinessException(code=400, message="device_status 不能为空", status_code=400)
 
-        if isinstance(payload["device_status"], bool):
+        if isinstance(payload["device_status"], bool) or not isinstance(payload["device_status"], int):
             raise BusinessException(code=400, message="device_status 只能为 0 或 1", status_code=400)
 
-        try:
-            device_status = int(payload["device_status"])
-        except (ValueError, TypeError):
-            raise BusinessException(code=400, message="device_status 只能为 0 或 1", status_code=400)
-
+        device_status = payload["device_status"]
         if device_status not in (0, 1):
             raise BusinessException(code=400, message="device_status 只能为 0 或 1", status_code=400)
 

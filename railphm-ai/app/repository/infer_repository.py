@@ -12,22 +12,16 @@ class InferRepository:
         1: {
             "risk_score": 0.82,
             "risk_std": 0.07,
-            "health_score": 68.5,
-            "alert_level": "HIGH",
             "condition_label": "abnormal-trend",
         },
         2: {
             "risk_score": 0.52,
             "risk_std": 0.04,
-            "health_score": 84.0,
-            "alert_level": "MEDIUM",
             "condition_label": "normal-cruise",
         },
         0: {
             "risk_score": 0.21,
             "risk_std": 0.02,
-            "health_score": 95.0,
-            "alert_level": "LOW",
             "condition_label": "stable",
         },
     }
@@ -53,6 +47,4 @@ class InferRepository:
         }
         result.update(profile)
 
-        # alert_level 当前仅为 demo 联调提供临时衍生字段。
-        # 未来更适合在 server 侧结合规则阈值进行判定，而不是由模型直接输出。
         return result

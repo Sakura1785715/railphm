@@ -21,3 +21,14 @@ def client(app):
     提供统一的 Flask 测试客户端，供各测试用例发起 HTTP 请求。
     """
     return app.test_client()
+
+@pytest.fixture(autouse=True)
+def reset_mock_repositories():
+    """
+    每条用例前重置会被接口写入的 mock 仓储，避免新增/编辑类测试污染后续断言。
+    """
+    from app.repository.alert_repository import AlertRepository
+    from app.repository.device_repository import DeviceRepository
+
+    DeviceRepository.reset_mock_data()
+    AlertRepository.reset_mock_data()

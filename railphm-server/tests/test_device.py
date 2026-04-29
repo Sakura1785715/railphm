@@ -1,3 +1,5 @@
+import pytest
+
 
 ADMIN_HEADERS = {
     "Authorization": "Bearer mock-token-admin"
@@ -66,6 +68,17 @@ def test_get_devices_with_filters_success(client):
     assert items[0]["device_id"] == 1
     assert items[0]["car_no"] == "CR400AF-0201"
 
+def test_get_devices_filter_by_status_success(client):
+    """测试设备列表按设备状态筛选"""
+    response = client.get('/api/v1/devices?device_status=0')
+    json_data = response.get_json()
+    data = json_data["data"]
+
+    assert response.status_code == 200
+    assert json_data["code"] == 200
+    assert data["total"] >= 1
+    assert all(item["device_status"] == 0 for item in data["items"])
+
 def test_get_devices_with_filters_empty_result(client):
     """测试设备筛选无结果时仍返回统一结构"""
     response = client.get('/api/v1/devices?car_no=NOT-EXISTS')
@@ -94,9 +107,9 @@ def test_get_device_detail_not_found(client):
 def test_create_device_success(client):
     """测试新增设备成功"""
     response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
-        "car_no": "CR400AF-TEST29",
-        "atp_type": "CTCS-3",
-        "attach_bureau": "北京局",
+        "car_no": "  CR400AF-TEST29  ",
+        "atp_type": "  CTCS-3  ",
+        "attach_bureau": "  北京局  ",
         "device_status": 1
     })
 
@@ -110,6 +123,31 @@ def test_create_device_success(client):
     assert data["atp_type"] == "CTCS-3"
     assert data["attach_bureau"] == "北京局"
     assert data["device_status"] == 1
+
+def test_create_device_then_can_query_list_and_detail(client):
+    """测试新增设备后列表和详情都能查到最新数据"""
+    create_response = client.post(
+        '/api/v1/devices',
+        headers=ADMIN_HEADERS,
+        json=build_device_payload("CR400AF-CREATED-LOOKUP")
+    )
+    created = create_response.get_json()["data"]
+
+    list_response = client.get('/api/v1/devices?car_no=CREATED-LOOKUP')
+    list_body = list_response.get_json()
+    list_items = list_body["data"]["items"]
+
+    detail_response = client.get(f'/api/v1/devices/{created["device_id"]}')
+    detail_body = detail_response.get_json()
+
+    assert create_response.status_code == 200
+    assert list_response.status_code == 200
+    assert list_body["code"] == 200
+    assert list_body["data"]["total"] == 1
+    assert list_items[0]["device_id"] == created["device_id"]
+    assert detail_response.status_code == 200
+    assert detail_body["code"] == 200
+    assert detail_body["data"]["car_no"] == "CR400AF-CREATED-LOOKUP"
 
 def test_update_device_success(client):
     """测试编辑自己新增的设备成功"""
@@ -139,18 +177,59 @@ def test_update_device_success(client):
     assert data["attach_bureau"] == "上海局"
     assert data["device_status"] == 0
 
-def test_create_device_missing_required_field(client):
-    """测试新增设备缺少必填字段"""
-    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
-        "car_no": "CR400AF-MISSING",
-        "atp_type": "CTCS-3",
-        "device_status": 1
+def test_update_device_then_detail_returns_updated_fields(client):
+    """测试编辑设备后详情能看到最新字段"""
+    response = client.put('/api/v1/devices/1', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-DETAIL-UPDATED",
+        "atp_type": "CTCS-2",
+        "attach_bureau": "成都局",
+        "device_status": 0
     })
+    detail_response = client.get('/api/v1/devices/1')
+    detail_body = detail_response.get_json()
+
+    assert response.status_code == 200
+    assert detail_response.status_code == 200
+    assert detail_body["code"] == 200
+    assert detail_body["data"]["car_no"] == "CR400AF-DETAIL-UPDATED"
+    assert detail_body["data"]["atp_type"] == "CTCS-2"
+    assert detail_body["data"]["attach_bureau"] == "成都局"
+    assert detail_body["data"]["device_status"] == 0
+
+@pytest.mark.parametrize(
+    "missing_field, expected_text",
+    [
+        ("car_no", "car_no"),
+        ("atp_type", "atp_type"),
+        ("attach_bureau", "attach_bureau"),
+        ("device_status", "device_status"),
+    ]
+)
+def test_create_device_missing_required_field(client, missing_field, expected_text):
+    """测试新增设备缺少任一必填字段"""
+    payload = build_device_payload("CR400AF-MISSING")
+    payload.pop(missing_field)
+
+    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json=payload)
     json_data = response.get_json()
 
     assert response.status_code == 400
     assert json_data["code"] == 400
-    assert "attach_bureau" in json_data["message"] or "配属铁路局" in json_data["message"]
+    assert expected_text in json_data["message"] or "不能为空" in json_data["message"]
+
+@pytest.mark.parametrize("json_payload", [None, [], "bad-payload"])
+def test_create_device_rejects_empty_or_non_object_payload(client, json_payload):
+    """测试新增设备请求体必须是非空 JSON 对象"""
+    kwargs = {"headers": ADMIN_HEADERS}
+    if json_payload is not None:
+        kwargs["json"] = json_payload
+
+    response = client.post('/api/v1/devices', **kwargs)
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "请求体不能为空" in json_data["message"]
 
 def test_create_device_invalid_status(client):
     """测试新增设备状态非法"""
@@ -166,6 +245,34 @@ def test_create_device_invalid_status(client):
     assert json_data["code"] == 400
     assert "0" in json_data["message"] or "1" in json_data["message"] or "非法" in json_data["message"]
 
+def test_create_device_rejects_boolean_status(client):
+    """测试新增设备时布尔状态不能被误判为 0/1"""
+    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-BOOL",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": True
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "device_status" in json_data["message"] or "0" in json_data["message"]
+
+def test_create_device_rejects_string_status(client):
+    """测试新增设备状态必须是整数，不能使用字符串 0/1"""
+    response = client.post('/api/v1/devices', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-STRING",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": "1"
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "device_status" in json_data["message"] or "0" in json_data["message"]
+
 def test_update_device_not_found(client):
     """测试编辑不存在的设备"""
     response = client.put('/api/v1/devices/999999', headers=ADMIN_HEADERS, json={
@@ -180,17 +287,82 @@ def test_update_device_not_found(client):
     assert json_data["code"] == 404
     assert "未找到设备ID为" in json_data["message"]
 
-def test_update_device_missing_required_field(client):
-    """测试编辑设备缺少有效必填字段"""
+@pytest.mark.parametrize(
+    "missing_field, expected_text",
+    [
+        ("car_no", "car_no"),
+        ("atp_type", "atp_type"),
+        ("attach_bureau", "attach_bureau"),
+        ("device_status", "device_status"),
+    ]
+)
+def test_update_device_missing_required_field(client, missing_field, expected_text):
+    """测试编辑设备缺少任一必填字段"""
+    payload = build_device_payload("CR400AF-UPDATE-MISSING")
+    payload.pop(missing_field)
+
+    response = client.put('/api/v1/devices/1', headers=ADMIN_HEADERS, json=payload)
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert expected_text in json_data["message"] or "不能为空" in json_data["message"]
+
+@pytest.mark.parametrize("json_payload", [None, [], "bad-payload"])
+def test_update_device_rejects_empty_or_non_object_payload(client, json_payload):
+    """测试编辑设备请求体必须是非空 JSON 对象"""
+    kwargs = {"headers": ADMIN_HEADERS}
+    if json_payload is not None:
+        kwargs["json"] = json_payload
+
+    response = client.put('/api/v1/devices/1', **kwargs)
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "请求体不能为空" in json_data["message"]
+
+def test_update_device_invalid_status(client):
+    """测试编辑设备状态非法"""
     response = client.put('/api/v1/devices/1', headers=ADMIN_HEADERS, json={
-        "car_no": "CR400AF-BAD",
+        "car_no": "CR400AF-BAD-STATUS",
         "atp_type": "CTCS-3",
-        "attach_bureau": ""
+        "attach_bureau": "北京局",
+        "device_status": 2
     })
     json_data = response.get_json()
 
     assert response.status_code == 400
     assert json_data["code"] == 400
+    assert "0" in json_data["message"] or "1" in json_data["message"] or "非法" in json_data["message"]
+
+def test_update_device_rejects_boolean_status(client):
+    """测试编辑设备时布尔状态不能被误判为 0/1"""
+    response = client.put('/api/v1/devices/1', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-BOOL",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": False
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "device_status" in json_data["message"] or "0" in json_data["message"]
+
+def test_update_device_rejects_string_status(client):
+    """测试编辑设备状态必须是整数，不能使用字符串 0/1"""
+    response = client.put('/api/v1/devices/1', headers=ADMIN_HEADERS, json={
+        "car_no": "CR400AF-STRING",
+        "atp_type": "CTCS-3",
+        "attach_bureau": "北京局",
+        "device_status": "0"
+    })
+    json_data = response.get_json()
+
+    assert response.status_code == 400
+    assert json_data["code"] == 400
+    assert "device_status" in json_data["message"] or "0" in json_data["message"]
 
 def test_create_device_requires_login(client):
     """测试未登录不能新增设备"""

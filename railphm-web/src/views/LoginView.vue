@@ -53,6 +53,7 @@
                 autocomplete="username"
                 placeholder="Enter your ID"
                 :disabled="loading"
+                @input="clearError"
               />
             </span>
           </label>
@@ -67,7 +68,36 @@
                 autocomplete="current-password"
                 placeholder="••••••••"
                 :disabled="loading"
+                @input="clearError"
               />
+            </span>
+          </label>
+
+          <label class="form-field">
+            <span>VERIFICATION / 验证码</span>
+            <span class="captcha-row">
+              <span class="input-shell captcha-input">
+                <span class="input-icon" aria-hidden="true">◆</span>
+                <input
+                  v-model="form.captchaCode"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Code"
+                  :disabled="loading"
+                  @input="clearError"
+                />
+              </span>
+              <button
+                class="captcha-box"
+                type="button"
+                :disabled="captchaLoading || loading"
+                title="刷新验证码"
+                @click="fetchCaptcha"
+              >
+                <img v-if="captchaImage && !captchaLoading" :src="captchaImage" alt="验证码" />
+                <span v-else-if="captchaLoading">加载中...</span>
+                <span v-else>{{ captchaError ? '点击重试' : '验证码' }}</span>
+              </button>
             </span>
           </label>
 
@@ -104,9 +134,9 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { login } from '../api/auth'
+import { getCaptcha, login } from '../api/auth'
 import { setStoredUser, setToken } from '../utils/auth'
 
 const REMEMBER_ID_KEY = 'railphm_remember_username'
@@ -118,14 +148,52 @@ const rememberedUsername = localStorage.getItem(REMEMBER_ID_KEY)
 const form = reactive({
   username: rememberedUsername || 'admin',
   password: '123456',
+  captchaId: '',
+  captchaCode: '',
   rememberId: Boolean(rememberedUsername)
 })
 
 const loading = ref(false)
+const captchaImage = ref('')
+const captchaLoading = ref(false)
+const captchaError = ref('')
 const errorMessage = ref('')
 const submitText = computed(() => (loading.value ? '登录中...' : '登录 / Login'))
 
+onMounted(() => {
+  fetchCaptcha()
+})
+
+async function fetchCaptcha() {
+  captchaLoading.value = true
+  captchaError.value = ''
+
+  try {
+    const result = await getCaptcha()
+    const data = result?.data || {}
+
+    form.captchaId = data.captcha_id || ''
+    captchaImage.value = data.captcha_image || ''
+    form.captchaCode = ''
+
+    if (!form.captchaId || !captchaImage.value) {
+      throw new Error('验证码响应缺少必要字段')
+    }
+  } catch {
+    form.captchaId = ''
+    captchaImage.value = ''
+    form.captchaCode = ''
+    captchaError.value = '验证码加载失败，请点击重试'
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
 async function handleLogin() {
+  if (loading.value) {
+    return
+  }
+
   errorMessage.value = ''
 
   if (!form.username.trim()) {
@@ -138,21 +206,33 @@ async function handleLogin() {
     return
   }
 
+  if (!form.captchaId) {
+    errorMessage.value = '请先获取验证码'
+    return
+  }
+
+  if (!form.captchaCode.trim()) {
+    errorMessage.value = '请输入验证码'
+    return
+  }
+
   loading.value = true
 
   try {
     const result = await login({
       username: form.username.trim(),
-      password: form.password
+      password: form.password,
+      captcha_id: form.captchaId,
+      captcha_code: form.captchaCode.trim()
     })
-    const { token, user } = unwrapLoginResult(result)
+    const data = result?.data || {}
 
-    if (!token || !user) {
+    if (!data.token || !data.user) {
       throw new Error('登录响应缺少身份信息')
     }
 
-    setToken(token)
-    setStoredUser(user)
+    setToken(data.token)
+    setStoredUser(data.user)
 
     if (form.rememberId) {
       localStorage.setItem(REMEMBER_ID_KEY, form.username.trim())
@@ -160,20 +240,36 @@ async function handleLogin() {
       localStorage.removeItem(REMEMBER_ID_KEY)
     }
 
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
-    router.replace(redirect || '/')
+    router.replace(resolveRedirectPath())
   } catch (error) {
     errorMessage.value = error?.message || '登录失败，请检查用户名和密码'
+    form.captchaCode = ''
+    await fetchCaptcha()
   } finally {
     loading.value = false
   }
 }
 
-function unwrapLoginResult(result) {
-  if (!result || typeof result !== 'object') return {}
-  if (result.token && result.user) return result
-  if (result.data && result.data.token && result.data.user) return result.data
-  return {}
+function clearError() {
+  if (errorMessage.value) {
+    errorMessage.value = ''
+  }
+}
+
+function resolveRedirectPath() {
+  const redirect = route.query.redirect
+
+  if (
+    typeof redirect === 'string' &&
+    redirect &&
+    redirect !== '/login' &&
+    redirect.startsWith('/') &&
+    !redirect.startsWith('//')
+  ) {
+    return redirect
+  }
+
+  return '/'
 }
 </script>
 
@@ -403,6 +499,50 @@ function unwrapLoginResult(result) {
   cursor: wait;
 }
 
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  gap: 12px;
+  align-items: center;
+}
+
+.captcha-input {
+  min-width: 0;
+}
+
+.captcha-box {
+  width: 128px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--login-border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--login-text-gray);
+  font-size: 0.8rem;
+  font-weight: 760;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.captcha-box:hover:not(:disabled) {
+  border-color: var(--login-primary);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+.captcha-box:disabled {
+  cursor: wait;
+}
+
+.captcha-box img {
+  width: 128px;
+  height: 48px;
+  display: block;
+  object-fit: cover;
+}
+
 .remember-row {
   display: inline-flex;
   width: fit-content;
@@ -525,6 +665,10 @@ function unwrapLoginResult(result) {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .captcha-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

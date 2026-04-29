@@ -21,6 +21,18 @@ def test_map_alert_level_high_boundary():
     assert map_alert_level(30) == "HIGH"
 
 
+def test_map_alert_level_high_from_health_score():
+    assert map_alert_level(18.0) == "HIGH"
+
+
+def test_map_alert_level_medium_from_health_score():
+    assert map_alert_level(48.0) == "MEDIUM"
+
+
+def test_map_alert_level_low_from_health_score():
+    assert map_alert_level(79.0) == "LOW"
+
+
 def test_map_alert_level_medium_lower_boundary():
     assert map_alert_level(30.1) == "MEDIUM"
 
@@ -36,8 +48,10 @@ def test_map_alert_level_low_boundary():
 def test_clamp_risk_score_below_zero():
     assert clamp_risk_score(-0.5) == 0.0
     assert calculate_health_score(-0.5) == 100.0
+    assert calculate_health_score(-0.2) == 100.0
 
 
 def test_clamp_risk_score_above_one():
     assert clamp_risk_score(1.5) == 1.0
     assert calculate_health_score(1.5) == 0.0
+    assert calculate_health_score(1.2) == 0.0

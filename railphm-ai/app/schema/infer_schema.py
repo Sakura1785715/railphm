@@ -79,6 +79,22 @@ class InferRequestSchema:
 class InferResponseSchema:
     """推理响应输出规范。"""
 
+    RESPONSE_FIELDS = (
+        "device_id",
+        "ts_end",
+        "window_minutes",
+        "window_start_time",
+        "window_end_time",
+        "condition_label",
+        "risk_score",
+        "risk_std",
+        "model_version",
+    )
+
     @staticmethod
     def dump(result: Dict[str, Any]) -> Dict[str, Any]:
-        return result
+        missing_fields = [field for field in InferResponseSchema.RESPONSE_FIELDS if field not in result]
+        if missing_fields:
+            raise BusinessException(code=500, message="推理结果缺少必要字段", status_code=500)
+
+        return {field: result[field] for field in InferResponseSchema.RESPONSE_FIELDS}

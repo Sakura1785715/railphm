@@ -20,6 +20,7 @@
       </div>
     </div>
 
+    <p v-if="opsPermissionMessage" class="device-permission-message">{{ opsPermissionMessage }}</p>
     <p v-if="operationMessage" class="device-operation-message">{{ operationMessage }}</p>
 
     <DeviceFilterBar
@@ -66,7 +67,7 @@ import DeviceFilterBar from '../components/device/DeviceFilterBar.vue'
 import DeviceFormModal from '../components/device/DeviceFormModal.vue'
 import DeviceTable from '../components/device/DeviceTable.vue'
 import { createDevice, getDeviceList, updateDevice } from '../api/device'
-import { getStoredRole } from '../utils/auth'
+import { isAdmin, isOps } from '../utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,7 +93,10 @@ const editingDevice = ref(null)
 const formSubmitting = ref(false)
 const formError = ref('')
 const operationMessage = ref('')
-const canManageDevice = computed(() => getStoredRole() === 'ADMIN')
+const canManageDevice = computed(() => isAdmin())
+const opsPermissionMessage = computed(() =>
+  isOps() ? '当前账号为运维用户，可查看设备台账与详情；新增和编辑设备需要系统管理员权限。' : ''
+)
 
 const statusOptions = [
   {
@@ -208,6 +212,9 @@ function closeDeviceForm() {
   }
 
   formVisible.value = false
+  formMode.value = 'create'
+  editingDevice.value = null
+  formError.value = ''
 }
 
 async function handleDeviceFormSubmit(payload) {
@@ -227,10 +234,11 @@ async function handleDeviceFormSubmit(payload) {
       return
     }
 
-    await createDevice(payload)
+    const result = await createDevice(payload)
+    const createdDevice = result?.data || {}
     operationMessage.value = '设备新增成功，列表已刷新'
     formVisible.value = false
-    await refreshCreatedDevicePage()
+    await refreshCreatedDevicePage(createdDevice)
   } catch (error) {
     formError.value = error.message || '设备信息保存失败，请稍后重试'
   } finally {
@@ -238,16 +246,17 @@ async function handleDeviceFormSubmit(payload) {
   }
 }
 
-async function refreshCreatedDevicePage() {
-  filters.deviceId = ''
+async function refreshCreatedDevicePage(createdDevice = {}) {
+  const createdDeviceId = createdDevice.device_id ? String(createdDevice.device_id) : ''
+
+  filters.deviceId = createdDeviceId
   filters.carNo = ''
   filters.deviceStatus = ''
-  const nextPage = Math.max(1, Math.ceil((pagination.total + 1) / pagination.size))
-  pagination.page = nextPage
+  pagination.page = 1
 
   await router.push({
     name: 'devices',
-    query: nextPage > 1 ? { page: String(nextPage) } : {}
+    query: createdDeviceId ? { device_id: createdDeviceId } : {}
   })
   await fetchDevices()
 }
@@ -381,6 +390,17 @@ function toPositiveInteger(value, fallback) {
   color: #027a48;
   background: #ecfdf3;
   border: 1px solid #abefc6;
+  border-radius: 14px;
+  font-size: 0.94rem;
+  font-weight: 650;
+}
+
+.device-permission-message {
+  margin: 0;
+  padding: 12px 16px;
+  color: #915f00;
+  background: #fffaeb;
+  border: 1px solid #fedf89;
   border-radius: 14px;
   font-size: 0.94rem;
   font-weight: 650;

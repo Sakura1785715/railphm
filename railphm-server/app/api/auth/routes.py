@@ -1,8 +1,16 @@
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 from app.core.response import success_response
 from app.service.auth_service import AuthService
+from app.service.captcha_service import CaptchaService
 
 auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/captcha', methods=['GET'])
+def captcha():
+    """获取登录图片验证码"""
+    include_code = current_app.config.get("TESTING", False)
+    data = CaptchaService.generate_captcha(include_code=include_code)
+    return success_response(data=data)
 
 @auth_bp.route('/login', methods=['POST'])
 def login():

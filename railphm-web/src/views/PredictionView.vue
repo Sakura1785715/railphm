@@ -78,10 +78,7 @@
           <p class="section-tag">最新结果</p>
           <h3>最新风险结果卡片</h3>
         </div>
-        <p>
-          当前展示 `GET /api/v1/predictions/latest` 的最新结果，风险分数兼容 `risk_score` 与
-          `calibrated_risk_score`。
-        </p>
+        <p>当前展示最新一次风险评估结果，健康度与告警等级以服务端返回的统一解释结果为准。</p>
       </div>
 
       <div class="prediction-panel__meta">

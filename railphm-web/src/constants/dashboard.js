@@ -9,7 +9,13 @@ export const DASHBOARD_DEVICE_LIST_PARAMS = {
 
 export const DASHBOARD_ALERT_LIST_PARAMS = {
   page: 1,
-  size: 1
+  size: 20
+}
+
+export const DASHBOARD_PREDICTION_HISTORY_PARAMS = {
+  device_id: DEFAULT_DASHBOARD_DEVICE_ID,
+  start_time: '2026-04-01 00:00:00',
+  end_time: '2026-04-02 23:59:59'
 }
 
 export const LAYOUT_NAV_ITEMS = [
