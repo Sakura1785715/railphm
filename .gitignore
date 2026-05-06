@@ -28,3 +28,7 @@ models/clusterers/
 
 # Runtime
 logs/
+
+railphm-ai/data/datasets/
+railphm-ai/data/processed/
+*.npy
