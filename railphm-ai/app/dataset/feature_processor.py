@@ -91,8 +91,6 @@ class FeatureProcessor:
         feature_df = pd.DataFrame(numeric_data, index=df.index)
 
         feature_df = self._fill_missing_values(feature_df)
-        # 对每列进行 min-max 归一化，统一到 [0,1] 范围
-        feature_df = self._min_max_normalize(feature_df)
         feature_matrix = feature_df.to_numpy(dtype=np.float32, copy=True)
 
         if np.isnan(feature_matrix).any():

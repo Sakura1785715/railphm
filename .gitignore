@@ -32,3 +32,6 @@ logs/
 railphm-ai/data/datasets/
 railphm-ai/data/processed/
 *.npy
+
+railphm-ai/outputs/
+railphm-ai/data/datasets/
