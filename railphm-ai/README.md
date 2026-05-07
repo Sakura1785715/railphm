@@ -1,613 +1,882 @@
-# railphm-ai
+# RailPHM AI Scripts 使用说明
 
-`railphm-ai` 是 RailPHM 项目中的独立 AI 服务子模块，主要负责高铁列控设备故障风险预测相关能力。当前阶段已经从最初的 mock inference service，推进到真实 ATP segment 数据驱动的数据集构建、数据集质量检查以及按 `segment_id` 的无泄露训练集划分阶段。
+本目录用于存放 `railphm-ai` 子模块中的数据集构建、数据检查、数据划分、数据标准化、模型训练和训练结果分析脚本。脚本主要服务于 RailPHM 故障风险预测模块的离线开发流程，用于将连续 ATP 监测片段 CSV 转换为模型可训练的窗口数据集，并完成 baseline 模型训练与结果输出。
 
-本模块当前仍不直接承担健康度映射和告警等级判定。健康度计算、告警等级映射等业务解释规则由 `railphm-server` 侧统一处理。`railphm-ai` 现阶段重点负责风险预测相关的 AI 服务接口、数据集构建和后续模型训练准备。
+当前项目中的原始仿真 ATP 片段数据统一存放在项目外部目录：
 
-## 当前阶段定位
-
-当前 `railphm-ai` 的开发目标是先跑通从 ATP 原始监测数据到模型训练数据的基础链路，为后续 Bi-LSTM + Attention 故障风险预测模型训练和真实推理接入做准备。
-
-当前已经完成：
-
-```text
-1. 最小 Flask AI 服务启动。
-2. /health 健康检查接口。
-3. /infer mock 推理接口。
-4. mock 风险结果稳定返回。
-5. ATP segment CSV 数据读取模块。
-6. 模型输入特征处理模块。
-7. 滑动窗口数据集构建模块。
-8. 数据集质量检查模块。
-9. 按 segment_id 划分 train / val / test，避免滑动窗口数据泄露。
-10. 数据集构建、检查和划分脚本命令行入口。
+```bash
+/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/仿真数据/atp_segments_v1
 ```
 
-当前尚未完成：
-
-```text
-1. Bi-LSTM + Attention 模型训练。
-2. Attention 结构实现。
-3. 模型评估指标计算。
-4. 模型文件保存与加载。
-5. /infer 接口接入真实模型。
-6. InfluxDB 在线时序数据查询。
-7. 在线推理窗口构造。
-8. 保序回归概率校准。
-9. MC-Dropout 不确定性估计。
-```
-
-## 项目结构
+项目内部只保留由脚本生成的数据集和训练结果：
 
 ```text
 railphm-ai/
-├── app/
-│   ├── api/
-│   │   ├── health/
-│   │   └── infer/
-│   ├── core/
-│   ├── dataset/
-│   │   ├── __init__.py
-│   │   ├── feature_config.py
-│   │   ├── segment_loader.py
-│   │   ├── feature_processor.py
-│   │   ├── window_builder.py
-│   │   ├── dataset_builder.py
-│   │   ├── dataset_summary.py
-│   │   ├── dataset_inspector.py
-│   │   └── split_builder.py
-│   ├── repository/
-│   ├── schema/
-│   └── service/
-├── scripts/
-│   ├── build_window_dataset.py
-│   ├── inspect_dataset.py
-│   ├── split_dataset.py
-│   └── README.md
-├── tests/
-├── run.py
-├── requirements.txt
-└── pytest.ini
+├── data/
+│   └── datasets/
+│       ├── sim_window_w30_s5_h1_raw/
+│       └── sim_window_w30_s5_h1_train_scaled/
+├── outputs/
+│   └── baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30/
+└── scripts/
 ```
 
-## 开发环境
+> 说明：`data/datasets/` 保存窗口数据集、划分结果和标准化后的训练数据；`outputs/` 保存模型训练产物和评估结果。外部仿真 CSV 不直接放入项目目录，以降低项目结构复杂度。
 
-推荐使用虚拟环境：
+---
+
+## 1. 运行环境准备
+
+进入 `railphm-ai` 目录：
 
 ```bash
-cd railphm-ai
-python3 -m venv .venv
-source .venv/bin/activate
+cd /Users/hannn/Desktop/railphm/railphm-ai
+```
+
+激活虚拟环境：
+
+```bash
+source /Users/hannn/Desktop/railphm/railphm-server/.venv/bin/activate
+```
+
+确认 Python 环境可用：
+
+```bash
+python --version
+```
+
+安装依赖：
+
+```bash
 pip install -r requirements.txt
 ```
 
-当前依赖至少包括：
+---
 
-```text
-Flask==3.0.3
-pytest==8.3.5
-pandas
-numpy
-```
+## 2. 脚本功能说明
 
-其中，`Flask` 用于提供 AI 服务接口，`pytest` 用于自动化测试，`pandas` 和 `numpy` 用于 ATP segment 数据读取、特征处理、窗口构造、数据集检查和训练集划分。
+### 2.1 `build_window_dataset.py`
 
-## AI 服务启动
+功能：  
+从连续 ATP segment CSV 文件中构建滑动窗口数据集。
 
-启动 `railphm-ai` 服务：
-
-```bash
-cd railphm-ai
-python run.py
-```
-
-默认服务地址：
-
-```text
-http://127.0.0.1:5001
-```
-
-当前服务接口包括：
-
-```text
-GET  /health
-POST /infer
-```
-
-注意：`python run.py` 只负责启动 AI 服务，不会自动构建数据集。数据集构建、质量检查和训练集划分属于离线任务，需要通过 `scripts/` 目录下的脚本单独执行。
-
-## Task 1：mock inference service 已完成
-
-当前 `/infer` 接口仍为 mock 推理接口，用于先打通 `railphm-server` 与 `railphm-ai` 之间的调用链路。
-
-当前 mock 推理逻辑基于 `device_id % 3` 返回稳定结果，不使用随机数，便于接口联调和测试复现。
-
-当前 `/infer` 请求示例：
-
-```json
-{
-  "device_id": 1,
-  "ts_end": "2026-04-19 10:05:00",
-  "window_minutes": 5
-}
-```
-
-当前 `/infer` 返回字段主要包括：
-
-```text
-device_id
-ts_end
-window_minutes
-window_start_time
-window_end_time
-condition_label
-risk_score
-risk_std
-model_version
-```
-
-其中，`risk_score` 是 AI 服务返回给 `railphm-server` 的核心风险结果。健康度 `health_score` 和告警等级 `alert_level` 由 `railphm-server` 侧根据业务规则计算，不直接由 AI 服务决定。
-
-## Task 2：数据集构建模块已完成
-
-### 任务目标
-
-Task 2 的目标是将已经按“数据时间”连续递增切分得到的 ATP segment CSV 文件，构造为后续模型训练可使用的滑动窗口数据集。
-
-当前构建流程为：
+输入：
 
 ```text
 segment_*.csv
-  ↓
-SegmentLoader 完整读取 CSV
-  ↓
-FeatureProcessor 提取模型输入特征
-  ↓
-WindowBuilder 构造滑动窗口 X/y
-  ↓
-WindowDatasetBuilder 汇总并输出数据集文件
 ```
 
-### 数据输入
-
-当前真实数据已经被切分为：
+输出：
 
 ```text
-1980 个连续时间片段文件
+X.npy
+y.npy
+feature_columns.json
+window_manifest.csv
+dataset_summary.json
 ```
 
-文件名示例：
+主要处理内容包括：
 
-```text
-segment_000003_20150109112305.csv
+- 遍历 `segment_*.csv` 文件；
+- 读取 ATP 连续监测片段；
+- 检查时间连续性；
+- 提取模型输入特征；
+- 根据 `window_size`、`stride`、`horizon` 构造滑动窗口；
+- 根据目标行报警字段生成 0/1 标签；
+- 保存窗口样本矩阵 `X.npy` 和标签 `y.npy`；
+- 保存窗口追溯信息 `window_manifest.csv`。
+
+常用命令：
+
+```bash
+python scripts/build_window_dataset.py \
+  --segments-dir "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/仿真数据/atp_segments_v1" \
+  --output-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --window-size 30 \
+  --stride 5 \
+  --horizon 1 \
+  --overwrite \
+  --verbose
 ```
 
-原始 CSV 中存在多个同名中文字段，例如多个“报警部位”。pandas 读取后会自动转换为：
+参数说明：
 
-```text
-报警部位
-报警部位.1
-报警部位.2
-```
+| 参数 | 说明 |
+|---|---|
+| `--segments-dir` | 原始连续 ATP CSV 片段目录 |
+| `--output-dir` | 窗口数据集输出目录 |
+| `--window-size` | 每个窗口包含的时间步数量 |
+| `--stride` | 滑动窗口步长 |
+| `--horizon` | 预测目标距离窗口结束位置的时间步 |
+| `--overwrite` | 如果输出目录已存在则覆盖 |
+| `--verbose` | 输出详细构建信息 |
 
-本模块只使用 pandas 读入后的第一列 `报警部位` 作为标签来源，不使用 `报警部位.1` 和 `报警部位.2` 作为标签。
-
-### 预测任务定义
-
-当前数据集构建任务定义为：
-
-```text
-基于同一连续 segment 内的历史 ATP 监测时间窗，预测下一时刻是否出现 ATP 报警风险。
-```
-
-默认参数为：
+当前推荐配置：
 
 ```text
 window_size = 30
-stride = 1
-prediction_horizon = 1
-time_col = 数据时间
-label_col = 报警部位
+stride = 5
+horizon = 1
 ```
 
-窗口构造规则为：
+该配置含义为：使用过去 30 秒的 ATP 监测窗口，每 5 秒滑动一次，预测窗口结束后 1 秒的风险标签。
 
-```text
-第 1～30 行预测第 31 行
-第 2～31 行预测第 32 行
-第 3～32 行预测第 33 行
-以此类推
+---
+
+### 2.2 `inspect_dataset.py`
+
+功能：  
+检查已经构建好的窗口数据集是否可用于训练。
+
+检查内容包括：
+
+- `X.npy`、`y.npy` 是否存在；
+- `X` 和 `y` 样本数是否一致；
+- 是否存在 NaN 或 inf；
+- 标签是否只包含 0/1；
+- `feature_columns.json` 与 `X` 的特征维度是否一致；
+- `window_manifest.csv` 行数是否与样本数一致；
+- 正负样本比例；
+- 每个 segment 的窗口数量分布。
+
+常用命令：
+
+```bash
+python scripts/inspect_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw
 ```
 
-窗口只会在单个 segment 内部构造，不会跨 segment 构造。
+标准化后也建议再次检查：
 
-### 标签规则
-
-标签 `y` 是二分类标签，只能取值为 `0` 或 `1`：
-
-```text
-y = 1：目标时刻第一列“报警部位”非空
-y = 0：目标时刻第一列“报警部位”为空
+```bash
+python scripts/inspect_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled
 ```
 
-`报警部位.1` 和 `报警部位.2` 不参与标签构造，也不进入模型输入 `X`。
-
-### 模型输入与元信息
-
-模型输入 `X` 只使用 `app/dataset/feature_config.py` 中配置的数值特征字段，并会进行数值化、缺失值处理和 segment 内 min-max 归一化。
-
-第一版默认数值特征字段共 25 个：
+输出文件：
 
 ```text
-速度
-里程
-运行距离
-行别
-线路编号
-应答器编号
-应答器里程
-行别.1
-线路编号.1
-信号机ID
-信号机里程
-行别.2
-线路编号.2
-经度
-纬度
-信号机ID.1
-信号机里程.1
-行别.3
-线路编号.3
-经度.1
-纬度.1
-司机操作是否合规
-运行方向
-室外温度
-湿度
+inspection_summary.json
 ```
 
-以下字段不会进入模型输入 `X`：
+说明：  
+如果使用 `standard` 标准化，`X_min` 和 `X_max` 不在 `[0, 1]` 范围内是正常现象。此时重点关注：
 
 ```text
-报警部位
-报警部位.1
-报警部位.2
-唯一标识
-司机名
-司机手机号
-司机操作
-路况信息
-等级
-制动信息
-紧急制动速度
-常用制动速度
+is_valid = True
+has_nan = False
+has_inf = False
 ```
 
-车号、车次、ATP 类型、铁路局、司机号、唯一标识等字段不会进入模型输入，但会写入 `window_manifest.csv`，用于样本追溯、系统展示和后续问题排查。
+---
 
-司机名、司机手机号默认不写入 `window_manifest.csv`。
+### 2.3 `split_dataset.py`
 
-### 输出文件
+功能：  
+按照 `segment_id` 对窗口数据集进行训练集、验证集和测试集划分。
 
-数据集构建输出目录：
+该脚本不是随机按窗口样本划分，而是按 `segment_id` 划分，避免同一个连续片段中的窗口同时进入训练集和测试集。
 
-```text
-data/datasets/window_w30_s1_h1/
-```
-
-当前已生成：
+输出：
 
 ```text
-X.npy
-y.npy
-feature_columns.json
-window_manifest.csv
-dataset_summary.json
-```
-
-文件含义：
-
-```text
-X.npy
-模型输入滑动窗口数据，shape = [num_samples, window_size, feature_dim]。
-
-y.npy
-二分类标签，shape = [num_samples]，取值只能为 0 或 1。
-
-feature_columns.json
-记录 X 最后一维对应的特征字段顺序。
-
-window_manifest.csv
-记录每个窗口样本的来源 segment、窗口行号、目标行号、目标时间、标签、车号、车次、ATP 类型、铁路局、唯一标识等追溯信息。
-
-dataset_summary.json
-记录本次数据集构建的统计信息，包括 segment 数量、窗口数量、正负样本数量、正样本比例、X/y shape、缺失字段和跳过文件等。
-```
-
-### 真实数据集构建结果
-
-当前使用 1980 个真实 segment 文件完成构建，结果如下：
-
-```text
-total_segment_files   : 1980
-used_segment_count    : 1980
-skipped_segment_count : 0
-total_windows         : 325800
-positive_count        : 134460
-negative_count        : 191340
-positive_ratio        : 0.412707
-feature_dim           : 25
-X_shape               : [325800, 30, 25]
-y_shape               : [325800]
-manifest rows         : 325800
-unique y              : [0, 1]
-missing_feature_columns : []
-all_nan_feature_columns : []
-```
-
-该结果说明：
-
-```text
-1. 1980 个 segment 文件全部成功读取并使用。
-2. 没有 segment 被跳过。
-3. 构造窗口数量与理论估算一致。
-4. X/y/window_manifest.csv 三者样本数量完全对齐。
-5. 标签为合法二分类标签。
-6. 特征列无缺失，无全空列。
-```
-
-## Task 3：数据集检查与无泄露划分已完成
-
-### Task 3-1：数据集质量检查已完成
-
-当前已实现：
-
-```text
-app/dataset/dataset_inspector.py
-scripts/inspect_dataset.py
-```
-
-数据集检查内容包括：
-
-```text
-1. X.npy、y.npy、feature_columns.json、window_manifest.csv、dataset_summary.json 是否存在。
-2. X 是否为三维数组。
-3. y 是否为一维数组。
-4. X/y/manifest 行数是否一致。
-5. summary 中 total_windows 是否与 y 样本数一致。
-6. y 是否只包含 0 和 1。
-7. X 是否存在 NaN。
-8. X 是否存在 inf。
-9. X 数值范围是否在 0 到 1。
-10. feature_dim 是否等于 feature_columns 数量。
-11. manifest 是否包含 sample_id、segment_id、target_time、label 等必要字段。
-12. manifest 是否误写入司机手机号等敏感字段。
-```
-
-真实数据集检查结果：
-
-```text
-is_valid             : True
-errors               : []
-warnings             : ["不同 segment 的窗口样本数差异较大: min_samples_per_segment=7, max_samples_per_segment=252"]
-X_shape              : [325800, 30, 25]
-y_shape              : [325800]
-manifest_rows        : 325800
-feature_dim          : 25
-feature_column_count : 25
-unique_y             : [0, 1]
-positive_count       : 134460
-negative_count       : 191340
-positive_ratio       : 0.412707
-X_min                : 0.0
-X_max                : 1.0
-has_nan              : False
-has_inf              : False
-segment_count        : 1980
-samples_per_segment_min  : 7
-samples_per_segment_max  : 252
-samples_per_segment_mean : 164.54545454545453
-```
-
-其中 warning 来源于不同 segment 原始长度不同，属于正常现象，不影响后续使用。
-
-### Task 3-2：按 segment_id 划分 train / val / test 已完成
-
-当前已实现：
-
-```text
-app/dataset/split_builder.py
-scripts/split_dataset.py
-```
-
-划分策略：
-
-```text
-按 segment_id 划分 train / val / test。
-同一个 segment_id 下的全部窗口样本只能进入一个集合。
-不允许同一个 segment 同时出现在训练集、验证集或测试集中。
-```
-
-默认划分比例：
-
-```text
-train_ratio = 0.70
-val_ratio   = 0.15
-test_ratio  = 0.15
-seed         = 42
-```
-
-注意：比例按 `segment_id` 数量划分，不是直接按窗口样本数量随机划分。这样可以避免滑动窗口高度重叠导致的数据泄露。
-
-当前真实数据集划分结果：
-
-```text
-训练集：
-sample_count   : 227080
-segment_count  : 1386
-positive_count : 93076
-negative_count : 134004
-positive_ratio : 0.409882
-
-验证集：
-sample_count   : 51058
-segment_count  : 297
-positive_count : 21933
-negative_count : 29125
-positive_ratio : 0.429570
-
-测试集：
-sample_count   : 47662
-segment_count  : 297
-positive_count : 19451
-negative_count : 28211
-positive_ratio : 0.408103
-
-总样本数：
-227080 + 51058 + 47662 = 325800
-
-泄露检查：
-train_val_overlap_count  : 0
-train_test_overlap_count : 0
-val_test_overlap_count   : 0
-has_segment_leakage      : False
-```
-
-当前已生成：
-
-```text
-data/datasets/window_w30_s1_h1/splits/
+splits/
 ├── train_indices.npy
 ├── val_indices.npy
 ├── test_indices.npy
 └── split_summary.json
 ```
 
-`train_indices.npy`、`val_indices.npy` 和 `test_indices.npy` 不复制窗口数据，只保存样本索引。后续训练时可通过索引从 `X.npy` 和 `y.npy` 中取出对应样本。
+常用命令：
 
-## 当前数据目录说明
+```bash
+python scripts/split_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --overwrite
+```
 
-当前数据集目录结构如下：
+参数说明：
+
+| 参数 | 说明 |
+|---|---|
+| `--dataset-dir` | 窗口数据集目录 |
+| `--train-ratio` | 训练集比例 |
+| `--val-ratio` | 验证集比例 |
+| `--test-ratio` | 测试集比例 |
+| `--seed` | 随机种子 |
+| `--overwrite` | 覆盖已有 `splits/` 目录 |
+
+推荐比例：
 
 ```text
-data/datasets/window_w30_s1_h1/
+train : val : test = 0.7 : 0.15 : 0.15
+```
+
+---
+
+### 2.4 `scale_window_dataset.py`
+
+功能：  
+对窗口数据集进行标准化处理。
+
+该脚本只使用训练集样本拟合 scaler，然后对 train、val、test 全量样本统一 transform，避免验证集和测试集统计信息泄露到训练阶段。
+
+输入：
+
+```text
+raw dataset
+```
+
+输出：
+
+```text
+train_scaled dataset
+```
+
+常用命令：
+
+```bash
+python scripts/scale_window_dataset.py \
+  --input-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --output-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --method standard \
+  --overwrite
+```
+
+参数说明：
+
+| 参数 | 说明 |
+|---|---|
+| `--input-dir` | 原始窗口数据集目录 |
+| `--output-dir` | 标准化后数据集输出目录 |
+| `--method` | 标准化方式，当前推荐 `standard` |
+| `--overwrite` | 覆盖已有输出目录 |
+
+输出目录中会保留：
+
+```text
+X.npy
+y.npy
+feature_columns.json
+window_manifest.csv
+dataset_summary.json
+inspection_summary.json
+splits/
+```
+
+说明：  
+当前推荐使用 `standard`，即基于训练集统计量进行标准化。标准化后数据可能包含负数，这是正常现象。
+
+---
+
+### 2.5 `train_baseline.py`
+
+功能：  
+训练 MLP baseline 模型，用于验证当前窗口数据集是否具有基本可训练性。
+
+模型结构：
+
+```text
+Linear(input_dim, 128)
+ReLU
+Dropout(0.2)
+Linear(128, 64)
+ReLU
+Dropout(0.2)
+Linear(64, 1)
+```
+
+模型输出 logits，训练时使用 `BCEWithLogitsLoss`。
+
+输入：
+
+```text
+X.npy
+y.npy
+splits/train_indices.npy
+splits/val_indices.npy
+splits/test_indices.npy
+```
+
+输出：
+
+```text
+best_model.pt
+metrics_history.csv
+test_predictions.csv
+training_config.json
+baseline_report.json
+```
+
+常用命令：
+
+```bash
+python scripts/train_baseline.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --output-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30 \
+  --model mlp \
+  --epochs 30 \
+  --batch-size 256 \
+  --lr 0.001 \
+  --seed 42 \
+  --device auto \
+  --hidden-dims 128,64 \
+  --dropout 0.2 \
+  --best-metric val_auc \
+  --overwrite
+```
+
+参数说明：
+
+| 参数 | 说明 |
+|---|---|
+| `--dataset-dir` | 标准化后的训练数据集目录 |
+| `--output-dir` | 训练结果输出目录 |
+| `--model` | 当前支持 `mlp` |
+| `--epochs` | 训练轮数 |
+| `--batch-size` | 批大小 |
+| `--lr` | 学习率 |
+| `--seed` | 随机种子 |
+| `--device` | 训练设备，支持 `auto`、`cpu`、`cuda`、`mps` |
+| `--hidden-dims` | MLP 隐藏层维度 |
+| `--dropout` | Dropout 比例 |
+| `--best-metric` | 最优模型选择指标，推荐 `val_auc` |
+| `--overwrite` | 覆盖已有输出目录 |
+
+说明：  
+当前数据集上，F1 对阈值较敏感，建议优先使用 `val_auc` 作为 best model 选择依据。
+
+---
+
+### 2.6 `analyze_baseline.py`
+
+功能：  
+分析 baseline 训练结果，汇总数据集信息、训练过程、最终指标和预测分布，并生成分析报告。
+
+输入：
+
+```text
+baseline_report.json
+metrics_history.csv
+test_predictions.csv
+dataset_summary.json
+inspection_summary.json
+split_summary.json
+```
+
+输出：
+
+```text
+baseline_analysis.json
+baseline_analysis.md
+```
+
+常用命令：
+
+```bash
+python scripts/analyze_baseline.py \
+  --run-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30 \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --overwrite
+```
+
+说明：  
+该脚本用于训练完成后的结果整理，便于记录开发过程和撰写实验分析。
+
+---
+
+### 2.7 `make_shuffled_label_dataset.py`
+
+功能：  
+构造随机标签数据集，用于 sanity check。
+
+该脚本会复制一个已有数据集，然后随机打乱 `y.npy`，用于验证训练流程和评估流程是否存在严重 bug。
+
+判断标准：
+
+```text
+如果随机打乱标签后 AUC 回到 0.5 左右：
+说明训练流程基本正常。
+
+如果随机打乱标签后 AUC 仍然很高：
+说明训练或评估流程可能存在问题。
+```
+
+常用命令：
+
+```bash
+python scripts/make_shuffled_label_dataset.py \
+  --input-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --output-dir data/datasets/sim_window_w30_s5_h1_train_scaled_y_shuffled \
+  --seed 42 \
+  --overwrite
+```
+
+然后训练随机标签数据集：
+
+```bash
+python scripts/train_baseline.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled_y_shuffled \
+  --output-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_y_shuffled \
+  --model mlp \
+  --epochs 10 \
+  --batch-size 256 \
+  --lr 0.001 \
+  --seed 42 \
+  --device auto \
+  --hidden-dims 128,64 \
+  --dropout 0.2 \
+  --best-metric val_auc \
+  --overwrite
+```
+
+---
+
+### 2.8 `split_dataset_by_label_seq.py`
+
+功能：  
+按照每个 segment 的标签序列模式进行诊断性划分，用于排查标签模板泄露。
+
+该脚本主要用于历史异常排查，不作为正式训练流程的必要步骤。
+
+适用场景：
+
+```text
+当模型在随机 segment split 下取得异常高指标时，
+可用该脚本验证是否存在 label_seq 模板在 train/val/test 中重复出现的问题。
+```
+
+示例命令：
+
+```bash
+python scripts/split_dataset_by_label_seq.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --train-label-seqs 000000,1111111,010101 \
+  --val-label-seqs 0000000,1001100 \
+  --test-label-seqs 111110 \
+  --overwrite
+```
+
+说明：  
+该脚本主要用于数据诊断。对于当前已经去模板化后的仿真数据集，通常不需要作为常规训练流程执行。
+
+---
+
+## 3. 推荐完整流程
+
+下面给出当前推荐的一套完整运行流程，从外部仿真 CSV 到最终 baseline 训练结果。
+
+### 3.1 构建窗口数据集
+
+```bash
+python scripts/build_window_dataset.py \
+  --segments-dir "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/仿真数据/atp_segments_v1" \
+  --output-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --window-size 30 \
+  --stride 5 \
+  --horizon 1 \
+  --overwrite \
+  --verbose
+```
+
+预期输出：
+
+```text
+data/datasets/sim_window_w30_s5_h1_raw/
+├── X.npy
+├── y.npy
+├── feature_columns.json
+├── window_manifest.csv
+└── dataset_summary.json
+```
+
+---
+
+### 3.2 检查窗口数据集
+
+```bash
+python scripts/inspect_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw
+```
+
+重点确认：
+
+```text
+is_valid = True
+has_nan = False
+has_inf = False
+unique_y = [0, 1]
+```
+
+---
+
+### 3.3 划分训练集、验证集和测试集
+
+```bash
+python scripts/split_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --overwrite
+```
+
+预期输出：
+
+```text
+data/datasets/sim_window_w30_s5_h1_raw/splits/
+├── train_indices.npy
+├── val_indices.npy
+├── test_indices.npy
+└── split_summary.json
+```
+
+---
+
+### 3.4 基于训练集统计量标准化
+
+```bash
+python scripts/scale_window_dataset.py \
+  --input-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --output-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --method standard \
+  --overwrite
+```
+
+预期输出：
+
+```text
+data/datasets/sim_window_w30_s5_h1_train_scaled/
 ├── X.npy
 ├── y.npy
 ├── feature_columns.json
 ├── window_manifest.csv
 ├── dataset_summary.json
-├── inspection_summary.json
 └── splits/
-    ├── train_indices.npy
-    ├── val_indices.npy
-    ├── test_indices.npy
-    └── split_summary.json
 ```
 
-其中：
+---
 
-```text
-dataset_summary.json
-由 build_window_dataset.py 生成，记录窗口数据集构建结果。
-
-inspection_summary.json
-由 inspect_dataset.py 生成，记录数据集质量检查结果。
-
-split_summary.json
-由 split_dataset.py 生成，记录 train / val / test 划分结果。
-```
-
-## 脚本使用说明
-
-脚本使用方式统一记录在：
-
-```text
-scripts/README.md
-```
-
-当前主要脚本包括：
-
-```text
-scripts/build_window_dataset.py
-scripts/inspect_dataset.py
-scripts/split_dataset.py
-```
-
-## 测试
-
-运行全部测试：
+### 3.5 检查标准化后的数据集
 
 ```bash
-cd railphm-ai
-pytest
+python scripts/inspect_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled
 ```
 
-测试目标包括：
+重点确认：
 
 ```text
-1. /health 接口行为稳定。
-2. /infer mock 推理接口行为稳定。
-3. SegmentLoader 能正确读取 segment CSV。
-4. FeatureProcessor 能正确生成模型输入特征。
-5. WindowBuilder 能正确构造滑动窗口和二分类标签。
-6. WindowDatasetBuilder 能正确输出 X.npy、y.npy、window_manifest.csv 等文件。
-7. DatasetInspector 能正确检查数据集质量。
-8. DatasetSplitBuilder 能按 segment_id 完成无泄露划分。
+is_valid = True
+has_nan = False
+has_inf = False
 ```
 
-## 数据管理注意事项
+说明：  
+`standard` 标准化后 `X_min` 可能小于 0，`X_max` 可能大于 1，属于正常现象。
 
-数据集构建会产生本地数据文件和较大的 NumPy 数组文件，不应提交到 GitHub。建议根目录 `.gitignore` 包含：
+---
 
-```gitignore
-# RailPHM AI generated datasets
-railphm-ai/data/datasets/
-railphm-ai/data/processed/
-*.npy
+### 3.6 训练 MLP baseline
+
+```bash
+python scripts/train_baseline.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --output-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30 \
+  --model mlp \
+  --epochs 30 \
+  --batch-size 256 \
+  --lr 0.001 \
+  --seed 42 \
+  --device auto \
+  --hidden-dims 128,64 \
+  --dropout 0.2 \
+  --best-metric val_auc \
+  --overwrite
 ```
 
-含义如下：
+训练过程中会输出每个 epoch 的指标，例如：
 
 ```text
-railphm-ai/data/processed/
-用于存放切分后的 segment CSV 文件，例如 data/processed/atp_segments/。这些文件来自原始数据处理结果，通常体积较大，不应提交。
-
-railphm-ai/data/datasets/
-用于存放构建后的窗口数据集，包括 X.npy、y.npy、feature_columns.json、window_manifest.csv 和 dataset_summary.json，不应提交。
-
-*.npy
-忽略 NumPy 大数组文件，例如 X.npy、y.npy、train_indices.npy、val_indices.npy 和 test_indices.npy。
+Epoch 1/30 | train_loss=... | val_loss=... | val_f1=... | val_auc=...
 ```
 
-## 关于 InfluxDB 的阶段说明
-
-论文设计中，ATP 监测时序数据最终由 InfluxDB 存储。当前阶段为了优先跑通预测模块真实数据链路，先使用本地 ATP segment CSV 作为离线数据来源，完成数据集构建、质量检查和训练集划分。
-
-该实现不改变论文中 InfluxDB 作为系统时序数据存储方案的设计。后续接入在线推理时，可将数据读取层替换为 InfluxDB 查询结果，并保持 `FeatureProcessor`、`WindowBuilder` 和模型推理接口尽量不变。
-
-当前阶段可理解为：
+训练结束后输出：
 
 ```text
-CSV：开发阶段、实验阶段、离线训练阶段的数据来源。
-InfluxDB：系统运行阶段、在线查询阶段、部署阶段的数据来源。
+outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30/
+├── best_model.pt
+├── metrics_history.csv
+├── test_predictions.csv
+├── training_config.json
+└── baseline_report.json
 ```
 
-## 下一步开发计划
+---
 
-下一阶段建议进入模型训练准备与 baseline 开发：
+### 3.7 分析 baseline 结果
+
+```bash
+python scripts/analyze_baseline.py \
+  --run-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30 \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --overwrite
+```
+
+预期输出：
 
 ```text
-Task 4：模型训练 baseline 开发
+outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30/
+├── baseline_analysis.json
+└── baseline_analysis.md
 ```
 
-建议继续按小任务推进：
+---
+
+## 4. 阈值诊断
+
+MLP 输出的是概率分数，默认分类阈值为 `0.5`。如果模型 AUC 有一定提升，但 F1 较低，可能是阈值设置不合适。
+
+可以使用下面命令检查不同阈值下的 precision、recall 和 F1：
+
+```bash
+python - <<'PY'
+import pandas as pd
+
+path = "outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30/test_predictions.csv"
+df = pd.read_csv(path)
+
+print("y_true ratio:", df["y_true"].mean())
+print("y_prob describe:")
+print(df["y_prob"].describe())
+print()
+
+for t in [0.1, 0.2, 0.3, 0.4, 0.5]:
+    pred = (df["y_prob"] >= t).astype(int)
+    tp = ((pred == 1) & (df["y_true"] == 1)).sum()
+    fp = ((pred == 1) & (df["y_true"] == 0)).sum()
+    fn = ((pred == 0) & (df["y_true"] == 1)).sum()
+
+    precision = tp / (tp + fp) if tp + fp > 0 else 0
+    recall = tp / (tp + fn) if tp + fn > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
+
+    print(
+        f"threshold={t:.1f} "
+        f"precision={precision:.4f} "
+        f"recall={recall:.4f} "
+        f"f1={f1:.4f} "
+        f"predicted_positive={pred.mean():.4f}"
+    )
+PY
+```
+
+说明：  
+AUC 反映模型排序能力，F1 受阈值影响较大。当前 baseline 阶段建议优先观察 AUC，同时结合阈值诊断分析 F1。
+
+---
+
+## 5. 当前推荐数据集命名规范
+
+为避免目录混乱，建议按如下规则命名：
 
 ```text
-Task 4-1：实现训练数据加载器，基于 X.npy、y.npy 和 train/val/test indices 读取数据。
-Task 4-2：实现最小 baseline 模型，例如 Logistic Regression / MLP / 简单 LSTM，用于验证数据集可训练。
-Task 4-3：实现训练指标输出，包括 accuracy、precision、recall、F1、AUC 等。
-Task 4-4：保存 baseline 训练结果和评估报告。
-Task 4-5：再进入 Bi-LSTM + Attention 模型实现。
+sim_window_w{窗口长度}_s{步长}_h{预测距离}_raw
+sim_window_w{窗口长度}_s{步长}_h{预测距离}_train_scaled
 ```
 
-在进入 Bi-LSTM + Attention 前，建议先用简单 baseline 验证数据是否能被模型学习，避免直接上复杂模型后难以定位问题。
+示例：
+
+```text
+sim_window_w30_s5_h1_raw
+sim_window_w30_s5_h1_train_scaled
+```
+
+含义：
+
+```text
+w30：窗口长度为 30
+s5：滑动步长为 5
+h1：预测距离为 1
+raw：未标准化窗口数据集
+train_scaled：使用训练集统计量标准化后的数据集
+```
+
+---
+
+## 6. 当前推荐输出目录命名规范
+
+训练输出建议命名为：
+
+```text
+outputs/baseline_mlp_{dataset_name}_e{epochs}
+```
+
+示例：
+
+```text
+outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30
+```
+
+这样可以直接从目录名看出：
+
+```text
+模型：baseline_mlp
+数据集：sim_window_w30_s5_h1_train_scaled
+训练轮数：30
+```
+
+---
+
+## 7. 常见问题
+
+### 7.1 为什么检查数据集时提示 X 不在 [0, 1] 范围内？
+
+如果数据集是 raw 数据，说明尚未标准化，需要执行 `scale_window_dataset.py`。
+
+如果数据集已经使用 `standard` 标准化，则出现负数是正常现象，因为 standard scaler 会将特征转换为近似均值 0、标准差 1 的分布。此时重点检查：
+
+```text
+has_nan = False
+has_inf = False
+is_valid = True
+```
+
+---
+
+### 7.2 为什么要先 split 再 scale？
+
+因为标准化必须只使用训练集统计量。如果先对全量数据标准化，再划分 train/val/test，会把验证集和测试集的统计信息泄露到训练阶段。
+
+正确顺序是：
+
+```text
+raw dataset
+→ split_dataset.py
+→ scale_window_dataset.py
+→ train_baseline.py
+```
+
+---
+
+### 7.3 为什么 baseline 结果不追求 1.0？
+
+在故障风险预测任务中，过高的指标反而需要警惕。如果简单 MLP baseline 在验证集和测试集上轻松接近 1.0，通常需要排查：
+
+```text
+数据泄露
+标签模板化
+同源片段泄露
+代理特征
+训练评估流程错误
+```
+
+当前 baseline 的主要作用是验证数据集和训练流程是否具备基本可训练性，而不是作为最终模型效果结论。
+
+---
+
+### 7.4 什么时候可以进入 LSTM / Bi-LSTM / Attention？
+
+当满足以下条件时，可以继续进入后续时序模型开发：
+
+```text
+数据集检查通过；
+标签不再严重模板化；
+随机标签 sanity check 正常；
+MLP baseline 不再异常满分；
+MLP baseline 存在一定可学习信号；
+训练、验证、测试集划分无明显泄露。
+```
+
+后续建议顺序为：
+
+```text
+MLP baseline
+→ LSTM baseline
+→ Bi-LSTM
+→ Bi-LSTM + Attention
+→ MC-Dropout 不确定性估计
+```
+
+---
+
+## 8. 一键顺序执行参考
+
+下面是一组从数据集构建到模型训练和分析的完整命令，可按顺序执行。
+
+```bash
+cd /Users/hannn/Desktop/railphm/railphm-ai
+
+source /Users/hannn/Desktop/railphm/railphm-server/.venv/bin/activate
+
+python scripts/build_window_dataset.py \
+  --segments-dir "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/仿真数据/atp_segments_v1" \
+  --output-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --window-size 30 \
+  --stride 5 \
+  --horizon 1 \
+  --overwrite \
+  --verbose
+
+python scripts/inspect_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw
+
+python scripts/split_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --overwrite
+
+python scripts/scale_window_dataset.py \
+  --input-dir data/datasets/sim_window_w30_s5_h1_raw \
+  --output-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --method standard \
+  --overwrite
+
+python scripts/inspect_dataset.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled
+
+python scripts/train_baseline.py \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --output-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30 \
+  --model mlp \
+  --epochs 30 \
+  --batch-size 256 \
+  --lr 0.001 \
+  --seed 42 \
+  --device auto \
+  --hidden-dims 128,64 \
+  --dropout 0.2 \
+  --best-metric val_auc \
+  --overwrite
+
+python scripts/analyze_baseline.py \
+  --run-dir outputs/baseline_mlp_sim_window_w30_s5_h1_train_scaled_e30 \
+  --dataset-dir data/datasets/sim_window_w30_s5_h1_train_scaled \
+  --overwrite
+```
+
+---
+
+## 9. 当前阶段说明
+
+当前脚本流程主要服务于 RailPHM 预测模块的数据集构建和 baseline 可训练性验证。MLP baseline 不是最终模型，而是用于确认数据处理流程、窗口构造逻辑、数据划分、标准化处理和训练评估流程能够正常运行。
+
+后续在 baseline 流程稳定后，将继续推进：
+
+```text
+K-means 工况划分
+LSTM baseline
+Bi-LSTM
+Bi-LSTM + Attention
+MC-Dropout 不确定性估计
+风险分数输出与健康度映射
+```

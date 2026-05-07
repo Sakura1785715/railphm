@@ -60,11 +60,19 @@ def test_feature_processor_transforms_numeric_features_without_nan():
 
     assert "不存在列" in result.missing_feature_columns
 
-    assert result.feature_matrix.min() >= 0.0
-    assert result.feature_matrix.max() <= 1.0
+    expected = np.array(
+        [
+            [10.0, 100.0, 5.0, 0.0, 1.0],
+            [20.0, 101.0, 5.0, 0.0, 0.0],
+            [30.0, 102.0, 5.0, 0.0, 0.0],
+            [30.0, 103.0, 5.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    np.testing.assert_allclose(result.feature_matrix, expected)
 
     running_distance_index = result.feature_columns.index("运行距离")
-    assert np.all(result.feature_matrix[:, running_distance_index] == 0.0)
+    assert np.all(result.feature_matrix[:, running_distance_index] == 5.0)
 
 
 def test_feature_processor_default_columns_exclude_label_and_sensitive_fields():
