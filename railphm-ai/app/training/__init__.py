@@ -17,6 +17,7 @@ from app.training.train_baseline import (
     train_baseline,
     train_one_epoch,
 )
+from app.training.train_sequence_model import SequenceTrainConfig, train_sequence_model
 
 __all__ = [
     "WindowDataset",
@@ -32,4 +33,6 @@ __all__ = [
     "collect_predictions",
     "BaselineAnalysisConfig",
     "BaselineAnalyzer",
+    "SequenceTrainConfig",
+    "train_sequence_model",
 ]
