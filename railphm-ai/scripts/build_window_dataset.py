@@ -10,7 +10,9 @@ from app.dataset.feature_config import (
     DEFAULT_STRIDE,
     DEFAULT_WINDOW_SIZE,
 )
-
+from app.dataset.feature_processor import FeatureProcessor
+from app.dataset.feature_profiles import get_feature_profile, list_feature_profiles
+from app.dataset.segment_loader import SegmentLoader
 
 def parse_args() -> argparse.Namespace:
     """
@@ -23,6 +25,14 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description="Build RailPHM ATP sliding-window dataset from segment CSV files."
+    )
+
+    parser.add_argument(
+        "--feature-profile",
+        type=str,
+        default="full_features",
+        choices=list_feature_profiles(),
+        help="特征消融配置：full_features / remove_id_like_features / continuous_only_features",
     )
 
     parser.add_argument(
@@ -92,6 +102,44 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_existing_feature_columns(segments_dir: Path, requested_columns: list[str]) -> tuple[list[str], list[str]]:
+    """
+    根据第一个可正常读取的 segment CSV 表头解析实际存在的字段。
+
+    这样可以做到：
+    - requested_feature_columns 记录配置想用的字段；
+    - actual_feature_columns 只保留当前 CSV 中实际存在的字段；
+    - missing_feature_columns 在终端和 dataset_summary.json 中提示；
+    - 不存在的字段不会进入 feature_columns.json。
+    """
+    segment_files = sorted(Path(segments_dir).glob("segment_*.csv"))
+    if not segment_files:
+        raise FileNotFoundError(f"segments_dir 下未找到 segment_*.csv: {segments_dir}")
+
+    loader = SegmentLoader()
+    last_error = None
+
+    for file_path in segment_files:
+        try:
+            segment_data = loader.load_segment(file_path)
+            available_columns = set(segment_data.df.columns)
+            actual_columns = [column for column in requested_columns if column in available_columns]
+            missing_columns = [column for column in requested_columns if column not in available_columns]
+
+            if not actual_columns:
+                raise ValueError(
+                    f"feature_profile 中没有任何字段存在于首个可读 segment: {file_path.name}"
+                )
+
+            return actual_columns, missing_columns
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise RuntimeError(f"无法读取任何 segment 文件以解析字段，最后一次错误: {last_error}")
+
+
+
 def print_summary(summary: dict, verbose: bool = False) -> None:
     """
     将 WindowDatasetBuilder 返回的 summary 打印到终端。
@@ -107,6 +155,7 @@ def print_summary(summary: dict, verbose: bool = False) -> None:
     print(f"window_size           : {summary.get('window_size')}")
     print(f"stride                : {summary.get('stride')}")
     print(f"prediction_horizon    : {summary.get('prediction_horizon')}")
+    print(f"feature_profile       : {summary.get('feature_profile', 'full_features')}")
     print(f"total_segment_files   : {summary.get('total_segment_files')}")
     print(f"used_segment_count    : {summary.get('used_segment_count')}")
     print(f"skipped_segment_count : {summary.get('skipped_segment_count')}")
@@ -122,6 +171,11 @@ def print_summary(summary: dict, verbose: bool = False) -> None:
 
     print(f"positive_ratio        : {positive_ratio_text}")
     print(f"feature_dim           : {summary.get('feature_dim')}")
+    actual_feature_columns = summary.get("actual_feature_columns") or summary.get("feature_columns") or []
+    requested_feature_columns = summary.get("requested_feature_columns") or []
+    missing_profile_columns = summary.get("missing_profile_columns") or []
+    print(f"requested_feature_dim : {len(requested_feature_columns)}")
+    print(f"actual_feature_dim    : {len(actual_feature_columns)}")
     print(f"X_shape               : {summary.get('X_shape')}")
     print(f"y_shape               : {summary.get('y_shape')}")
     print("-" * 72)
@@ -137,6 +191,24 @@ def print_summary(summary: dict, verbose: bool = False) -> None:
 
     if not verbose:
         return
+    
+    if requested_feature_columns:
+        print()
+        print("requested_feature_columns:")
+    for column in requested_feature_columns:
+        print(f"- {column}")
+
+    if actual_feature_columns:
+        print()
+        print("actual_feature_columns:")
+        for column in actual_feature_columns:
+            print(f"- {column}")
+
+    if missing_profile_columns:
+        print()
+        print("missing_profile_columns:")
+        for column in missing_profile_columns:
+            print(f"- {column}")
 
     print()
     print("Verbose details:")
@@ -174,7 +246,14 @@ def print_summary(summary: dict, verbose: bool = False) -> None:
 def main() -> int:
     args = parse_args()
 
-    builder = WindowDatasetBuilder()
+    requested_feature_columns = get_feature_profile(args.feature_profile)
+    actual_feature_columns, missing_profile_columns = resolve_existing_feature_columns(
+        segments_dir=args.segments_dir,
+        requested_columns=requested_feature_columns,
+    )
+
+    feature_processor = FeatureProcessor(feature_columns=actual_feature_columns)
+    builder = WindowDatasetBuilder(feature_processor=feature_processor)
 
     try:
         summary = builder.build(
@@ -186,9 +265,22 @@ def main() -> int:
             overwrite=args.overwrite,
             skip_invalid_segments=args.skip_invalid_segments,
         )
+        summary["feature_profile"] = args.feature_profile
+        summary["requested_feature_columns"] = requested_feature_columns
+        summary["actual_feature_columns"] = actual_feature_columns
+        summary["missing_profile_columns"] = missing_profile_columns
+
+        summary_path = args.output_dir / "dataset_summary.json"
+        summary_path.write_text(
+            __import__("json").dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     except Exception as exc:
         print(f"[ERROR] 数据集构建失败: {exc}", file=sys.stderr)
         return 1
+    
+
+    
 
     print_summary(summary, verbose=args.verbose)
     return 0

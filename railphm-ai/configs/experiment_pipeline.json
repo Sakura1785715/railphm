@@ -1,0 +1,56 @@
+{
+  "experiment_name": "bilstm_attention_h1_full_features",
+  "segments_dir": "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/仿真数据/atp_segments_v1",
+  "dataset_root": "data/datasets",
+  "output_root": "outputs/sequence_models",
+  "window": {
+    "window_size": 30,
+    "stride": 1,
+    "prediction_horizon": 1
+  },
+  "feature": {
+    "profile": "full_features"
+  },
+  "split": {
+    "strategy": "segment_id",
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "seed": 42
+  },
+  "scale": {
+    "enabled": true,
+    "fit_split": "train"
+  },
+  "condition": {
+    "enabled": true,
+    "k": 3,
+    "fit_split": "train"
+  },
+  "model": {
+    "name": "bilstm_attention",
+    "epochs": 10,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "hidden_dim": 64,
+    "dropout": 0.3
+  },
+  "threshold": {
+    "default_threshold": 0.26,
+    "search_on": "val",
+    "metric": "f1",
+    "min": 0.01,
+    "max": 0.99,
+    "step": 0.01
+  },
+  "diagnosis": {
+    "high_fp_enabled": true,
+    "top_fp": 10
+  },
+  "run": {
+    "overwrite": false,
+    "skip_existing": true,
+    "dry_run": false,
+    "stop_on_error": true
+  }
+}

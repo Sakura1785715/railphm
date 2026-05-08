@@ -913,3 +913,58 @@ pytest
 5. 工况 one-hot 增强数据集只改变 `X.npy` 和 `feature_columns.json`，`y.npy`、`window_manifest.csv` 和 `splits/` 应保持不变。
 6. MLP baseline 只是可训练性和特征有效性验证，不是最终模型。
 7. 工况 one-hot 当前已经证明有一定作用，但提升幅度有限，论文表述应保持克制，避免写成“显著提升”。
+
+---
+
+## 6. 目录与脚本说明
+
+`app/` 存放核心服务、数据处理、模型与训练相关代码。
+
+`scripts/` 存放稳定可复用的命令行脚本，包括数据集构建、检查、划分、标准化、工况划分、训练、评估和诊断分析等入口。
+
+`scripts/archive/` 存放历史排查、临时实验和一次性任务脚本，不属于当前主实验流程；文件仅归档保留，没有删除。
+
+`configs/` 用于后续统一实验入口的配置文件管理，当前只保留目录说明。
+
+`data/` 存放本地数据集，`outputs/` 存放模型训练输出，`reports/` 预留给实验报告或排查结果；这些目录不建议提交到 git。
+
+`tests/` 存放自动化测试。
+
+---
+
+## 7. 统一实验入口
+
+详细使用方式见 `docs/experiment_pipeline_usage.md`。
+
+完整流程：
+
+```bash
+python scripts/run_experiment_pipeline.py --config configs/experiment_pipeline.json
+```
+
+只打印将执行的阶段、路径和命令：
+
+```bash
+python scripts/run_experiment_pipeline.py --config configs/experiment_pipeline.json --dry-run
+```
+
+只运行单个阶段：
+
+```bash
+python scripts/run_experiment_pipeline.py --config configs/experiment_pipeline.json --only-stage train
+```
+
+从某个阶段继续：
+
+```bash
+python scripts/run_experiment_pipeline.py --config configs/experiment_pipeline.json --stage-from scale
+```
+
+覆盖配置中的关键参数：
+
+```bash
+python scripts/run_experiment_pipeline.py \
+  --config configs/experiment_pipeline.json \
+  --prediction-horizon 5 \
+  --model bilstm_attention
+```

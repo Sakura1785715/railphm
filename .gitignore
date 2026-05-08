@@ -29,9 +29,21 @@ models/clusterers/
 # Runtime
 logs/
 
+# RailPHM generated data and model artifacts
 railphm-ai/data/datasets/
 railphm-ai/data/processed/
-*.npy
-
 railphm-ai/outputs/
-railphm-ai/data/datasets/
+railphm-ai/reports/
+*.pt
+*.pth
+*.npy
+*.npz
+*.pkl
+*.joblib
+*.ckpt
+*.onnx
+
+# Python tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
