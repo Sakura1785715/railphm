@@ -213,7 +213,36 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
 
     checkpoint = torch.load(best_model_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
+    # ===== TEMP EXPERIMENT: evaluate on all samples without train/val/test split =====
+    # 仅用于临时实验：把整个数据集一起输入 best_model 计算整体指标。
+    # 实验结束后请删除本段，避免正式流程混淆 train/val/test 评价口径。
+    all_indices = np.arange(int(y.shape[0]), dtype=np.int64)
 
+    all_dataset = WindowDataset(
+        X,
+        y,
+        all_indices,
+        flatten=False,
+    )
+
+    all_loader = DataLoader(
+        all_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=config.num_workers,
+    )
+
+    all_metrics = evaluate_model(
+        model=model,
+        loader=all_loader,
+        criterion=criterion,
+        device=device,
+        threshold=config.threshold,
+    )
+
+    print("[TEMP EXPERIMENT] all_metrics:")
+    print(json.dumps(_json_safe_metrics(all_metrics), ensure_ascii=False, indent=2))
+    # ===== END TEMP EXPERIMENT =====
     train_metrics = evaluate_model(
         model=model,
         loader=train_loader,
