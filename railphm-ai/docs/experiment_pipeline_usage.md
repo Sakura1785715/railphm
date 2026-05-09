@@ -555,3 +555,208 @@ pytest
 - [ ] 已查看 `test_predictions.csv`；
 - [ ] 已保存或记录核心指标；
 - [ ] 未删除原始 segment 数据。
+
+## 19. 默认模型运行时产物固化说明
+
+完成统一实验流程后，默认 Bi-LSTM+Attention 模型的训练产物位于：
+
+```text
+outputs/sequence_models/bilstm_attention_h1_full_features
+```
+
+当前系统将该目录作为 `railphm-ai` 默认模型运行时目录。该目录用于后续模型加载、单窗口风险预测、概率校准、MC-Dropout 不确定性估计以及 `/infer` 真实推理接入。
+
+### 19.1 模型运行时必要产物
+
+默认模型目录下应至少包含以下文件：
+
+```text
+best_model.pt
+training_config.json
+sequence_model_report.json
+threshold_summary.json
+evaluation_summary.json
+metrics_history.csv
+val_predictions.csv
+test_predictions.csv
+feature_columns.json
+model_artifact_manifest.json
+```
+
+其中，`best_model.pt` 为训练得到的最优模型权重；`training_config.json` 用于恢复模型结构；`threshold_summary.json` 用于记录验证集最优阈值；`feature_columns.json` 用于保存模型输入特征顺序；`model_artifact_manifest.json` 用于统一描述模型运行时需要加载的产物。
+
+### 19.2 当前默认模型配置
+
+当前默认模型为：
+
+```text
+model_version = bilstm_attention_h1_full_features
+model_name = bilstm_attention
+model_class = BiLSTMAttentionClassifier
+window_size = 30
+feature_dim = 23
+input_dim = 23
+hidden_dim = 64
+num_layers = 1
+dropout = 0.3
+threshold = 0.26
+```
+
+模型输入为单个滑动窗口样本，形状为：
+
+```text
+[30, 23]
+```
+
+其中，`30` 表示窗口长度，`23` 表示每个时间步的输入特征数。
+
+### 19.3 当前模型输入特征
+
+当前默认模型使用 23 维输入特征，字段顺序由模型目录下的 `feature_columns.json` 固定。当前字段如下：
+
+```text
+速度
+里程
+运行距离
+行别
+线路编号
+应答器编号
+应答器里程
+行别.1
+线路编号.1
+信号机ID
+信号机里程
+行别.2
+线路编号.2
+信号机ID.1
+信号机里程.1
+行别.3
+线路编号.3
+运行方向
+室外温度
+湿度
+condition_0
+condition_1
+condition_2
+```
+
+其中，前 20 个字段来自 ATP 原始监测数据中的运行状态、线路、应答器、信号机和环境信息；最后 3 个字段为 K-means 工况划分后追加的 one-hot 工况特征。
+
+需要注意的是，`报警部位` 字段仅用于构造窗口标签，不作为模型输入特征，以避免标签泄露。
+
+### 19.4 模型产物检查
+
+可使用以下命令检查默认模型产物是否齐全：
+
+```bash
+cd railphm-ai
+
+MODEL_DIR="outputs/sequence_models/bilstm_attention_h1_full_features"
+
+echo "== Check required artifact files =="
+for f in \
+  best_model.pt \
+  training_config.json \
+  sequence_model_report.json \
+  threshold_summary.json \
+  evaluation_summary.json \
+  metrics_history.csv \
+  val_predictions.csv \
+  test_predictions.csv \
+  feature_columns.json \
+  model_artifact_manifest.json
+do
+  if [ -f "$MODEL_DIR/$f" ]; then
+    echo "[OK] $f"
+  else
+    echo "[MISSING] $f"
+  fi
+done
+```
+
+如果全部显示 `[OK]`，说明默认模型运行时产物已经齐全。
+
+### 19.5 生成模型产物清单
+
+如果模型目录中尚未生成 `model_artifact_manifest.json`，可执行：
+
+```bash
+python scripts/build_model_artifact_manifest.py \
+  --model-dir outputs/sequence_models/bilstm_attention_h1_full_features \
+  --overwrite
+```
+
+生成后，模型运行时加载器将以 `model_artifact_manifest.json` 作为统一入口，读取模型配置、权重路径、阈值信息和特征字段顺序。
+
+### 19.6 模型运行时加载能力
+
+当前阶段已新增 `app/runtime` 运行时模块，用于承载训练产物加载和模型推理相关能力：
+
+```text
+app/runtime/artifact_manifest.py
+app/runtime/model_loader.py
+```
+
+其中，`ArtifactManifest` 负责读取和校验 `model_artifact_manifest.json`；`SequenceModelRuntime` 负责根据 manifest 构造模型、加载 `best_model.pt` 权重，并提供单窗口预测能力。
+
+当前已实现的核心能力包括：
+
+```text
+ArtifactManifest.load(model_dir)
+SequenceModelRuntime.from_model_dir(model_dir)
+SequenceModelRuntime.predict_proba(window)
+```
+
+### 19.7 单窗口预测输入输出
+
+`predict_proba(window)` 接收一个 `numpy.ndarray` 类型的窗口样本，输入形状必须为：
+
+```text
+(30, 23)
+```
+
+输出字段包括：
+
+```text
+risk_raw
+risk_score
+threshold
+predicted_label
+model_version
+model_name
+```
+
+当前阶段尚未接入概率校准，因此：
+
+```text
+risk_score = risk_raw
+```
+
+后续完成概率校准后，`risk_raw` 将表示模型原始输出概率，`risk_score` 将表示校准后的风险分数。
+
+### 19.8 当前阶段边界
+
+当前模型运行时固化阶段只完成以下内容：
+
+```text
+训练产物整理
+feature_columns.json 固化
+model_artifact_manifest.json 生成
+ArtifactManifest 读取与校验
+SequenceModelRuntime 模型加载
+单窗口确定性预测
+```
+
+当前阶段尚未完成：
+
+```text
+概率校准
+MC-Dropout 不确定性估计
+/infer 真实推理接入
+MySQL 风险结果落库
+健康度映射
+告警等级生成
+前端真实结果展示
+```
+
+这些内容将在后续阶段继续开发。
