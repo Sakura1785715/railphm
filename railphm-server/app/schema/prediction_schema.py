@@ -12,16 +12,27 @@ class PredictionSchema:
 
     INFER_FIELDS = (
         "device_id",
-        "ts_end",
-        "window_minutes",
-        "window_start_time",
-        "window_end_time",
-        "condition_label",
+        "sample_index",
+        "risk_raw",
         "risk_score",
         "risk_std",
-        "health_score",
-        "alert_level",
+        "threshold",
+        "predicted_label",
         "model_version",
+        "window_start_time",
+        "window_end_time",
+        "data_source",
+        "uncertainty_method",
+        "health_score",
+        "health_level",
+        "health_status",
+        "health_description",
+        "alert_generated",
+        "alert_level",
+        "alert_status",
+        "alert_status_text",
+        "alert_message",
+        "alert_advice",
     )
 
     @staticmethod
@@ -96,7 +107,7 @@ class PredictionSchema:
     def dump_infer_result(cls, record: Dict[str, Any]) -> Dict[str, Any]:
         """
         统一收口 infer 输出，避免将外部服务原始结构直接透传给前端。
-        当前阶段健康度与告警级别属于后端业务解释规则，优先保持 server 侧稳定。
+        阶段 4 在风险字段和健康度字段基础上补充告警判定字段，但不生成真实告警记录。
         """
         if not isinstance(record, dict):
             raise BusinessException(code=502, message="AI 推理服务返回数据格式非法", status_code=502)

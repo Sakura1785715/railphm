@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-`railphm-server` 是 RailPHM 的 Flask 后端主服务，负责统一 API、业务服务编排、mock Repository 数据访问、AI mock 服务调用、健康度计算和告警等级映射。
+`railphm-server` 是 RailPHM 的 Flask 后端主服务，负责统一 API、业务服务编排、mock Repository 数据访问、AI 推理服务调用、健康度计算和告警等级映射。
 
 当前后端重点服务于毕业设计系统实现演示和前后端联调。代码已经形成 `API -> Service -> Repository -> Schema -> Response` 的分层结构，但数据层仍以 mock 数据为主，真实 MySQL 和 InfluxDB 尚未接入。
 
@@ -83,7 +83,19 @@ GET  /api/v1/predictions/history
 POST /api/v1/predictions/infer
 ```
 
-`latest` 和 `history` 当前查询 mock 风险结果。`infer` 会调用 `railphm-ai` 的 `POST /infer`，再由后端按规则补齐 `health_score` 和 `alert_level`。
+`latest` 和 `history` 当前查询 mock 风险结果。`infer` 会调用 `railphm-ai` 的 `POST /infer`，返回风险字段、健康度字段和本次推理的告警判定字段，但不写入历史趋势和告警记录。
+
+### 实时仿真接口
+
+```text
+POST /api/v1/realtime/start
+POST /api/v1/realtime/stop
+POST /api/v1/realtime/reset
+GET  /api/v1/realtime/state
+GET  /api/v1/realtime/next
+```
+
+实时接口使用进程内状态模拟连续 ATP 监测数据流。`next` 每次按当前 `sample_index` 调用一次 `PredictionService.infer_prediction`，返回同口径的风险、健康度和告警判定结果，然后按 `step` 自动递增。该能力仅用于本地开发和演示，不启动后台线程，不使用 SSE/WebSocket，不写数据库。
 
 ### 告警接口
 
@@ -113,7 +125,54 @@ API -> Service -> Repository -> Schema -> Response
 
 ## 与 AI 服务的关系
 
-后端通过 `app/clients/ai_client.py` 调用 `railphm-ai` 的 `POST /infer`。AI mock 服务返回风险分数、风险波动、工况标签和时间窗口等模型侧字段；后端负责校验字段、限制风险分数范围、计算健康度，并映射告警等级。
+后端通过 `app/clients/ai_client.py` 调用 `railphm-ai` 的 `POST /infer`。AI 服务地址和调用参数通过环境变量配置：
+
+```text
+AI_SERVICE_BASE_URL=http://127.0.0.1:5001
+AI_INFER_PATH=/infer
+AI_REQUEST_TIMEOUT_SECONDS=5
+AI_ENABLE_FALLBACK=false
+AI_DEFAULT_THRESHOLD=0.26
+RISK_THRESHOLD_NORMAL=0.26
+RISK_THRESHOLD_WARNING=0.45
+RISK_THRESHOLD_CRITICAL=0.65
+HEALTH_SCORE_DECIMALS=2
+REALTIME_STREAM_ID=default
+REALTIME_DEFAULT_DEVICE_ID=ATP001
+REALTIME_DEFAULT_START_SAMPLE_INDEX=0
+REALTIME_DEFAULT_END_SAMPLE_INDEX=
+REALTIME_DEFAULT_STEP=1
+REALTIME_DEFAULT_WINDOW_MINUTES=30
+REALTIME_DEFAULT_MC_SAMPLES=20
+REALTIME_DEFAULT_AUTO_WRAP=false
+REALTIME_DEFAULT_TS_START=2026-05-01 10:00:00
+REALTIME_TS_STEP_SECONDS=1
+```
+
+`POST /api/v1/predictions/infer` 会标准化返回 `risk_raw`、`risk_score`、`risk_std`、`threshold`、`predicted_label`、`model_version`、窗口时间、调试来源字段、健康度字段和本次推理的告警判定字段。AI 未返回 `threshold` 时，server 暂按 `AI_DEFAULT_THRESHOLD=0.26` 兜底；AI 不可用且 `AI_ENABLE_FALLBACK=true` 时，接口返回 `data_source=mock_fallback` 的 mock 结果。
+
+即时推理接口的健康度映射规则为：
+
+```text
+health_score = round(100 * (1 - clipped_risk_score), HEALTH_SCORE_DECIMALS)
+risk_score < 0.26          -> normal / 正常
+0.26 <= risk_score < 0.45  -> attention / 关注
+0.45 <= risk_score < 0.65  -> warning / 预警
+risk_score >= 0.65         -> critical / 严重
+```
+
+即时推理接口的告警判定规则为：
+
+```text
+risk_score < 0.26          -> alert_generated=false / none / none
+0.26 <= risk_score < 0.45  -> alert_generated=true  / low / unhandled
+0.45 <= risk_score < 0.65  -> alert_generated=true  / medium / unhandled
+risk_score >= 0.65         -> alert_generated=true  / high / unhandled
+```
+
+该阶段只返回告警判断和展示文案，不生成真实 `alert_id`，也不写入告警记录表。
+
+`latest` 和 `history` 查询接口仍保留当前健康度与告警等级的后端规则：
 
 当前健康度与告警等级的后端规则为：
 
