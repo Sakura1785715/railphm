@@ -191,6 +191,10 @@
           </div>
         </div>
 
+        <div v-if="handleSuccess" class="alert-handle-message alert-handle-message--success">
+          {{ handleSuccess }}
+        </div>
+
         <div v-if="!selectedAlertId" class="alert-detail-placeholder">
           请选择一条告警记录查看详情
         </div>
@@ -227,6 +231,68 @@
             <strong>{{ displayValue(alertDetail.message) }}</strong>
           </div>
 
+          <div class="alert-handle-panel">
+            <div class="alert-handle-panel__header">
+              <div>
+                <p class="section-tag">告警处理</p>
+                <h4>处理状态</h4>
+              </div>
+
+              <span v-if="isAlertResolved" class="status-pill status-pill--success">该告警已处理</span>
+              <button
+                v-else-if="canHandleAlert && !handleFormVisible"
+                class="primary-button"
+                type="button"
+                @click="openHandleForm"
+              >
+                处理告警
+              </button>
+            </div>
+
+            <form v-if="handleFormVisible" class="alert-handle-form" @submit.prevent="submitAlertHandle">
+              <div class="alert-handle-form__grid">
+                <label class="filter-field">
+                  <span>处理人ID</span>
+                  <input
+                    v-model.trim="handleForm.handlerId"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="请输入处理人ID"
+                    :disabled="handleSubmitting"
+                  />
+                </label>
+
+                <label class="filter-field alert-handle-form__note">
+                  <span>处理说明</span>
+                  <textarea
+                    v-model="handleForm.handleNote"
+                    class="alert-handle-textarea"
+                    placeholder="请输入处理说明"
+                    :disabled="handleSubmitting"
+                  ></textarea>
+                </label>
+              </div>
+
+              <div v-if="handleError" class="alert-handle-message alert-handle-message--error">
+                {{ handleError }}
+              </div>
+
+              <div class="alert-handle-form__actions">
+                <button class="primary-button" type="submit" :disabled="handleSubmitting">
+                  {{ handleSubmitting ? '提交中...' : '提交处理' }}
+                </button>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="handleSubmitting"
+                  @click="cancelHandleForm"
+                >
+                  取消
+                </button>
+              </div>
+            </form>
+          </div>
+
           <div class="alert-detail-groups">
             <div v-for="group in detailGroups" :key="group.title" class="alert-detail-section">
               <h4>{{ group.title }}</h4>
@@ -251,7 +317,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { getAlertDetail, getAlertList } from '../api/alert'
+import { getAlertDetail, getAlertList, updateAlertStatus } from '../api/alert'
+import { hasAnyRole } from '../utils/auth'
 
 const route = useRoute()
 
@@ -285,6 +352,14 @@ const selectedAlertId = ref('')
 const alertDetail = ref(null)
 const detailLoading = ref(false)
 const detailError = ref('')
+const handleFormVisible = ref(false)
+const handleSubmitting = ref(false)
+const handleError = ref('')
+const handleSuccess = ref('')
+const handleForm = reactive({
+  handlerId: '',
+  handleNote: ''
+})
 
 let listRequestId = 0
 let detailRequestId = 0
@@ -378,6 +453,15 @@ const rangeText = computed(() => {
   const end = Math.min(pagination.total, start + alertItems.value.length - 1)
 
   return `当前显示 ${start}-${end} 条，共 ${pagination.total} 条记录，每页 ${pagination.size} 条`
+})
+
+const isAlertResolved = computed(() =>
+  String(alertDetail.value?.alert_status || '').toUpperCase() === 'RESOLVED'
+)
+
+const canHandleAlert = computed(() => {
+  const status = String(alertDetail.value?.alert_status || '').toUpperCase()
+  return hasAnyRole(['OPS', 'ADMIN']) && (status === 'PENDING' || status === 'PROCESSING')
 })
 
 const detailGroups = computed(() => {
@@ -491,6 +575,10 @@ async function fetchAlertDetail(alertId) {
     }
 
     alertDetail.value = normalizeAlertDetail(result)
+    if (isAlertResolved.value) {
+      handleFormVisible.value = false
+      handleError.value = ''
+    }
   } catch (error) {
     if (requestId !== detailRequestId) {
       return
@@ -540,6 +628,7 @@ function handleSelectAlert(alert) {
   }
 
   selectedAlertId.value = nextAlertId
+  resetHandleState()
   fetchAlertDetail(nextAlertId)
 }
 
@@ -549,6 +638,90 @@ function clearSelection() {
   detailError.value = ''
   detailLoading.value = false
   detailRequestId += 1
+  resetHandleState()
+}
+
+function openHandleForm() {
+  handleFormVisible.value = true
+  handleError.value = ''
+  handleSuccess.value = ''
+  handleForm.handlerId = alertDetail.value?.handler_id ? String(alertDetail.value.handler_id) : ''
+  handleForm.handleNote = ''
+}
+
+function cancelHandleForm() {
+  handleFormVisible.value = false
+  handleError.value = ''
+}
+
+async function submitAlertHandle() {
+  if (handleSubmitting.value || !alertDetail.value || !selectedAlertId.value) {
+    return
+  }
+
+  handleError.value = ''
+  handleSuccess.value = ''
+
+  const validationMessage = validateHandleForm()
+  if (validationMessage) {
+    handleError.value = validationMessage
+    return
+  }
+
+  const currentAlertId = selectedAlertId.value
+  handleSubmitting.value = true
+
+  try {
+    const result = await updateAlertStatus(currentAlertId, {
+      alert_status: 'RESOLVED',
+      handler_id: Number(handleForm.handlerId),
+      handle_note: handleForm.handleNote.trim()
+    })
+
+    alertDetail.value = normalizeAlertDetail(result)
+    handleFormVisible.value = false
+    handleSuccess.value = '告警处理成功'
+
+    await fetchAlerts()
+    handleSuccess.value = '告警处理成功'
+
+    if (isSameAlert(selectedAlertId.value, currentAlertId)) {
+      await fetchAlertDetail(currentAlertId)
+    }
+  } catch (error) {
+    handleError.value = error.message || '告警处理失败，请稍后重试'
+  } finally {
+    handleSubmitting.value = false
+  }
+}
+
+function validateHandleForm() {
+  const handlerIdText = String(handleForm.handlerId || '').trim()
+  const handleNoteText = String(handleForm.handleNote || '').trim()
+  const handlerId = Number(handlerIdText)
+
+  if (!handlerIdText) {
+    return '处理人ID不能为空'
+  }
+
+  if (!Number.isInteger(handlerId) || handlerId <= 0) {
+    return '处理人ID必须为正整数'
+  }
+
+  if (!handleNoteText) {
+    return '处理说明不能为空'
+  }
+
+  return ''
+}
+
+function resetHandleState() {
+  handleFormVisible.value = false
+  handleSubmitting.value = false
+  handleError.value = ''
+  handleSuccess.value = ''
+  handleForm.handlerId = ''
+  handleForm.handleNote = ''
 }
 
 function buildApiParams() {
@@ -1076,6 +1249,89 @@ function normalizeQueryDeviceId(value) {
   word-break: break-word;
 }
 
+.alert-handle-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #fbfdff;
+  border: 1px solid #deebf3;
+  border-radius: 14px;
+}
+
+.alert-handle-panel__header,
+.alert-handle-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.alert-handle-panel__header h4 {
+  margin: 6px 0 0;
+  color: #17253a;
+  font-size: 1rem;
+}
+
+.alert-handle-form {
+  display: grid;
+  gap: 14px;
+}
+
+.alert-handle-form__grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.45fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.alert-handle-form__note {
+  min-width: 0;
+}
+
+.alert-handle-textarea {
+  width: 100%;
+  min-height: 90px;
+  padding: 12px 14px;
+  border: 1px solid #cfe0eb;
+  border-radius: 12px;
+  background: #f8fbfd;
+  color: #17253a;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.alert-handle-textarea:focus {
+  border-color: #0f6c85;
+  box-shadow: 0 0 0 4px rgba(15, 108, 133, 0.12);
+  background: #ffffff;
+}
+
+.alert-handle-form__actions {
+  justify-content: flex-end;
+}
+
+.alert-handle-message {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.alert-handle-message--error {
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+}
+
+.alert-handle-message--success {
+  color: #027a48;
+  background: #ecfdf3;
+  border: 1px solid #abefc6;
+}
+
 .alert-detail-groups {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1174,6 +1430,16 @@ function normalizeQueryDeviceId(value) {
     padding: 14px 18px;
   }
 
+  .alert-handle-panel__header,
+  .alert-handle-form__actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .alert-handle-form__grid {
+    grid-template-columns: 1fr;
+  }
+
   .alert-detail-item span {
     flex-basis: auto;
   }
@@ -1241,6 +1507,7 @@ function normalizeQueryDeviceId(value) {
 /* 告警详情内容区：未选择提示、告警信息、基础信息等 */
 .alert-detail-card > .alert-detail-placeholder,
 .alert-detail-card > .alert-detail-content,
+.alert-detail-card > .alert-handle-message,
 .alert-detail-card > .alert-detail-state {
   margin-left: 32px;
   margin-right: 32px;
@@ -1291,6 +1558,7 @@ function normalizeQueryDeviceId(value) {
 
   .alert-detail-card > .alert-detail-placeholder,
   .alert-detail-card > .alert-detail-content,
+  .alert-detail-card > .alert-handle-message,
   .alert-detail-card > .alert-detail-state {
     margin-left: 22px;
     margin-right: 22px;

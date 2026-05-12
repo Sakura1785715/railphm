@@ -10,15 +10,16 @@ class PredictionRepository:
     
     # Mock 数据：risk_score 呈现上升趋势，health_score 呈现下降趋势
     # 注意：底层使用真实表语义 calibrated_risk_score，在上层 API 转换为 risk_score
+    # health_score 仅保留为历史表冗余字段，最终返回口径由 server 解释层统一计算。
     _mock_data: List[Dict[str, Any]] = [
         # Device 1 数据
-        {"device_id": 1, "calibrated_risk_score": 0.45, "risk_std": 0.03, "health_score": 89.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 09:00:00", "window_end_time": "2026-04-01 09:05:00"},
-        {"device_id": 1, "calibrated_risk_score": 0.52, "risk_std": 0.04, "health_score": 84.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 09:05:00", "window_end_time": "2026-04-01 09:10:00"},
-        {"device_id": 1, "calibrated_risk_score": 0.82, "risk_std": 0.07, "health_score": 68.5, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 10:00:00", "window_end_time": "2026-04-01 10:05:00"}, # 最新一条
+        {"device_id": 1, "calibrated_risk_score": 0.45, "risk_std": 0.03, "health_score": 55.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 09:00:00", "window_end_time": "2026-04-01 09:05:00"},
+        {"device_id": 1, "calibrated_risk_score": 0.52, "risk_std": 0.04, "health_score": 48.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 09:05:00", "window_end_time": "2026-04-01 09:10:00"},
+        {"device_id": 1, "calibrated_risk_score": 0.82, "risk_std": 0.07, "health_score": 18.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 10:00:00", "window_end_time": "2026-04-01 10:05:00"}, # 最新一条
         
         # Device 2 数据
-        {"device_id": 2, "calibrated_risk_score": 0.21, "risk_std": 0.01, "health_score": 95.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 08:00:00", "window_end_time": "2026-04-01 08:05:00"},
-        {"device_id": 2, "calibrated_risk_score": 0.25, "risk_std": 0.02, "health_score": 92.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 08:05:00", "window_end_time": "2026-04-01 08:10:00"},
+        {"device_id": 2, "calibrated_risk_score": 0.21, "risk_std": 0.01, "health_score": 79.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 08:00:00", "window_end_time": "2026-04-01 08:05:00"},
+        {"device_id": 2, "calibrated_risk_score": 0.25, "risk_std": 0.02, "health_score": 75.0, "model_version": "bilstm-attention-v1", "window_start_time": "2026-04-01 08:05:00", "window_end_time": "2026-04-01 08:10:00"},
     ]
 
     @classmethod

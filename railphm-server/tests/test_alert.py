@@ -1,4 +1,17 @@
 
+ADMIN_HEADERS = {
+    "Authorization": "Bearer mock-token-admin"
+}
+
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+INVALID_HEADERS = {
+    "Authorization": "Bearer invalid-token"
+}
+
+
 def test_get_alerts_success(client):
     """场景1：测试默认列表查询与完整结构"""
     response = client.get('/api/v1/alerts')
@@ -71,3 +84,124 @@ def test_get_alerts_invalid_size(client):
     response = client.get('/api/v1/alerts?size=abc')
     assert response.status_code == 400
     assert "正整数" in response.get_json()["message"]
+
+def test_update_alert_status_success(client):
+    """场景9：测试告警状态更新成功"""
+    response = client.patch('/api/v1/alerts/1001/status', headers=OPS_HEADERS, json={
+        "alert_status": "PROCESSING",
+        "handler_id": 2,
+        "handle_note": "已接收告警，正在处理"
+    })
+    body = response.get_json()
+    data = body["data"]
+
+    assert response.status_code == 200
+    assert body["code"] == 200
+    assert data["alert_id"] == 1001
+    assert data["alert_status"] == "PROCESSING"
+    assert data["handler_id"] == 2
+    assert data["handle_desc"] == "已接收告警，正在处理"
+    assert "handle_time" in data
+
+def test_update_alert_status_not_found(client):
+    """场景10：测试更新不存在的告警"""
+    response = client.patch('/api/v1/alerts/999999/status', headers=OPS_HEADERS, json={
+        "alert_status": "PROCESSING",
+        "handler_id": 2,
+        "handle_note": "测试不存在告警"
+    })
+    body = response.get_json()
+
+    assert response.status_code == 404
+    assert body["code"] == 404
+    assert "未找到" in body["message"]
+
+def test_update_alert_status_invalid_status(client):
+    """场景11：测试非法告警状态"""
+    response = client.patch('/api/v1/alerts/1001/status', headers=OPS_HEADERS, json={
+        "alert_status": "INVALID",
+        "handler_id": 2,
+        "handle_note": "非法状态测试"
+    })
+    body = response.get_json()
+
+    assert response.status_code == 400
+    assert body["code"] == 400
+    assert "非法" in body["message"] or "状态" in body["message"]
+
+def test_update_alert_status_missing_status(client):
+    """场景12：测试缺少告警状态"""
+    response = client.patch('/api/v1/alerts/1001/status', headers=OPS_HEADERS, json={
+        "handler_id": 2,
+        "handle_note": "缺少状态"
+    })
+    body = response.get_json()
+
+    assert response.status_code == 400
+    assert "alert_status" in body["message"] or "不能为空" in body["message"]
+
+def test_update_alert_status_invalid_handler_id(client):
+    """场景13：测试处理人 ID 非法"""
+    response = client.patch('/api/v1/alerts/1001/status', headers=OPS_HEADERS, json={
+        "alert_status": "PROCESSING",
+        "handler_id": "abc",
+        "handle_note": "处理人非法"
+    })
+    body = response.get_json()
+
+    assert response.status_code == 400
+    assert "handler_id" in body["message"] or "正整数" in body["message"]
+
+def test_update_alert_status_requires_login(client):
+    """测试未登录不能更新告警状态"""
+    response = client.patch('/api/v1/alerts/1001/status', json={
+        "alert_status": "PROCESSING",
+        "handler_id": 1,
+        "handle_note": "未登录测试"
+    })
+    body = response.get_json()
+
+    assert response.status_code == 401
+    assert body["code"] == 401
+
+def test_update_alert_status_success_for_ops(client):
+    """测试 OPS 可以处理告警"""
+    response = client.patch('/api/v1/alerts/1001/status', headers=OPS_HEADERS, json={
+        "alert_status": "PROCESSING",
+        "handler_id": 1,
+        "handle_note": "OPS处理告警"
+    })
+    body = response.get_json()
+    data = body["data"]
+
+    assert response.status_code == 200
+    assert body["code"] == 200
+    assert data["alert_status"] == "PROCESSING"
+    assert data["handler_id"] == 1
+
+def test_update_alert_status_success_for_admin(client):
+    """测试 ADMIN 可以处理告警"""
+    response = client.patch('/api/v1/alerts/1002/status', headers=ADMIN_HEADERS, json={
+        "alert_status": "RESOLVED",
+        "handler_id": 2,
+        "handle_note": "ADMIN处理告警"
+    })
+    body = response.get_json()
+    data = body["data"]
+
+    assert response.status_code == 200
+    assert body["code"] == 200
+    assert data["alert_status"] == "RESOLVED"
+    assert data["handler_id"] == 2
+
+def test_update_alert_status_invalid_token(client):
+    """测试非法 token 不能更新告警状态"""
+    response = client.patch('/api/v1/alerts/1001/status', headers=INVALID_HEADERS, json={
+        "alert_status": "PROCESSING",
+        "handler_id": 1,
+        "handle_note": "非法 token 测试"
+    })
+    body = response.get_json()
+
+    assert response.status_code == 401
+    assert body["code"] == 401

@@ -2,12 +2,19 @@
 
 高铁列控设备故障预测与健康管理系统（RailPHM）- 后端主服务
 
+## 项目定位
+
+`railphm-server` 是 RailPHM 的 Flask 后端主服务，负责统一 API、业务服务编排、mock Repository 数据访问、AI 推理服务调用、健康度计算和告警等级映射。
+
+当前后端重点服务于毕业设计系统实现演示和前后端联调。代码已经形成 `API -> Service -> Repository -> Schema -> Response` 的分层结构，但数据层仍以 mock 数据为主，真实 MySQL 和 InfluxDB 尚未接入。
+
 ## 当前状态
+
 - Task 1 - 最小 Flask 启动入口已完成。
 - Task 2 - 最小配置管理能力已实现。
 - Task 3 - 统一 JSON 响应封装已完成。
 - Task 4 - `/api/v1/health` 健康检查接口已完成。
-- Task 5 - `/api/v1/system` 系统管理探针接口已完成。
+- Task 5 - `/api/v1/system/ping` 系统管理探针接口已完成。
 - Task 6 - 全局统一异常处理已完成。
 - Task 7 - 日志初始化与扩展占位已完成。
 - Task 8 - 最小自动化测试已完成。
@@ -17,241 +24,205 @@
 - Task 12 - 历史监测数据查询接口骨架已完成。
 - Task 13 - 风险结果查询接口骨架已完成。
 - Task 14 - 告警列表接口骨架已完成。
+- Task 15 - `railphm-ai` 最小 mock 推理服务已完成。
+- Task 16 - 后端调用 AI mock 服务链路已完成。
+- Task 17 - 健康度与告警映射规则已完成。
+- mock 认证接口已完成，包括验证码、登录、当前用户和退出。
+- 设备台账新增与编辑接口已完成 mock 版本，并限制为 `ADMIN` 角色。
+- 告警状态更新接口已完成 mock 版本，并限制为 `OPS` 或 `ADMIN` 角色。
 
-## 开发进度说明
+## 当前接口能力
 
-### Task 3 已完成：统一响应封装
-- 已实现基于 `app/core/response.py` 的统一 JSON 响应封装。
-- 当前统一使用 `success_response` 和 `error_response` 返回标准化 JSON。
-- 为后续接口开发提供了统一响应结构基础，便于前后端联调与异常处理收口。
+### 健康检查
 
-### Task 4 已完成：健康检查接口
-- 已使用 Flask Blueprint 正式注册 `/api/v1/health` 接口，作为系统基础健康探针。
-- 服务启动后可通过 `GET /api/v1/health` 获取标准状态响应。
-- 原开发阶段用于验证响应封装的临时探针接口 `/__probe/response` 已清理，不再作为正式能力保留。
+```text
+GET /api/v1/health
+```
 
-### Task 5 已完成：系统管理探针接口
-- 已使用 Flask Blueprint 正式注册 `/api/v1/system` 接口，作为系统管理探针。
-- 服务启动后可通过 `GET /api/v1/system` 获取标准状态响应。
-- 同时已补充 `GET /api/v1/system/ping` 接口，作为最小骨架阶段的联通性验证接口，并已纳入自动化测试。
+### 系统探针
 
-### Task 6 已完成：全局统一异常处理
-- 当前已启用全局统一异常处理机制。
-- 任何错误（如 404、500、业务异常）均会返回标准化 JSON，保持接口返回风格一致。
-- 当前保留 `/__probe/business-error` 和 `/__probe/runtime-error` 两个临时探针接口，仅用于开发阶段调试验证异常处理链路，不作为生产接口使用。
+```text
+GET /api/v1/system/ping
+```
 
-### Task 7 已完成：日志初始化与扩展占位
-- 已补充日志初始化能力，服务启动过程具备统一、规范、可读的日志输出。
-- 已完成 `app/core/logging.py` 设计与接入。
-- 已完成 `app/extensions/__init__.py` 扩展初始化入口设计。
-- 已为后续 MySQL / InfluxDB 接入预留初始化占位，但当前阶段不连接真实数据库。
-- 即使数据库配置缺失，当前服务仍可正常启动，不影响最小骨架运行。
+### 认证接口
 
-### Task 8 已完成：最小自动化测试
-- 已接入 `pytest`，用于固定当前后端最小可运行骨架。
-- 已完成基础测试夹具与最小测试入口配置。
-- 已完成以下接口自动化测试：
-  - `GET /api/v1/health`
-  - `GET /api/v1/system/ping`
-- 当前可在 `railphm-server` 目录下直接执行 `pytest` 完成最小回归验证。
-- 该阶段测试已为后续接口扩展、重构和联调提供基础保障。
+```text
+GET  /api/v1/auth/captcha
+POST /api/v1/auth/login
+GET  /api/v1/auth/me
+POST /api/v1/auth/logout
+```
 
-### Task 9 已完成：MySQL 核心业务表结构设计与 DDL 落地
-- 已完成 MySQL 侧核心业务表结构设计，并落地到 `sql/mysql/ddl/` 目录。
-- 当前已完成的 6 张核心业务表如下：
-  - `phm_device`
-  - `phm_maintenance_record`
-  - `phm_monitor_segment`
-  - `phm_risk_result`
-  - `phm_alert_record`
-  - `phm_user`
-- 已补齐主键、外键与必要索引，保证表之间关联关系清晰。
-- 当前设计严格遵循论文与需求文档中 MySQL 业务数据边界，不将监测时序点表错误落入 MySQL。
-- 已完成本地建表验证，支持通过以下方式检查：
-  - `SHOW TABLES;`
-  - `DESC 表名;`
-  - `SHOW CREATE TABLE 表名;`
-- 当前 MySQL DDL 已可作为后续后端接口开发、假数据构造、后台管理功能和联调阶段的结构基础。
+当前认证为 mock 实现，内置 `ops` 和 `admin` 两类用户，通过固定 mock token 识别登录态。
 
-### Task 10 已完成：InfluxDB measurement 设计与落地测试
-- 已完成 ATP 监测时序数据的 InfluxDB measurement 建模设计。
-- 当前 measurement 设计已明确：
-  - measurement 名称
-  - tags
-  - fields
-  - timestamp
-- 已将设计结果落地到 `sql/influxdb/` 目录中的说明文件，作为后续时序数据接入与接口开发依据。
-- 当前设计已覆盖后续高频查询所需的关键维度与指标，能够支撑：
-  - 按设备编号 + 时间范围查询监测数据
-  - 按 `segment_id` 查询连续监测片段数据
-  - 历史监测曲线查询
-  - 关键指标（如速度、等级、温度、湿度）图形化展示
-- 已完成 sample line protocol 设计、手工写入验证与查询验证。
-- 当前 InfluxDB measurement 设计已可作为后续监测数据查询接口与可视化模块的时序存储基础。
+### 设备接口
 
-### Task 11 已完成：设备管理接口骨架
-- 已完成设备管理查询链路，形成 `API -> Service -> Repository -> Schema` 的标准业务模板。
-- 已完成以下接口：
-  - `GET /api/v1/devices`
-  - `GET /api/v1/devices/<device_id>`
-- 当前阶段基于 mock 数据实现设备台账查询，不接入真实 MySQL。
-- 列表接口已支持统一结构返回，并预留分页能力，便于后续接库与前端联调。
-- 详情接口已支持按 `device_id` 查询单个设备信息。
-- 当设备不存在时，已通过统一异常链路返回标准化 JSON，而不是默认 HTML 错误页。
-- 当前实现已完成设备台账最小查询闭环，为后续后台管理与详情联动提供基础。
-- 已补充自动化测试，覆盖：
-  - 设备列表查询成功
-  - 设备详情查询成功
-  - 设备不存在时统一异常返回
+```text
+GET  /api/v1/devices
+POST /api/v1/devices
+GET  /api/v1/devices/{device_id}
+PUT  /api/v1/devices/{device_id}
+```
 
-### Task 12 已完成：历史监测数据查询接口骨架
-- 已完成历史监测数据查询链路，支撑前端后续绘制运行曲线。
-- 已完成接口：
-  - `GET /api/v1/monitor/series`
-- 接口已支持以下必填参数：
-  - `device_id`
-  - `start_time`
-  - `end_time`
-- 当前阶段基于 mock 时序数据实现，不接入真实 InfluxDB。
-- 已完成时间参数合法性校验，包括：
-  - 参数缺失校验
-  - 时间格式校验
-  - `start_time < end_time` 范围校验
-- 当前返回结构已适配前端直接绘制曲线，`data` 中稳定包含：
-  - `device_id`
-  - `start_time`
-  - `end_time`
-  - `series`
-- `series` 已按多指标曲线组织，便于后续前端直接渲染速度、等级、温度等曲线。
-- 当合法查询结果为空时，当前接口仍返回 200 且结构稳定，不将“无数据”视为系统异常。
-- 已补充自动化测试，覆盖：
-  - 参数正常时返回时序数据
-  - `device_id` 缺失
-  - `start_time` 缺失
-  - `end_time` 缺失
-  - 时间格式非法
-  - 时间范围非法
-  - 空数据时结构稳定
+设备列表支持 `device_id`、`car_no`、`device_status` 筛选和分页语义。新增、编辑接口当前基于内存 mock 数据实现，并要求 `ADMIN` 角色。
 
-### Task 13 已完成：风险结果查询接口骨架
-- 已完成风险结果查询链路，支撑前端进行风险结果展示与趋势展示。
-- 已完成以下接口：
-  - `GET /api/v1/predictions/latest`
-  - `GET /api/v1/predictions/history`
-- 当前阶段基于 mock 风险结果数据实现，不接入真实模型推理与真实 MySQL。
-- latest 接口已支持按 `device_id` 查询某设备最新一条风险结果。
-- history 接口已支持按 `device_id + start_time + end_time` 查询某设备在指定时间范围内的历史风险结果。
-- 当前对外统一返回以下核心字段：
-  - `risk_score`
-  - `risk_std`
-  - `health_score`
-  - `model_version`
-  - `window_start_time`
-  - `window_end_time`
-- 当前返回结构已兼顾论文业务语义与前端展示需求，能够直接支撑风险趋势图与健康度趋势图。
-- history 结果已保证按时间升序排列，便于前端直接绘制趋势曲线。
-- 当 latest 查询不到结果时，当前接口返回统一成功 JSON，并保持空结果语义稳定。
-- 当 history 查询不到结果时，当前接口返回统一成功 JSON，且 `items` 为空数组，结构稳定。
-- 已补充自动化测试，覆盖：
-  - latest 正常返回
-  - latest 参数缺失
-  - latest 空结果语义稳定
-  - history 正常返回
-  - history 结果排序正确
-  - history 参数缺失
-  - 时间格式非法
-  - 时间范围非法
-  - history 空结果结构稳定
+### 运行监测接口
 
-### Task 14 已完成：告警列表接口骨架
-- 已完成告警查询链路，支撑前端告警中心基础展示。
-- 已完成以下接口：
-  - `GET /api/v1/alerts`
-  - `GET /api/v1/alerts/<alert_id>`
-- 当前阶段基于 mock 告警数据实现，不接入真实 MySQL 和真实告警生成流程。
-- 列表接口已支持分页参数：
-  - `page`
-  - `size`
-- 同时已支持基础筛选参数：
-  - `alert_status`
-  - `alert_level`
-  - `device_id`
-- 列表返回结构已稳定包含：
-  - `items`
-  - `total`
-  - `page`
-  - `size`
-- 详情接口已支持按 `alert_id` 查询单条告警详情。
-- 当告警不存在时，已通过统一异常链路返回标准化 JSON。
-- 当前对外已返回以下前端友好字段：
-  - `alert_level`
-  - `alert_status`
-  - `alert_time`
-  - `device_id`
-  - `message`
-  - `handler_id`
-- 其中：
-  - `device_id` 当前作为前端友好展示字段保留，真实业务中可通过告警记录与风险结果、监测片段、设备对象关系推导或关联得到。
-  - `message` 当前作为告警展示文案字段保留，真实业务中可由告警级别、对象类型、位置等字段映射或拼装生成。
-- 当前已形成列表摘要与详情信息分层返回模式，既满足告警中心展示，也为后续告警处理与复核预留结构空间。
-- 已补充自动化测试，覆盖：
-  - 告警列表正常返回
-  - 列表分页正常
-  - 列表筛选正常
-  - 空结果结构稳定
-  - 告警详情正常返回
-  - 不存在告警时统一异常
-  - `page` 非法
-  - `size` 非法
+```text
+GET /api/v1/monitor/series
+```
 
-## 异常处理说明
-当前已启用全局统一异常处理，任何错误（404/500/业务异常）均会返回标准化 JSON。  
-当前保留 `/__probe/business-error` 和 `/__probe/runtime-error` 两个临时接口，仅供开发阶段调试使用，勿用于生产环境。
+支持 `device_id`、`start_time`、`end_time` 查询参数。当前数据来自 mock 时序点，不查询真实 InfluxDB。
 
-## 当前阶段成果总结
-截至目前，`railphm-server` 已完成第一阶段最小可运行骨架建设、第二阶段数据库基础建模，以及第三阶段核心查询型业务接口骨架建设，形成了较为完整的后端基础能力闭环：
+### 风险预测接口
 
-1. 已具备后端主服务启动能力。
-2. 已具备基础配置管理能力。
-3. 已具备统一响应封装能力。
-4. 已具备健康检查与系统探针接口。
-5. 已具备全局统一异常处理。
-6. 已具备日志初始化与扩展占位能力。
-7. 已具备最小自动化测试能力。
-8. 已完成 MySQL 业务表结构设计与验证。
-9. 已完成 InfluxDB 时序 measurement 设计与验证。
-10. 已完成设备台账查询接口骨架。
-11. 已完成历史监测数据查询接口骨架。
-12. 已完成风险结果查询接口骨架。
-13. 已完成告警中心查询接口骨架。
+```text
+GET  /api/v1/predictions/latest
+GET  /api/v1/predictions/history
+POST /api/v1/predictions/infer
+```
 
-当前后端已经具备从“基础探针 -> 设备查询 -> 监测曲线查询 -> 风险结果查询 -> 告警查询”的最小业务链路能力，可直接为前端联调、假数据联调以及后续真实数据库接入提供结构基础。
+`latest` 和 `history` 当前查询 mock 风险结果。`infer` 会调用 `railphm-ai` 的 `POST /infer`，返回风险字段、健康度字段和本次推理的告警判定字段，但不写入历史趋势和告警记录。
 
-## 当前目录建设进展
-当前后端已逐步形成以下核心基础模块：
-- `run.py`：服务启动入口
-- `app/core/`：响应封装、异常处理、日志等核心能力
-- `app/extensions/`：扩展初始化入口
-- `app/api/`：健康检查、系统探针、设备、监测、风险结果、告警等接口入口
-- `app/service/`：设备、监测、风险结果、告警等业务编排层
-- `app/repository/`：基于 mock 数据的数据访问层与后续真实数据源替换入口
-- `app/schema/`：接口返回结构与 DTO 转换层
-- `tests/`：最小自动化测试与业务接口测试
-- `sql/mysql/ddl/`：MySQL 核心业务表 DDL
-- `sql/influxdb/`：InfluxDB measurement 设计说明与样例
+### 实时仿真接口
 
-## 下一阶段建议
-在当前阶段完成后，后续可继续推进以下方向：
-1. 将设备、风险结果、告警等 mock repository 逐步替换为真实 MySQL 数据访问层。
-2. 将历史监测数据查询接口从 mock 时序数据逐步替换为真实 InfluxDB 查询。
-3. 开始补充后台管理侧的新增、编辑、处理、复核等写操作接口。
-4. 补充设备详情页、风险趋势页、告警中心与驾驶舱联调所需的关联查询能力。
-5. 在算法未正式接入完成前，继续使用 mock/占位服务维持前后端闭环；待算法服务成熟后，再接入真实风险推理与健康评估结果。
-6. 逐步补充接口文档、参数说明、错误码规范与更完整的测试覆盖。
+```text
+POST /api/v1/realtime/start
+POST /api/v1/realtime/stop
+POST /api/v1/realtime/reset
+GET  /api/v1/realtime/state
+GET  /api/v1/realtime/next
+```
 
-## 说明
-- 当前项目严格遵循“前后端分离 + AI 服务独立 + 双库协同（MySQL + InfluxDB）”的总体架构思路。
-- MySQL 负责业务管理与关联型数据。
-- InfluxDB 负责 ATP 高频监测时序数据。
-- 当前阶段尚未接入真实算法推理流程，但已经完成风险结果、监测曲线、告警中心等核心查询型接口骨架，能够支撑前端联调与业务流转演示。
-- 后续开发将继续围绕论文定义的“状态感知 - 风险预测 - 健康评估 - 告警展示 - 运维管理”闭环逐步推进。
+实时接口使用进程内状态模拟连续 ATP 监测数据流。`next` 每次按当前 `sample_index` 调用一次 `PredictionService.infer_prediction`，返回同口径的风险、健康度和告警判定结果，然后按 `step` 自动递增。该能力仅用于本地开发和演示，不启动后台线程，不使用 SSE/WebSocket，不写数据库。
+
+### 告警接口
+
+```text
+GET   /api/v1/alerts
+GET   /api/v1/alerts/{alert_id}
+PATCH /api/v1/alerts/{alert_id}/status
+```
+
+告警列表支持分页、告警等级、告警状态和设备编号筛选。状态更新支持 `PENDING`、`PROCESSING`、`RESOLVED`，并要求 `OPS` 或 `ADMIN` 角色。
+
+## 分层结构
+
+当前后端采用以下分层方式：
+
+```text
+API -> Service -> Repository -> Schema -> Response
+```
+
+- `app/api/`：接收 HTTP 请求、读取参数、调用 Service。
+- `app/service/`：完成参数校验、业务规则、流程编排。
+- `app/repository/`：当前多数为 mock 数据访问层，后续替换为 MySQL / InfluxDB 查询。
+- `app/schema/`：统一响应字段和 DTO 转换。
+- `app/core/response.py`：统一 JSON 响应封装。
+- `app/core/errors.py`：业务异常与全局异常处理。
+- `app/core/auth.py`：mock token 解析与角色控制。
+
+## 与 AI 服务的关系
+
+后端通过 `app/clients/ai_client.py` 调用 `railphm-ai` 的 `POST /infer`。AI 服务地址和调用参数通过环境变量配置：
+
+```text
+AI_SERVICE_BASE_URL=http://127.0.0.1:5001
+AI_INFER_PATH=/infer
+AI_REQUEST_TIMEOUT_SECONDS=5
+AI_ENABLE_FALLBACK=false
+AI_DEFAULT_THRESHOLD=0.26
+RISK_THRESHOLD_NORMAL=0.26
+RISK_THRESHOLD_WARNING=0.45
+RISK_THRESHOLD_CRITICAL=0.65
+HEALTH_SCORE_DECIMALS=2
+REALTIME_STREAM_ID=default
+REALTIME_DEFAULT_DEVICE_ID=ATP001
+REALTIME_DEFAULT_START_SAMPLE_INDEX=0
+REALTIME_DEFAULT_END_SAMPLE_INDEX=
+REALTIME_DEFAULT_STEP=1
+REALTIME_DEFAULT_WINDOW_MINUTES=30
+REALTIME_DEFAULT_MC_SAMPLES=20
+REALTIME_DEFAULT_AUTO_WRAP=false
+REALTIME_DEFAULT_TS_START=2026-05-01 10:00:00
+REALTIME_TS_STEP_SECONDS=1
+```
+
+`POST /api/v1/predictions/infer` 会标准化返回 `risk_raw`、`risk_score`、`risk_std`、`threshold`、`predicted_label`、`model_version`、窗口时间、调试来源字段、健康度字段和本次推理的告警判定字段。AI 未返回 `threshold` 时，server 暂按 `AI_DEFAULT_THRESHOLD=0.26` 兜底；AI 不可用且 `AI_ENABLE_FALLBACK=true` 时，接口返回 `data_source=mock_fallback` 的 mock 结果。
+
+即时推理接口的健康度映射规则为：
+
+```text
+health_score = round(100 * (1 - clipped_risk_score), HEALTH_SCORE_DECIMALS)
+risk_score < 0.26          -> normal / 正常
+0.26 <= risk_score < 0.45  -> attention / 关注
+0.45 <= risk_score < 0.65  -> warning / 预警
+risk_score >= 0.65         -> critical / 严重
+```
+
+即时推理接口的告警判定规则为：
+
+```text
+risk_score < 0.26          -> alert_generated=false / none / none
+0.26 <= risk_score < 0.45  -> alert_generated=true  / low / unhandled
+0.45 <= risk_score < 0.65  -> alert_generated=true  / medium / unhandled
+risk_score >= 0.65         -> alert_generated=true  / high / unhandled
+```
+
+该阶段只返回告警判断和展示文案，不生成真实 `alert_id`，也不写入告警记录表。
+
+`latest` 和 `history` 查询接口仍保留当前健康度与告警等级的后端规则：
+
+当前健康度与告警等级的后端规则为：
+
+```text
+health_score = round((1 - risk_score) * 100, 1)
+0 <= health_score <= 30    -> HIGH
+30 < health_score <= 70    -> MEDIUM
+70 < health_score <= 100   -> LOW
+```
+
+## 当前测试
+
+`tests/` 目录已覆盖以下内容：
+
+- 健康检查接口。
+- 系统探针接口。
+- 设备列表、详情、筛选、新增、编辑、权限控制和异常参数。
+- 历史监测数据查询、时间参数校验和空结果结构。
+- 风险最新结果、历史趋势、排序、参数校验和空结果结构。
+- AI Client 字段校验和后端调用 AI mock 服务链路。
+- 健康度计算和告警等级映射规则。
+- 告警列表、详情、筛选、分页、状态更新和角色控制。
+- 认证接口，包括验证码、登录、当前用户、退出和异常登录态。
+
+## 启动与测试命令
+
+### 启动服务
+
+```bash
+cd railphm-server
+python run.py
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:5000
+```
+
+### 运行测试
+
+```bash
+cd railphm-server
+pytest
+```
+
+## 当前边界
+
+1. 当前不连接真实 MySQL。
+2. 当前不连接真实 InfluxDB。
+3. 当前不加载真实模型。
+4. 当前认证为 mock 版本，不是生产级安全方案。
+5. 当前接口用于稳定前后端联调、系统实现演示和毕业设计开发记录。

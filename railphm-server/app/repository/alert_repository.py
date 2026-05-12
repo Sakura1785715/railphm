@@ -1,3 +1,4 @@
+import copy
 from typing import List, Dict, Any, Tuple, Optional
 
 class AlertRepository:
@@ -6,13 +7,19 @@ class AlertRepository:
     当前使用 Mock 数据，未来替换为 SQLAlchemy 对 phm_alert_record 的查询
     """
     
-    _mock_data: List[Dict[str, Any]] = [
+    _initial_mock_data: List[Dict[str, Any]] = [
         {"alert_id": 1001, "alert_level": "HIGH", "alert_status": "PENDING", "alert_time": "2026-04-01 10:08:00", "handler_id": None, "risk_result_id": 501, "device_id": 1, "message": "设备 1 在指定时间窗内风险持续升高，已触发高等级预警", "alert_source": "RISK_ENGINE", "alert_position": "车载ATP主机", "alert_object_type": "ATP_DEVICE", "alert_object_code": "ATP-0001", "handle_time": None, "handle_desc": None},
         {"alert_id": 1002, "alert_level": "MEDIUM", "alert_status": "PROCESSING", "alert_time": "2026-04-01 11:15:00", "handler_id": 2, "risk_result_id": 502, "device_id": 2, "message": "设备 2 健康度下降至关注区间，请及时复核", "alert_source": "HEALTH_ASSESSMENT", "alert_position": "应答器信息接收单元", "alert_object_type": "BTM_UNIT", "alert_object_code": "BTM-002", "handle_time": None, "handle_desc": None},
         {"alert_id": 1003, "alert_level": "LOW", "alert_status": "RESOLVED", "alert_time": "2026-03-31 09:00:00", "handler_id": 3, "risk_result_id": 480, "device_id": 1, "message": "设备 1 测速单元轻微波动", "alert_source": "RISK_ENGINE", "alert_position": "测速测距单元", "alert_object_type": "SDU_UNIT", "alert_object_code": "SDU-001", "handle_time": "2026-03-31 10:30:00", "handle_desc": "已复核，属于正常噪声波动，忽略"},
         {"alert_id": 1004, "alert_level": "HIGH", "alert_status": "PENDING", "alert_time": "2026-04-02 08:20:00", "handler_id": None, "risk_result_id": 505, "device_id": 3, "message": "设备 3 DMI显示异常预警", "alert_source": "RULE_ENGINE", "alert_position": "人机交互接口单元", "alert_object_type": "DMI_UNIT", "alert_object_code": "DMI-003", "handle_time": None, "handle_desc": None},
         {"alert_id": 1005, "alert_level": "MEDIUM", "alert_status": "RESOLVED", "alert_time": "2026-04-01 14:00:00", "handler_id": 1, "risk_result_id": 508, "device_id": 2, "message": "设备 2 BTM天线通信延迟", "alert_source": "RISK_ENGINE", "alert_position": "应答器天线", "alert_object_type": "ANTENNA", "alert_object_code": "ANT-002", "handle_time": "2026-04-01 15:00:00", "handle_desc": "入库检修后恢复正常"}
     ]
+    _mock_data: List[Dict[str, Any]] = copy.deepcopy(_initial_mock_data)
+
+    @classmethod
+    def reset_mock_data(cls) -> None:
+        """重置可变 mock 数据，避免测试之间互相污染。"""
+        cls._mock_data = copy.deepcopy(cls._initial_mock_data)
 
     @classmethod
     def query_alerts(cls, page: int, size: int, alert_status: Optional[str] = None, alert_level: Optional[str] = None, device_id: Optional[int] = None) -> Tuple[int, List[Dict[str, Any]]]:
@@ -42,4 +49,26 @@ class AlertRepository:
         for r in cls._mock_data:
             if r["alert_id"] == alert_id:
                 return r
+        return None
+
+    @classmethod
+    def update_alert_status(
+        cls,
+        alert_id: int,
+        alert_status: str,
+        handler_id: Optional[int] = None,
+        handle_note: Optional[str] = None,
+        handle_time: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """更新告警处理状态"""
+        for record in cls._mock_data:
+            if record["alert_id"] == alert_id:
+                record["alert_status"] = alert_status
+                if handler_id is not None:
+                    record["handler_id"] = handler_id
+                if handle_note is not None:
+                    record["handle_desc"] = handle_note
+                if handle_time is not None:
+                    record["handle_time"] = handle_time
+                return record
         return None

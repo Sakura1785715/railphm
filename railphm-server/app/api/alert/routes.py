@@ -1,4 +1,5 @@
 from flask import Blueprint, request
+from app.core.auth import require_roles
 from app.core.response import success_response
 from app.service.alert_service import AlertService
 
@@ -20,4 +21,12 @@ def get_alerts():
 def get_alert_detail(alert_id):
     """获取单条告警详情"""
     data = AlertService.get_alert_detail(alert_id)
+    return success_response(data=data)
+
+@alert_bp.route('/<int:alert_id>/status', methods=['PATCH'])
+@require_roles("OPS", "ADMIN")
+def update_alert_status(alert_id):
+    """更新告警状态"""
+    payload = request.get_json(silent=True)
+    data = AlertService.update_alert_status(alert_id, payload)
     return success_response(data=data)

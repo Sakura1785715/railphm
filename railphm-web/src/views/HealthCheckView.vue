@@ -1,93 +1,79 @@
 <template>
   <section class="page-card">
-    <div class="page-heading">
-      <p class="page-tag">前后端联调</p>
-      <h2>系统联通测试</h2>
-      <p class="page-description">
-        该页面会请求后端健康检查接口 <code>/api/v1/health</code>，用于验证当前前端与
-        <code>railphm-server</code> 是否联通正常。
-      </p>
-    </div>
+    <PageHeader
+      eyebrow="前后端联调"
+      title="系统联通测试"
+      description="该页面会请求后端健康检查接口 /api/v1/health，用于验证当前前端与 railphm-server 是否联通正常。"
+    >
+      <template #actions>
+        <button class="primary-button" type="button" @click="loadHealthStatus" :disabled="loading">
+          {{ loading ? '检测中...' : '重新检测' }}
+        </button>
+      </template>
+    </PageHeader>
 
     <div class="system-state-grid">
-      <article class="placeholder-card">
-        <span
-          :class="[
-            'status-pill',
-            loading ? 'status-pill--muted' : errorMessage ? 'status-pill--danger' : healthResult ? 'status-pill--success' : 'status-pill--default'
-          ]"
-        >
-          {{ loading ? '检测中' : errorMessage ? '联通失败' : healthResult ? '联通正常' : '待检测' }}
-        </span>
-        <h3>服务健康状态</h3>
-        <p>{{ loading ? '正在请求后端健康接口。' : errorMessage || '健康检查接口已返回稳定响应。' }}</p>
-      </article>
+      <StatCard
+        label="服务健康状态"
+        :value="healthStateLabel"
+        :description="healthStateDescription"
+        :type="healthStateType"
+        :loading="loading"
+      >
+        <template #extra>
+          <StatusTag :label="healthStateLabel" :type="healthStateType" />
+        </template>
+      </StatCard>
 
-      <article class="placeholder-card">
-        <span class="status-pill status-pill--default">接口地址</span>
-        <h3>/api/v1/health</h3>
-        <p>保持当前 Axios 请求封装与 Vite 代理配置不变，仅对页面视觉进行统一包装。</p>
-      </article>
+      <StatCard
+        label="接口地址"
+        value="/api/v1/health"
+        description="保持当前 Axios 请求封装与 Vite 代理配置不变，仅对页面视觉进行统一包装。"
+        type="neutral"
+      />
 
-      <article class="placeholder-card">
-        <span class="status-pill status-pill--muted">运维辅助</span>
-        <h3>联调入口</h3>
-        <p>用于快速判断前端、代理和后端服务是否处于可联通状态。</p>
-      </article>
+      <StatCard
+        label="运维辅助"
+        value="联调入口"
+        description="用于快速判断前端、代理和后端服务是否处于可联通状态。"
+        type="info"
+      />
     </div>
 
-    <div class="action-bar">
-      <button class="primary-button" type="button" @click="loadHealthStatus" :disabled="loading">
-        {{ loading ? '检测中...' : '重新检测' }}
-      </button>
+    <ActionBar align="left">
       <span class="status-hint">
         {{ loading ? '正在请求后端健康接口' : '可手动重新发起检测' }}
       </span>
-    </div>
+    </ActionBar>
 
-    <div v-if="loading" class="state-panel loading-state">
-      正在进行前后端联通检测，请稍候...
-    </div>
+    <LoadingBlock v-if="loading" text="正在进行前后端联通检测，请稍候..." />
 
-    <div v-else-if="errorMessage" class="state-panel error-state">
-      <h3>联通失败</h3>
-      <p>{{ errorMessage }}</p>
+    <ErrorState
+      v-else-if="errorMessage"
+      title="联通失败"
+      :message="errorMessage"
+      retry-text="重新检测"
+      @retry="loadHealthStatus"
+    >
       <p class="subtle-text">
-        请确认 `railphm-server` 已启动，并检查前端环境变量中的接口地址或代理目标配置。
+        请确认 railphm-server 已启动，并检查前端环境变量中的接口地址或代理目标配置。
       </p>
-    </div>
+    </ErrorState>
 
     <div v-else-if="healthResult" class="result-grid">
-      <article class="result-panel">
-        <h3>接口返回状态</h3>
+      <SectionCard title="接口返回状态" class="result-panel">
         <dl class="data-list">
-          <div>
-            <dt>业务代码</dt>
-            <dd>{{ healthResult.code }}</dd>
-          </div>
-          <div>
-            <dt>消息</dt>
-            <dd>{{ healthResult.message }}</dd>
-          </div>
-          <div>
-            <dt>服务名</dt>
-            <dd>{{ healthResult.data?.service || '未返回' }}</dd>
-          </div>
-          <div>
-            <dt>运行状态</dt>
-            <dd>{{ healthResult.data?.status || '未返回' }}</dd>
-          </div>
-          <div>
-            <dt>版本</dt>
-            <dd>{{ healthResult.data?.version || '未返回' }}</dd>
-          </div>
+          <InfoRow label="业务代码" :value="healthResult.code" empty-text="未返回" />
+          <InfoRow label="消息" :value="healthResult.message" empty-text="未返回" />
+          <InfoRow label="服务名" :value="healthResult.data?.service" empty-text="未返回" />
+          <InfoRow label="运行状态" :value="healthResult.data?.status" empty-text="未返回" />
+          <InfoRow label="版本" :value="healthResult.data?.version" empty-text="未返回" />
         </dl>
-      </article>
+      </SectionCard>
 
-      <article class="result-panel">
-        <h3>原始响应</h3>
+      <SectionCard title="原始响应" class="result-panel">
         <pre class="response-preview">{{ formattedResult }}</pre>
-      </article>
+      </SectionCard>
     </div>
   </section>
 </template>
@@ -95,6 +81,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { getHealthStatus } from '../api/health'
+import {
+  ActionBar,
+  ErrorState,
+  InfoRow,
+  LoadingBlock,
+  PageHeader,
+  SectionCard,
+  StatCard,
+  StatusTag
+} from '../components/common'
 
 const loading = ref(false)
 const errorMessage = ref('')
@@ -102,6 +98,24 @@ const healthResult = ref(null)
 
 const formattedResult = computed(() =>
   healthResult.value ? JSON.stringify(healthResult.value, null, 2) : ''
+)
+
+const healthStateType = computed(() => {
+  if (loading.value) return 'neutral'
+  if (errorMessage.value) return 'danger'
+  if (healthResult.value) return 'success'
+  return 'neutral'
+})
+
+const healthStateLabel = computed(() => {
+  if (loading.value) return '检测中'
+  if (errorMessage.value) return '联通失败'
+  if (healthResult.value) return '联通正常'
+  return '待检测'
+})
+
+const healthStateDescription = computed(() =>
+  loading.value ? '正在请求后端健康接口。' : errorMessage.value || '健康检查接口已返回稳定响应。'
 )
 
 async function loadHealthStatus() {

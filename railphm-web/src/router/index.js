@@ -4,11 +4,22 @@ import DashboardView from '../views/DashboardView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
 import DeviceLedgerView from '../views/DeviceLedgerView.vue'
 import HealthCheckView from '../views/HealthCheckView.vue'
+import LoginView from '../views/LoginView.vue'
 import MonitorView from '../views/MonitorView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import PredictionView from '../views/PredictionView.vue'
+import { isLoggedIn } from '../utils/auth'
 
 const routes = [
+  {
+    path: '/login',
+    name: 'login',
+    component: LoginView,
+    meta: {
+      title: '登录',
+      public: true
+    }
+  },
   {
     path: '/',
     name: 'home',
@@ -82,6 +93,28 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.beforeEach((to) => {
+  const loggedIn = isLoggedIn()
+  const isPublic = Boolean(to.meta?.public)
+
+  if (loggedIn && to.name === 'login') {
+    return {
+      name: 'home'
+    }
+  }
+
+  if (!loggedIn && !isPublic) {
+    return {
+      name: 'login',
+      query: {
+        redirect: to.fullPath
+      }
+    }
+  }
+
+  return true
 })
 
 router.afterEach((to) => {

@@ -1,58 +1,140 @@
-from datetime import datetime, timedelta
-from typing import Dict
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict
+
+from flask import current_app
+
+from app.core.errors import BusinessException
+from app.repository.window_sample_repository import WindowSampleRepository
+
+if TYPE_CHECKING:
+    from app.runtime.model_loader import SequenceModelRuntime
 
 
 class InferRepository:
     """
-    mock 推理结果访问层。
-    当前不依赖数据库与真实模型，后续可在此层替换为真实模型推理调用。
+    推理结果访问层。
+
+    默认使用 SequenceModelRuntime 执行真实模型推理，并在模型或本地数据集缺失时按配置
+    退回 mock fallback，避免开发环境服务完全不可用。
     """
 
     _MOCK_PROFILE = {
         1: {
             "risk_score": 0.82,
             "risk_std": 0.07,
-            "health_score": 68.5,
-            "alert_level": "HIGH",
             "condition_label": "abnormal-trend",
         },
         2: {
             "risk_score": 0.52,
             "risk_std": 0.04,
-            "health_score": 84.0,
-            "alert_level": "MEDIUM",
             "condition_label": "normal-cruise",
         },
         0: {
             "risk_score": 0.21,
             "risk_std": 0.02,
-            "health_score": 95.0,
-            "alert_level": "LOW",
             "condition_label": "stable",
         },
     }
 
+    _runtime: "SequenceModelRuntime | None" = None
+    _window_repository: WindowSampleRepository | None = None
+    _runtime_key: tuple[str, str] | None = None
+    _window_repository_key: str | None = None
+
     @classmethod
-    def infer(
+    def infer(cls, payload: dict[str, Any]) -> Dict[str, object]:
+        try:
+            return cls._infer_with_runtime(payload)
+        except IndexError as exc:
+            raise BusinessException(code=400, message=str(exc), status_code=400) from exc
+        except Exception as exc:
+            if current_app.config.get("AI_ENABLE_MOCK_FALLBACK", True):
+                return cls._infer_mock(payload, error=exc)
+            raise
+
+    @classmethod
+    def _infer_with_runtime(cls, payload: dict[str, Any]) -> Dict[str, object]:
+        runtime = cls._get_runtime()
+        window_repository = cls._get_window_repository()
+
+        sample_index = payload["sample_index"]
+        mc_samples = payload["mc_samples"]
+
+        sample = window_repository.get_window_by_sample_index(sample_index)
+        prediction = runtime.predict_with_uncertainty(
+            sample["window"],
+            mc_samples=mc_samples,
+        )
+
+        prediction["sample_index"] = sample["sample_index"]
+        prediction["y_true"] = sample["y_true"]
+        prediction["trace"] = sample.get("trace", {})
+        prediction["data_source"] = "local_window_dataset"
+        return prediction
+
+    @classmethod
+    def _get_runtime(cls) -> "SequenceModelRuntime":
+        from app.runtime.model_loader import SequenceModelRuntime
+
+        model_dir = str(Path(current_app.config["AI_MODEL_DIR"]))
+        device = current_app.config.get("AI_RUNTIME_DEVICE", "auto")
+        runtime_key = (model_dir, str(device))
+
+        if cls._runtime is None or cls._runtime_key != runtime_key:
+            cls._runtime = SequenceModelRuntime.from_model_dir(
+                model_dir=model_dir,
+                device=device,
+            )
+            cls._runtime_key = runtime_key
+
+        return cls._runtime
+
+    @classmethod
+    def _get_window_repository(cls) -> WindowSampleRepository:
+        dataset_dir = str(Path(current_app.config["AI_DATASET_DIR"]))
+
+        if cls._window_repository is None or cls._window_repository_key != dataset_dir:
+            cls._window_repository = WindowSampleRepository(dataset_dir)
+            cls._window_repository_key = dataset_dir
+
+        return cls._window_repository
+
+    @classmethod
+    def _infer_mock(
         cls,
-        device_id: int,
-        ts_end: datetime,
-        window_minutes: int,
-        model_version: str,
+        payload: dict[str, Any],
+        error: Exception | None = None,
     ) -> Dict[str, object]:
+        device_id = payload["device_id"]
+        mc_samples = payload.get("mc_samples", 0)
         profile = cls._MOCK_PROFILE[device_id % 3].copy()
-        window_start = ts_end - timedelta(minutes=window_minutes)
+        risk_score = float(profile["risk_score"])
+        threshold = 0.26
 
         result = {
-            "device_id": device_id,
-            "ts_end": ts_end.strftime("%Y-%m-%d %H:%M:%S"),
-            "window_minutes": window_minutes,
-            "window_start_time": window_start.strftime("%Y-%m-%d %H:%M:%S"),
-            "window_end_time": ts_end.strftime("%Y-%m-%d %H:%M:%S"),
-            "model_version": model_version,
+            "condition_label": profile["condition_label"],
+            "sample_index": payload.get("sample_index", 0),
+            "y_true": None,
+            "risk_raw": risk_score,
+            "risk_score": risk_score,
+            "risk_raw_std": 0.0,
+            "risk_std": 0.0,
+            "threshold": threshold,
+            "predicted_label": int(risk_score >= threshold),
+            "model_version": "mock",
+            "model_name": "mock",
+            "calibration_enabled": False,
+            "calibration_method": None,
+            "uncertainty_enabled": False,
+            "uncertainty_method": None,
+            "mc_samples": 0 if error is not None else mc_samples,
+            "data_source": "mock_fallback",
+            "trace": {},
         }
-        result.update(profile)
 
-        # alert_level 当前仅为 demo 联调提供临时衍生字段。
-        # 未来更适合在 server 侧结合规则阈值进行判定，而不是由模型直接输出。
+        if error is not None:
+            result["runtime_error"] = str(error).splitlines()[0][:300]
+
         return result
