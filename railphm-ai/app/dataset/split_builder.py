@@ -1,3 +1,6 @@
+"""
+把已经构建好的窗口数据集划分成训练集、验证集、测试集
+"""
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,47 +9,38 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-# 划分训练集、验证集、测试集
+# 划分训练集、验证集、测试集。保存一次数据集划分后的结果
 @dataclass
 class DatasetSplitResult:
     """
     数据集划分结果。
-
     train_indices / val_indices / test_indices:
         对应 X.npy / y.npy 第一维的样本索引。
-
     summary:
         划分统计信息，会同时写入 split_summary.json。
     """
-
     train_indices: np.ndarray
     val_indices: np.ndarray
     test_indices: np.ndarray
-    summary: dict[str, Any]
+    # summary 保存划分统计信息
+    summary: dict[str, Any] 
 
 
 class DatasetSplitBuilder:
     """
-    RailPHM 数据集划分器。
-
-    按 segment_id 划分 train / val / test，避免滑动窗口重叠造成数据泄露。
-
-    本类不负责：
-    - 重新构建 X/y；
-    - 模型训练；
-    - 复制 X/y 子集文件。
+    RailPHM 数据集划分器。 
+    根据 window_manifest.csv 里的 segment_id
     """
-
     def split(
         self,
-        dataset_dir: Path,
-        output_dir: Path | None = None,
+        dataset_dir: Path, # 已经构建好的窗口数据集目录，里面应该有 y.npy 和 window_manifest.csv
+        output_dir: Path | None = None, # 划分结果输出目录。如果不传，默认是 dataset_dir / "splits"。
         # 划分比例
-        train_ratio: float = 0.7,
-        val_ratio: float = 0.15,
-        test_ratio: float = 0.15,
-        seed: int = 42,
-        overwrite: bool = False,
+        train_ratio: float = 0.7, # 训练集 segment 比例，默认 0.7。
+        val_ratio: float = 0.15, #  验证集 segment 比例，默认 0.15。
+        test_ratio: float = 0.15, # 测试集 segment 比例，默认 0.15。
+        seed: int = 42, # 随机种子，默认 42。用于保证每次划分结果可复现。
+        overwrite: bool = False, # 如果输出目录已经存在，是否覆盖。
     ) -> DatasetSplitResult:
         dataset_dir = Path(dataset_dir)
         output_dir = Path(output_dir) if output_dir is not None else dataset_dir / "splits"
@@ -56,6 +50,7 @@ class DatasetSplitBuilder:
         self._prepare_output_dir(output_dir, overwrite=overwrite)
 
         y = np.load(dataset_dir / "y.npy")
+        # 读取窗口追溯文件
         manifest = pd.read_csv(dataset_dir / "window_manifest.csv", encoding="utf-8-sig")
 
         if "segment_id" not in manifest.columns:
@@ -66,10 +61,12 @@ class DatasetSplitBuilder:
                 f"manifest 行数与 y 样本数不一致: manifest={len(manifest)}, y={y.shape[0]}"
             )
 
-        segment_ids = sorted(manifest["segment_id"].dropna().unique().tolist())
+        # 从 manifest 中提取所有有效的 segment_id
+        segment_ids = sorted(manifest["segment_id"].dropna().unique().tolist()) 
         if not segment_ids:
             raise ValueError("manifest 中没有有效 segment_id")
-
+        
+        # 调用 _split_segments()，把所有 segment_id 分成三组：
         train_segments, val_segments, test_segments = self._split_segments(
             segment_ids=segment_ids,
             train_ratio=train_ratio,
@@ -81,17 +78,19 @@ class DatasetSplitBuilder:
         val_indices = self._indices_for_segments(manifest, val_segments)
         test_indices = self._indices_for_segments(manifest, test_segments)
 
+        # 检查三个索引集合是否完整覆盖全部样本
         self._validate_index_coverage(
             train_indices=train_indices,
             val_indices=val_indices,
             test_indices=test_indices,
             total_samples=y.shape[0],
         )
-
+        
+        # 构建划分摘要
         summary = self._build_summary(
-            dataset_dir=dataset_dir,
+            dataset_dir=dataset_dir, 
             output_dir=output_dir,
-            y=y,
+            y=y, # 
             manifest=manifest,
             train_indices=train_indices,
             val_indices=val_indices,
@@ -104,11 +103,11 @@ class DatasetSplitBuilder:
             test_ratio=test_ratio,
             seed=seed,
         )
-
+        # 保存索引
         np.save(output_dir / "train_indices.npy", train_indices)
         np.save(output_dir / "val_indices.npy", val_indices)
         np.save(output_dir / "test_indices.npy", test_indices)
-
+        # 把划分摘要写成 JSON 文件
         (output_dir / "split_summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -163,7 +162,8 @@ class DatasetSplitBuilder:
                     file_path.unlink()
 
         output_dir.mkdir(parents=True, exist_ok=True)
-
+    
+    # 按 segment_id 划分
     def _split_segments(
         self,
         segment_ids: list[str],
@@ -171,9 +171,9 @@ class DatasetSplitBuilder:
         val_ratio: float,
         seed: int,
     ) -> tuple[set[str], set[str], set[str]]:
-        rng = np.random.default_rng(seed)
-        shuffled = np.array(segment_ids, dtype=object)
-        rng.shuffle(shuffled)
+        rng = np.random.default_rng(seed) # 创建 NumPy 随机数生成器。
+        shuffled = np.array(segment_ids, dtype=object) # 把 segment_id 列表转成 NumPy 数组
+        rng.shuffle(shuffled) # 随机打乱 segment 顺序
 
         total_segments = len(shuffled)
 
@@ -190,12 +190,13 @@ class DatasetSplitBuilder:
         test_count = total_segments - train_count - val_count
         if test_count <= 0:
             raise ValueError("segment 数量过少，无法划分 train/val/test")
-
+        # 集合id
         train_segments = set(shuffled[:train_count].tolist())
         val_segments = set(shuffled[train_count : train_count + val_count].tolist())
         test_segments = set(shuffled[train_count + val_count :].tolist())
 
         return train_segments, val_segments, test_segments
+
 
     def _indices_for_segments(
         self,
@@ -250,15 +251,15 @@ class DatasetSplitBuilder:
         seed: int,
     ) -> dict[str, Any]:
         return {
-            "dataset_dir": str(dataset_dir),
-            "output_dir": str(output_dir),
-            "split_strategy": "segment_id",
-            "train_ratio": train_ratio,
-            "val_ratio": val_ratio,
-            "test_ratio": test_ratio,
-            "seed": seed,
-            "total_samples": int(y.shape[0]),
-            "total_segments": int(manifest["segment_id"].nunique()),
+            "dataset_dir": str(dataset_dir), # 数据集路径
+            "output_dir": str(output_dir), # 数据集路径
+            "split_strategy": "segment_id", # 划分策略
+            "train_ratio": train_ratio, # 划分比例
+            "val_ratio": val_ratio, 
+            "test_ratio": test_ratio, 
+            "seed": seed, # 随机种子
+            "total_samples": int(y.shape[0]), # 总样本数
+            "total_segments": int(manifest["segment_id"].nunique()), # 总 segment 数
             "train": self._split_part_summary(
                 name="train",
                 indices=train_indices,

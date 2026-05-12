@@ -1,25 +1,25 @@
-#!/usr/bin/env python3
 """
-基于训练集统计量缩放窗口数据集。
+基于训练集统计量缩放窗口数据集。计算训练集上每个特征的均值和标准差，之后对完整 X 执行 z-score 标准化。
 
-本脚本用于修复 segment 内 min-max 归一化带来的未来信息泄露问题。
+输入目录：
+    通过 --input-dir 指定。输入目录应为未做 segment 内 min-max 归一化的 raw window dataset，
+    且必须已经完成 train/val/test 划分。目录中需要包含 X.npy、y.npy、feature_columns.json、
+    window_manifest.csv、dataset_summary.json，以及 splits/train_indices.npy、
+    splits/val_indices.npy、splits/test_indices.npy。
 
-输入数据集应当是未做 segment 内 min-max 的 raw window dataset，例如：
+复制文件：
+    y.npy、feature_columns.json、window_manifest.csv 会直接复制到输出目录；
+    splits/train_indices.npy、splits/val_indices.npy、splits/test_indices.npy 和
+    splits/split_summary.json 会复制到输出目录的 splits 子目录，其中 split_summary.json 存在才复制。
 
-data/datasets/window_w30_s1_h1_no_segment_norm/
+重写文件：
+    X.npy 会被重写为标准化后的 X_scaled；
+    scaler_summary.json 会记录标准化方法、训练集统计量 mean/std/safe_std 和相关样本数；
+    dataset_summary.json 会基于原摘要新增 scaling 字段后重新写出。
 
-脚本会：
-1. 读取 X.npy、y.npy、feature_columns.json、window_manifest.csv、dataset_summary.json、splits/*.npy；
-2. 只使用 train_indices 对训练集样本 fit 标准化参数；
-3. 对完整 X 做 transform；
-4. 输出新的 scaled dataset；
-5. 复制 y、manifest、feature_columns、splits；
-6. 生成 scaler_summary.json 和新的 dataset_summary.json。
-
-注意：
-- 本脚本不会重新 split。
-- 本脚本不会训练模型。
-- scaler 只从训练集统计量得到，避免 val/test 信息泄露。
+输出目录：
+    通过 --output-dir 指定。标准化后的新数据集会保存到该目录，不会修改 input_dir。
+    如果输出目录已存在，默认报错；传入 --overwrite 时会删除输出目录并重新生成。
 """
 
 from __future__ import annotations
@@ -38,11 +38,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+# 读取 JSON 文件
 def load_json(path: Path):
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
-
+# 保存 JSON 文件
 def save_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -58,15 +59,16 @@ def prepare_output_dir(output_dir: Path, overwrite: bool):
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "splits").mkdir(parents=True, exist_ok=True)
 
-
+# 校验输入数据集目录
 def validate_dataset_dir(dataset_dir: Path):
+    # 输入数据集必须具备的文件
     required_files = [
-        dataset_dir / "X.npy",
+        dataset_dir / "X.npy", # 读取 X.npy，对 X 做标准化
         dataset_dir / "y.npy",
         dataset_dir / "feature_columns.json",
         dataset_dir / "window_manifest.csv",
         dataset_dir / "dataset_summary.json",
-        dataset_dir / "splits" / "train_indices.npy",
+        dataset_dir / "splits" / "train_indices.npy", # 标准化参数只能从训练集样本中计算
         dataset_dir / "splits" / "val_indices.npy",
         dataset_dir / "splits" / "test_indices.npy",
     ]
@@ -75,7 +77,7 @@ def validate_dataset_dir(dataset_dir: Path):
         if not path.exists():
             raise FileNotFoundError(f"缺少必要文件: {path}")
 
-
+# 训练集计算标准化参数
 def fit_standard_scaler(X: np.ndarray, train_indices: np.ndarray):
     """
     只使用训练集样本统计每个 feature 的 mean/std。
@@ -117,16 +119,18 @@ def transform_in_chunks(
 
     return X_scaled
 
-
+# 复制元数据文件
 def copy_required_metadata(input_dir: Path, output_dir: Path):
     for filename in [
-        "y.npy",
-        "feature_columns.json",
-        "window_manifest.csv",
+        # 复制这三个文件：
+        "y.npy", # 标签没变
+        "feature_columns.json", # 特征列顺序没变
+        "window_manifest.csv", # 样本追溯信息没变
     ]:
         shutil.copy2(input_dir / filename, output_dir / filename)
 
     for filename in [
+        # 复制划分文件
         "train_indices.npy",
         "val_indices.npy",
         "test_indices.npy",
@@ -141,6 +145,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", type=Path, required=True, help="未做 segment 内 min-max 的 raw window dataset")
     parser.add_argument("--output-dir", type=Path, required=True, help="缩放后的新数据集目录")
+    # 定义标准化方法参数----z-score 标准化： (x - mean) / std
     parser.add_argument("--method", type=str, default="standard", choices=["standard"], help="当前仅支持 standard")
     parser.add_argument("--chunk-size", type=int, default=20000, help="分块 transform 的样本数")
     parser.add_argument("--overwrite", action="store_true")
