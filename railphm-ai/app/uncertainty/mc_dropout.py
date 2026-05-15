@@ -1,12 +1,7 @@
 """
 MC-Dropout 不确定性估计工具函数。
-
-本文件只实现 MC-Dropout 的通用运行时逻辑：
-1. 在推理阶段仅启用 Dropout 层；
-2. 执行多次随机前向传播；
-3. 汇总原始概率和可选校准概率的均值、标准差。
-
-本文件不修改模型结构，不更新模型权重，不保存采样明细文件，也不接入接口层。
+推理时不只预测一次，而是让 Dropout 保持随机性，多预测很多次。
+多次结果如果很接近，说明模型比较确定；多次结果波动很大，说明模型不确定性较高
 """
 
 from __future__ import annotations
@@ -26,6 +21,7 @@ DROPOUT_TYPES = (
 )
 
 
+# 推理阶段只打开 Dropout
 def enable_dropout_for_inference(model: torch.nn.Module) -> int:
     """
     在推理阶段仅启用模型中的 Dropout 层。
@@ -38,6 +34,7 @@ def enable_dropout_for_inference(model: torch.nn.Module) -> int:
     """
     dropout_count = 0
 
+    # 模型整体保持 eval，只有 Dropout 层切成 train
     for module in model.modules():
         if isinstance(module, DROPOUT_TYPES):
             module.train()
@@ -46,27 +43,12 @@ def enable_dropout_for_inference(model: torch.nn.Module) -> int:
     return dropout_count
 
 
+# 多次随机前向传播
 def collect_mc_dropout_probabilities(
-    model: torch.nn.Module,
-    input_tensor: torch.Tensor,
-    mc_samples: int,
-) -> np.ndarray:
-    """
-    执行多次 MC-Dropout 随机前向传播，收集原始风险概率。
-
-    Args:
-        model:
-            已加载的 PyTorch 模型。
-        input_tensor:
-            已放置到正确 device 上的输入张量，形状应为
-            [1, window_size, feature_dim]。
-        mc_samples:
-            MC-Dropout 随机前向传播次数。
-
-    Returns:
-        shape=[mc_samples] 的 numpy.ndarray，每个元素为一次 forward 后
-        sigmoid 得到的原始风险概率。
-    """
+    model: torch.nn.Module, # 已加载的 PyTorch 模型
+    input_tensor: torch.Tensor, # 单个窗口样本，shape = [1, window_size, feature_dim]
+    mc_samples: int, # 随机前向传播次数
+) -> np.ndarray: # 输出raw_probs：长度为 mc_samples 的 numpy 数组
     _validate_mc_samples(mc_samples)
 
     if not isinstance(input_tensor, torch.Tensor):
@@ -83,6 +65,7 @@ def collect_mc_dropout_probabilities(
     probs: list[float] = []
 
     model.eval()
+    # 开启Dropout
     enable_dropout_for_inference(model)
 
     try:

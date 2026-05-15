@@ -30,8 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Train RailPHM sequence risk prediction models."
     )
-
+    # 训练数据集目录
     parser.add_argument("--dataset-dir", type=Path, required=True, help="窗口数据集目录")
+    # 训练结果输出目录
     parser.add_argument("--output-dir", type=Path, required=True, help="训练结果输出目录")
     parser.add_argument(
         "--model",
@@ -40,8 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["lstm", "bilstm", "lstm_attention", "bilstm_attention"],
         help="时序模型名称",
     )
+    # 训练轮数
     parser.add_argument("--epochs", type=int, default=30, help="训练轮数")
+    # --batch-size：批大小（每次训练多少个样本）
     parser.add_argument("--batch-size", type=int, default=256, help="batch size")
+    # --lr：学习率（默认0.001）
     parser.add_argument("--lr", type=float, default=0.001, help="学习率")
     parser.add_argument("--seed", type=int, default=42, help="随机种子")
     parser.add_argument(
@@ -51,10 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "cpu", "cuda", "mps"],
         help="训练设备",
     )
+    # --threshold：二分类阈值
     parser.add_argument("--threshold", type=float, default=0.5, help="二分类阈值")
+    # LSTM 隐藏层维度（默认64）
     parser.add_argument("--hidden-dim", type=int, default=64, help="LSTM hidden_dim")
+    # --num-layers：LSTM 层数
     parser.add_argument("--num-layers", type=int, default=1, help="LSTM num_layers")
+    # Dropout 概率（默认0.2)
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout 概率")
+    # 评价指标
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader num_workers")
     parser.add_argument(
         "--best-metric",
@@ -130,3 +139,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

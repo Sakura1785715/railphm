@@ -14,11 +14,13 @@ import torch
 from torch import nn
 
 
+# 校验 input_dim、hidden_dim、num_layers、attention_dim 这些参数必须是正整数
 def _validate_positive_int(value: int, name: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{name} must be a positive integer")
 
 
+# 校验 dropout 概率是否合法。合法范围：0 <= dropout < 1
 def _validate_dropout(dropout: float) -> None:
     if (
         isinstance(dropout, bool)
@@ -49,7 +51,9 @@ class TemporalAttention(nn.Module):
         self.attention_dim = int(attention_dim)
         self.score_layer = nn.Linear(self.attention_dim, 1)
 
-    def forward(self, lstm_outputs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, 
+                lstm_outputs: torch.Tensor # [batch_size, window_size, attention_dim]
+                ) -> tuple[torch.Tensor, torch.Tensor]:
         if not isinstance(lstm_outputs, torch.Tensor):
             raise ValueError("TemporalAttention input must be a torch.Tensor")
 
@@ -61,9 +65,12 @@ class TemporalAttention(nn.Module):
 
         if lstm_outputs.shape[-1] != self.attention_dim:
             raise ValueError("TemporalAttention attention_dim mismatch")
-
+        
+        # 把每个时间步的隐藏向量压缩成一个分数
         scores = self.score_layer(lstm_outputs).squeeze(-1)
+        # softmax 变成权重
         attention_weights = torch.softmax(scores, dim=1)
+        # 一个窗口内每一个时间步加权求和得到 context
         context = torch.sum(lstm_outputs * attention_weights.unsqueeze(-1), dim=1)
 
         return context, attention_weights
@@ -230,11 +237,12 @@ class BiLSTMAttentionClassifier(_BaseSequenceClassifier):
         )
         self.attention_layer = TemporalAttention(self.output_dim)
 
+    # 前向传播
     def forward(self, x: torch.Tensor, return_attention: bool = False):
         self._validate_sequence_input(x)
-        output_seq, _ = self.lstm(x)
-        context, attention_weights = self.attention_layer(output_seq)
-        logits = self._classify(context)
+        output_seq, _ = self.lstm(x) # 先用 Bi-LSTM 提取每个时间步的双向时序特征
+        context, attention_weights = self.attention_layer(output_seq) #  再用 Attention 给每个时间步分配权重，并加权求和得到 context
+        logits = self._classify(context) # 全连接层：把一个 128 维的窗口特征向量，压缩成 1 个用于二分类判断的原始分数 logit
 
         if return_attention:
             return logits, attention_weights

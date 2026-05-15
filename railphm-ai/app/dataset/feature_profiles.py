@@ -11,6 +11,7 @@ from app.dataset.feature_config import NUMERIC_FEATURE_COLUMNS
 
 
 FEATURE_PROFILES: dict[str, list[str]] = {
+    # 全量特征：所有数值类特征，从 NUMERIC_FEATURE_COLUMNS 导入
     "full_features": list(NUMERIC_FEATURE_COLUMNS),
 
     # 去掉明显编号类 / ID 类字段，但保留“运行方向”作为轻量运行状态编码。

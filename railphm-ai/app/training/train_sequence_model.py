@@ -4,14 +4,6 @@
 本模块用于训练 LSTM / Bi-LSTM / LSTM+Attention / Bi-LSTM+Attention
 四类时序故障风险预测模型。
 
-注意：
-- 本模块只负责训练主流程；
-- 不实现模型结构；
-- 不实现模型对比报告；
-- 不实现 MC-Dropout；
-- 不实现保序回归概率校准；
-- 不接入 Flask /infer；
-- 不修改 MLP baseline 行为。
 """
 
 from __future__ import annotations
@@ -32,8 +24,9 @@ from torch.utils.data import DataLoader
 from app.models import build_sequence_model
 from app.training.dataset_loader import WindowDataset, load_dataset_arrays
 from app.training.metrics import compute_binary_metrics
+from app.calibration import IsotonicRiskCalibrator
 
-
+# 支持训练的模型
 SUPPORTED_SEQUENCE_MODELS = {
     "lstm",
     "bilstm",
@@ -41,48 +34,53 @@ SUPPORTED_SEQUENCE_MODELS = {
     "bilstm_attention",
 }
 
+# 定义评价指标
 SUPPORTED_BEST_METRICS = {
     "val_f1",
     "val_auc",
-    "val_loss",
+    "val_loss", # 验证集上的二分类交叉熵损失
 }
 
 
+# 训练配置项
 @dataclass
 class SequenceTrainConfig:
-    dataset_dir: Path
-    output_dir: Path
+    dataset_dir: Path # 窗口数据集目录：data/dataset
+    output_dir: Path # 训练结果输出目录
     model: str = "bilstm_attention"
     epochs: int = 30
     batch_size: int = 256
     lr: float = 0.001
     seed: int = 42
     device: str = "auto"
-    threshold: float = 0.5
-    hidden_dim: int = 64
+    threshold: float = 0.5 # 风险概率转成 0/1 预测类别的阈值
+    hidden_dim: int = 64 # 隐藏层维度，bi-lstm：64*2
     num_layers: int = 1
     dropout: float = 0.2
     num_workers: int = 0
     overwrite: bool = False
     best_metric: str = "val_auc"
 
-
+# 主训练函数
 def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
     """
     执行时序模型训练、验证、测试与结果保存。
-
     返回：
         sequence_model_report.json 对应的普通 Python dict。
     """
+    # 校验配置是否合法
     _validate_config(config)
+    # 设置随机种子
     set_random_seed(config.seed)
 
     dataset_dir = Path(config.dataset_dir)
     output_dir = Path(config.output_dir)
+    # 训练设备 cuda->mps->cpu
     device = resolve_device(config.device)
 
     _prepare_output_dir(output_dir, overwrite=config.overwrite)
 
+    # 加载窗口数据集
     arrays = load_dataset_arrays(dataset_dir)
     X = arrays["X"]
     y = arrays["y"]
@@ -92,12 +90,15 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
 
     window_size = int(X.shape[1])
     feature_dim = int(X.shape[2])
+    # 输入bi-lstm的维度是每一个时间步的特征数量
     input_dim = feature_dim
 
+    # 构建 Dataset
     train_dataset = WindowDataset(X, y, arrays["train_indices"], flatten=False)
     val_dataset = WindowDataset(X, y, arrays["val_indices"], flatten=False)
     test_dataset = WindowDataset(X, y, arrays["test_indices"], flatten=False)
 
+    # 构建 DataLoader
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
@@ -117,6 +118,7 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
         num_workers=config.num_workers,
     )
 
+    # 创建模型
     model = build_sequence_model(
         model_name=config.model,
         input_dim=input_dim,
@@ -125,11 +127,12 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
         dropout=config.dropout,
     ).to(device)
 
+    # 定义损失函数和优化器
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
     save_json(
-        output_dir / "training_config.json",
+        output_dir / "training_config.json", # 保存 training_config.json
         _config_to_json_dict(
             config=config,
             device=device,
@@ -140,16 +143,26 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
         ),
     )
 
+    feature_columns_path = dataset_dir / "feature_columns.json"
+    if not feature_columns_path.exists():
+        raise FileNotFoundError(f"feature_columns.json 不存在: {feature_columns_path}")
+    shutil.copy2(feature_columns_path, output_dir / "feature_columns.json")
+
     history: List[Dict[str, Any]] = []
     best_epoch = 0
     best_metric_value = None
-
+    # 循环轮次训练
     for epoch in range(1, config.epochs + 1):
+        """
+        1. 训练一轮
+        2. 在验证集上评估
+        3. 判断是否保存最佳模型
+        """
         train_loss = train_one_epoch(
             model=model,
             loader=train_loader,
-            criterion=criterion,
-            optimizer=optimizer,
+            criterion=criterion, # 损失函数
+            optimizer=optimizer, # 优化器
             device=device,
         )
 
@@ -265,15 +278,92 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
         threshold=config.threshold,
     )
 
-    test_predictions = collect_predictions(
+    # 使用 best_model 在验证集上收集原始概率，用于阈值搜索与概率校准
+    val_predictions = collect_predictions(
         model=model,
-        loader=test_loader,
+        loader=val_loader,
         device=device,
         threshold=config.threshold,
     )
 
+    # 基于验证集原始概率搜索最优二分类阈值
+    threshold_summary = search_best_threshold(
+        y_true=val_predictions["y_true"].to_numpy(),
+        y_prob=val_predictions["y_prob"].to_numpy(),
+        metric="f1",
+        search_on="val",
+    )
+    best_threshold = float(threshold_summary["best_threshold"])
+
+    # 使用验证集最佳阈值重新计算 train / val / test 指标
+    train_metrics = evaluate_model(
+        model=model,
+        loader=train_loader,
+        criterion=criterion,
+        device=device,
+        threshold=best_threshold,
+    )
+
+    val_metrics = evaluate_model(
+        model=model,
+        loader=val_loader,
+        criterion=criterion,
+        device=device,
+        threshold=best_threshold,
+    )
+
+    test_metrics = evaluate_model(
+        model=model,
+        loader=test_loader,
+        criterion=criterion,
+        device=device,
+        threshold=best_threshold,
+    )
+
+    # 重新生成带最佳阈值 y_pred 的验证集与测试集预测文件
+    val_predictions = collect_predictions(
+        model=model,
+        loader=val_loader,
+        device=device,
+        threshold=best_threshold,
+    )
+
+    test_predictions = collect_predictions(
+        model=model,
+        loader=test_loader,
+        device=device,
+        threshold=best_threshold,
+    )
+
+    # 基于验证集拟合保序回归校准器，并保存 calibrator.pkl
+    calibrator = IsotonicRiskCalibrator()
+    val_y_true = val_predictions["y_true"].to_numpy()
+    val_y_prob = val_predictions["y_prob"].to_numpy()
+    calibrated_val_prob = calibrator.fit_transform(
+        y_true=val_y_true,
+        y_prob=val_y_prob,
+    )
+    calibrator.save(output_dir / "calibrator.pkl")
+    calibration_summary = build_calibration_summary(
+        y_true=val_y_true,
+        y_prob=val_y_prob,
+        calibrated_prob=calibrated_val_prob,
+        threshold=best_threshold,
+    )
+
+    evaluation_summary = build_evaluation_summary(
+        train_metrics=train_metrics,
+        val_metrics=val_metrics,
+        test_metrics=test_metrics,
+        threshold_summary=threshold_summary,
+        calibration_summary=calibration_summary,
+    )
     save_metrics_history(output_dir / "metrics_history.csv", history)
+    val_predictions.to_csv(output_dir / "val_predictions.csv", index=False)
     test_predictions.to_csv(output_dir / "test_predictions.csv", index=False)
+    save_json(output_dir / "threshold_summary.json", threshold_summary)
+    save_json(output_dir / "calibration_summary.json", calibration_summary)
+    save_json(output_dir / "evaluation_summary.json", evaluation_summary)
 
     report = {
         "task": "sequence_model_training",
@@ -294,7 +384,8 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
             "lr": float(config.lr),
             "seed": int(config.seed),
             "device": str(device),
-            "threshold": float(config.threshold),
+            "threshold": float(best_threshold),
+            "initial_threshold": float(config.threshold),
             "best_epoch": int(best_epoch),
             "best_metric": str(config.best_metric),
             "best_metric_value": _to_optional_float(best_metric_value),
@@ -305,10 +396,19 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
         "artifacts": {
             "best_model": "best_model.pt",
             "metrics_history": "metrics_history.csv",
+            "val_predictions": "val_predictions.csv",
             "test_predictions": "test_predictions.csv",
             "training_config": "training_config.json",
+            "feature_columns": "feature_columns.json",
+            "threshold_summary": "threshold_summary.json",
+            "evaluation_summary": "evaluation_summary.json",
+            "calibrator": "calibrator.pkl",
+            "calibration_summary": "calibration_summary.json",
         },
-        "notes": [],
+        "notes": [ "Isotonic regression calibrator is fitted on validation predictions.",
+                    "Best decision threshold is selected on validation split by F1.",
+                    "MC-Dropout is configured at runtime through model_artifact_manifest.json.",
+                    ],
     }
 
     save_json(output_dir / "sequence_model_report.json", report)
@@ -370,24 +470,22 @@ def train_one_epoch(
 ) -> float:
     """
     训练一个 epoch，返回按样本数加权的平均 loss。
-
-    注意：features 保持三维输入 [batch_size, window_size, feature_dim]，
-    不做展平。
     """
-    model.train()
+    model.train() # 开启训练模式。Dropout生效
 
     total_loss = 0.0
     total_samples = 0
 
     for features, labels in loader:
-        features = features.to(device=device, dtype=torch.float32)
-        labels = labels.to(device=device, dtype=torch.float32).view(-1)
+        # 把输入数据移动到 CPU / GPU / MPS，并转成 float32
+        features = features.to(device=device, dtype=torch.float32)  # features.shape = [batch_size, window_size, feature_dim]
+        labels = labels.to(device=device, dtype=torch.float32).view(-1) # label.shape = [batch_size]
 
-        optimizer.zero_grad()
-        logits = model(features).view(-1)
-        loss = criterion(logits, labels)
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad() # 清空上一轮梯度
+        logits = model(features).view(-1) # 模型前向传播
+        loss = criterion(logits, labels) # 计算二分类损失
+        loss.backward() # 反向传播，计算梯度
+        optimizer.step() # 更新模型参数
 
         batch_size = int(labels.shape[0])
         total_loss += float(loss.detach().cpu().item()) * batch_size
@@ -407,6 +505,7 @@ def evaluate_model(
     threshold: float = 0.5,
 ) -> Dict[str, Any]:
     """在指定 DataLoader 上评估模型，返回 loss 和二分类指标。"""
+    # 评估。Dropout不再随机丢弃特征。
     model.eval()
 
     total_loss = 0.0
@@ -414,19 +513,23 @@ def evaluate_model(
     y_true_batches = []
     y_prob_batches = []
 
+    # 关闭梯度计算，节省显存和计算量
     with torch.no_grad():
         for features, labels in loader:
             features = features.to(device=device, dtype=torch.float32)
-            labels = labels.to(device=device, dtype=torch.float32).view(-1)
+            labels = labels.to(device=device, dtype=torch.float32).view(-1) 
 
+            # # 得到原始输出
             logits = model(features).view(-1)
             loss = criterion(logits, labels)
+            # 把 logit 转成风险概率
             probs = torch.sigmoid(logits)
 
             batch_size = int(labels.shape[0])
             total_loss += float(loss.detach().cpu().item()) * batch_size
             total_samples += batch_size
 
+            # 收集所有 batch 的：y_true, y_prob
             y_true_batches.append(labels.detach().cpu())
             y_prob_batches.append(probs.detach().cpu())
 
@@ -436,6 +539,7 @@ def evaluate_model(
     y_true = torch.cat(y_true_batches).numpy()
     y_prob = torch.cat(y_prob_batches).numpy()
 
+    # 计算评价指标
     metrics = compute_binary_metrics(
         y_true=y_true,
         y_prob=y_prob,
@@ -651,6 +755,171 @@ def _config_to_json_dict(
     data["model_config"] = model_config
     return data
 
+
+def search_best_threshold(
+    y_true: Any,
+    y_prob: Any,
+    metric: str = "f1",
+    search_on: str = "val",
+) -> Dict[str, Any]:
+    """
+    在验证集预测概率上搜索最优二分类阈值。
+
+    当前默认按 F1 最大选择阈值。若多个阈值 F1 相同，保留先遇到的阈值。
+    """
+    y_true_array = np.asarray(y_true, dtype=np.int64)
+    y_prob_array = np.asarray(y_prob, dtype=np.float64)
+
+    if y_true_array.ndim != 1:
+        raise ValueError("y_true must be 1D")
+    if y_prob_array.ndim != 1:
+        raise ValueError("y_prob must be 1D")
+    if y_true_array.shape[0] != y_prob_array.shape[0]:
+        raise ValueError("y_true and y_prob must have the same length")
+    if y_true_array.shape[0] == 0:
+        raise ValueError("validation predictions must not be empty")
+    if not np.isin(y_true_array, [0, 1]).all():
+        raise ValueError("y_true must contain only 0/1 labels")
+    if not np.isfinite(y_prob_array).all():
+        raise ValueError("y_prob must contain only finite values")
+    if (y_prob_array < 0).any() or (y_prob_array > 1).any():
+        raise ValueError("y_prob must be within [0, 1]")
+
+    if metric != "f1":
+        raise ValueError("当前阈值搜索仅支持 metric='f1'")
+
+    candidate_thresholds = np.unique(
+        np.concatenate(
+            [
+                np.linspace(0.01, 0.99, 99, dtype=np.float64),
+                y_prob_array,
+            ]
+        )
+    )
+
+    best_threshold = 0.5
+    best_metric_value = -1.0
+    best_metrics: Dict[str, Any] | None = None
+
+    for threshold in candidate_thresholds:
+        metrics = compute_binary_metrics(
+            y_true=y_true_array,
+            y_prob=y_prob_array,
+            threshold=float(threshold),
+        )
+        current_value = float(metrics["f1"])
+
+        if current_value > best_metric_value:
+            best_metric_value = current_value
+            best_threshold = float(threshold)
+            best_metrics = metrics
+
+    if best_metrics is None:
+        raise RuntimeError("failed to search best threshold")
+
+    return {
+        "best_threshold": float(best_threshold),
+        "best_val_threshold": float(best_threshold),
+        "search_on": str(search_on),
+        "metric": str(metric),
+        "best_metric_value": float(best_metric_value),
+        "candidate_count": int(candidate_thresholds.shape[0]),
+        "metrics_at_best_threshold": _json_safe_metrics(best_metrics),
+        "notes": [
+            "Threshold is selected on validation predictions.",
+            "The selected threshold is used for final train/val/test binary metrics and runtime predicted_label.",
+        ],
+    }
+
+
+def build_calibration_summary(
+    y_true: Any,
+    y_prob: Any,
+    calibrated_prob: Any,
+    threshold: float,
+) -> Dict[str, Any]:
+    """
+    构建保序回归校准摘要。
+    """
+    y_true_array = np.asarray(y_true, dtype=np.int64)
+    y_prob_array = np.asarray(y_prob, dtype=np.float64)
+    calibrated_array = np.asarray(calibrated_prob, dtype=np.float64)
+
+    if y_true_array.shape[0] != y_prob_array.shape[0]:
+        raise ValueError("y_true and y_prob must have the same length")
+    if y_prob_array.shape[0] != calibrated_array.shape[0]:
+        raise ValueError("y_prob and calibrated_prob must have the same length")
+
+    raw_metrics = compute_binary_metrics(
+        y_true=y_true_array,
+        y_prob=y_prob_array,
+        threshold=threshold,
+    )
+    calibrated_metrics = compute_binary_metrics(
+        y_true=y_true_array,
+        y_prob=calibrated_array,
+        threshold=threshold,
+    )
+
+    return {
+        "enabled": True,
+        "method": "isotonic_regression",
+        "fit_split": "val",
+        "input_probability": "y_prob",
+        "output_probability": "calibrated_y_prob",
+        "calibrator_file": "calibrator.pkl",
+        "sample_count": int(y_true_array.shape[0]),
+        "threshold": float(threshold),
+        "raw_metrics": _json_safe_metrics(raw_metrics),
+        "calibrated_metrics": _json_safe_metrics(calibrated_metrics),
+        "brier_score_before": float(raw_metrics["brier_score"]),
+        "brier_score_after": float(calibrated_metrics["brier_score"]),
+        "notes": [
+            "The calibrator is fitted on validation split predictions only.",
+            "The calibrator maps raw sigmoid probabilities to calibrated risk probabilities.",
+        ],
+    }
+
+
+def build_evaluation_summary(
+    train_metrics: Dict[str, Any],
+    val_metrics: Dict[str, Any],
+    test_metrics: Dict[str, Any],
+    threshold_summary: Dict[str, Any],
+    calibration_summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    构建模型最终评估摘要。
+    """
+    return {
+        "task": "sequence_model_evaluation",
+        "threshold": {
+            "best_threshold": float(threshold_summary["best_threshold"]),
+            "search_on": threshold_summary.get("search_on", "val"),
+            "metric": threshold_summary.get("metric", "f1"),
+            "best_metric_value": threshold_summary.get("best_metric_value"),
+        },
+        "metrics": {
+            "train": _json_safe_metrics(train_metrics),
+            "val": _json_safe_metrics(val_metrics),
+            "test": _json_safe_metrics(test_metrics),
+        },
+        "calibration": {
+            "enabled": True,
+            "method": "isotonic_regression",
+            "summary_file": "calibration_summary.json",
+            "calibrator_file": "calibrator.pkl",
+            "brier_score_before": calibration_summary.get("brier_score_before"),
+            "brier_score_after": calibration_summary.get("brier_score_after"),
+        },
+        "artifacts": {
+            "threshold_summary": "threshold_summary.json",
+            "calibration_summary": "calibration_summary.json",
+            "calibrator": "calibrator.pkl",
+            "val_predictions": "val_predictions.csv",
+            "test_predictions": "test_predictions.csv",
+        },
+    }
 
 def _to_optional_float(value: Any) -> float | None:
     if value is None:

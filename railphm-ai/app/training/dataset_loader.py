@@ -1,6 +1,5 @@
 """
-实现 WindowDataset、load_dataset_arrays、create_data_loaders，
-负责读取窗口数据集、校验数组合法性，并生成 PyTorch DataLoader。
+窗口数据集加载进来，并包装成 PyTorch 可以训练的 DataLoader。
 """
 from pathlib import Path
 from typing import Dict, Union
@@ -14,6 +13,7 @@ ArrayDict = Dict[str, np.ndarray]
 PathLike = Union[str, Path]
 
 
+# 把 X/y/indices 包装成 PyTorch Dataset
 class WindowDataset(Dataset):
     """
     ATP 窗口样本数据集。
@@ -22,13 +22,13 @@ class WindowDataset(Dataset):
     y: [num_samples]
     indices: 当前数据集使用的样本下标
     """
-
+    # 根据 indices 取出 train、val 或 test 对应的样本
     def __init__(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
-        indices: np.ndarray,
-        flatten: bool = True,
+        X: np.ndarray, # [num_samples, window_size, feature_dim]
+        y: np.ndarray, # [num_samples]
+        indices: np.ndarray, # 当前数据集使用的样本下标
+        flatten: bool = True, # 是否把三维窗口样本展平成一维
     ) -> None:
         self.X = np.asarray(X)
         self.y = np.asarray(y)
@@ -37,13 +37,16 @@ class WindowDataset(Dataset):
 
         self._validate_arrays()
 
+    # 返回当前数据集有多少个样本
     def __len__(self) -> int:
         return int(len(self.indices))
 
     def __getitem__(self, item: int):
-        sample_index = int(self.indices[item])
+        # item: 当前 Dataset 内部的第几个样本
+        sample_index = int(self.indices[item]) # 样本在原始完整 X.npy 里的真实下标
         feature = self.X[sample_index]
-
+        
+        # train_sequence_model.py ----> flatten=False
         if self.flatten:
             feature = feature.reshape(-1)
 
@@ -63,7 +66,7 @@ class WindowDataset(Dataset):
 
         _validate_indices(self.indices, self.X.shape[0], split_name="indices")
 
-
+# 从磁盘读取数据集文件
 def load_dataset_arrays(dataset_dir: PathLike) -> ArrayDict:
     """
     从窗口数据集目录读取 X/y 和 train/val/test split indices。
@@ -109,6 +112,7 @@ def load_dataset_arrays(dataset_dir: PathLike) -> ArrayDict:
     }
 
 
+# 创建训练、验证、测试 DataLoader, 训练脚本调用
 def create_data_loaders(
     dataset_dir: PathLike,
     batch_size: int = 256,

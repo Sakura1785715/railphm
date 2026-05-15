@@ -1,5 +1,12 @@
-# scripts/split_dataset.py
-
+"""
+python scripts/split_dataset.py \
+  --dataset-dir data/datasets/window_w30_s1_h1 \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --overwrite
+"""
 import argparse
 import sys
 from pathlib import Path
@@ -10,12 +17,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.dataset.split_builder import DatasetSplitBuilder
 
-
+# 解析命令行参数
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Split RailPHM window dataset by segment_id to avoid leakage."
     )
 
+    # build_window_dataset.py 生成的数据集目录
     parser.add_argument(
         "--dataset-dir",
         required=True,
@@ -23,6 +31,7 @@ def parse_args() -> argparse.Namespace:
         help="窗口数据集目录，例如 data/datasets/window_w30_s1_h1",
     )
 
+    # 划分结果输出目录
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -30,6 +39,7 @@ def parse_args() -> argparse.Namespace:
         help="划分结果输出目录，默认写入 dataset_dir/splits",
     )
 
+    # 划分比例参数
     parser.add_argument(
         "--train-ratio",
         type=float,
@@ -67,6 +77,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 打印划分结果
 def print_split_summary(summary: dict) -> None:
     print()
     print("RailPHM dataset split finished.")
@@ -99,7 +110,7 @@ def print_split_summary(summary: dict) -> None:
         print(f"  positive_ratio : {positive_ratio_text}")
         print(f"  indices_file   : {part.get('indices_file')}")
         print()
-
+    # 检查是否发生 segment 泄漏
     leakage_check = summary.get("leakage_check", {})
     print("leakage_check:")
     print(f"  train_val_overlap_count  : {leakage_check.get('train_val_overlap_count')}")
@@ -110,7 +121,7 @@ def print_split_summary(summary: dict) -> None:
 
 def main() -> int:
     args = parse_args()
-
+    # 默认输出目录: 输入目录/splits/
     output_dir = args.output_dir or args.dataset_dir / "splits"
 
     try:

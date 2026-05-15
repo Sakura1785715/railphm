@@ -1,25 +1,13 @@
 """
-基于训练集统计量缩放窗口数据集。计算训练集上每个特征的均值和标准差，之后对完整 X 执行 z-score 标准化。
-
-输入目录：
-    通过 --input-dir 指定。输入目录应为未做 segment 内 min-max 归一化的 raw window dataset，
-    且必须已经完成 train/val/test 划分。目录中需要包含 X.npy、y.npy、feature_columns.json、
-    window_manifest.csv、dataset_summary.json，以及 splits/train_indices.npy、
-    splits/val_indices.npy、splits/test_indices.npy。
-
-复制文件：
-    y.npy、feature_columns.json、window_manifest.csv 会直接复制到输出目录；
-    splits/train_indices.npy、splits/val_indices.npy、splits/test_indices.npy 和
-    splits/split_summary.json 会复制到输出目录的 splits 子目录，其中 split_summary.json 存在才复制。
-
-重写文件：
-    X.npy 会被重写为标准化后的 X_scaled；
-    scaler_summary.json 会记录标准化方法、训练集统计量 mean/std/safe_std 和相关样本数；
-    dataset_summary.json 会基于原摘要新增 scaling 字段后重新写出。
-
-输出目录：
-    通过 --output-dir 指定。标准化后的新数据集会保存到该目录，不会修改 input_dir。
-    如果输出目录已存在，默认报错；传入 --overwrite 时会删除输出目录并重新生成。
+读取已经完成 train / val / test 划分的窗口数据集，
+只用训练集样本计算每个特征的 mean / std
+再用这组训练集统计量对完整 X.npy 做 z-score 标准化，
+最后生成一个新的标准化数据集目录。
+python scripts/scale_window_dataset.py \
+  --input-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1 \
+  --output-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1 \
+  --overwrite \
+  --delete-input-after-success
 """
 
 from __future__ import annotations
@@ -50,6 +38,7 @@ def save_json(path: Path, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+# 创建标准化后的数据集目录
 def prepare_output_dir(output_dir: Path, overwrite: bool):
     if output_dir.exists():
         if not overwrite:
@@ -59,7 +48,7 @@ def prepare_output_dir(output_dir: Path, overwrite: bool):
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "splits").mkdir(parents=True, exist_ok=True)
 
-# 校验输入数据集目录
+# 校验输入数据集是否完整
 def validate_dataset_dir(dataset_dir: Path):
     # 输入数据集必须具备的文件
     required_files = [
@@ -100,26 +89,26 @@ def fit_standard_scaler(X: np.ndarray, train_indices: np.ndarray):
     return mean, std, safe_std
 
 
+# 分块标准化完整 X.npy数据集
 def transform_in_chunks(
     X: np.ndarray,
     mean: np.ndarray,
     safe_std: np.ndarray,
     chunk_size: int,
 ) -> np.ndarray:
-    """
-    分块 transform，降低峰值内存。
-    """
+    # 分块 transform，降低峰值内存。
     X_scaled = np.empty_like(X, dtype=np.float32)
     total = X.shape[0]
 
     for start in range(0, total, chunk_size):
         end = min(start + chunk_size, total)
         chunk = X[start:end].astype(np.float32, copy=False)
+        # 标准化公式：X_scaled = (X - mean) / std
         X_scaled[start:end] = ((chunk - mean.reshape(1, 1, -1)) / safe_std.reshape(1, 1, -1)).astype(np.float32)
 
     return X_scaled
 
-# 复制元数据文件
+# 复制不需要改变的文件
 def copy_required_metadata(input_dir: Path, output_dir: Path):
     for filename in [
         # 复制这三个文件：
@@ -140,19 +129,71 @@ def copy_required_metadata(input_dir: Path, output_dir: Path):
         if src.exists():
             shutil.copy2(src, output_dir / "splits" / filename)
 
+def _is_relative_to(child: Path, parent: Path) -> bool:
+    """
+    判断 child 是否位于 parent 目录内部。
+    """
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+def validate_delete_input_paths(input_dir: Path, output_dir: Path) -> None:
+    """
+    校验删除 input_dir 是否安全。
+    只允许在 input_dir 和 output_dir 完全独立时删除 input_dir。
+    防止 output_dir 位于 input_dir 内部，删除 input_dir 连同新数据集一起删除。
+    """
+    input_resolved = input_dir.resolve()
+    output_resolved = output_dir.resolve()
+
+    if input_resolved == output_resolved:
+        raise ValueError("启用 --delete-input-after-success 时，input-dir 不能与 output-dir 相同")
+
+    if _is_relative_to(output_resolved, input_resolved):
+        raise ValueError(
+            "启用 --delete-input-after-success 时，output-dir 不能位于 input-dir 内部，"
+            "否则删除 input-dir 会连同新生成的数据集一起删除"
+        )
+    
+def delete_input_dir_after_success(input_dir: Path) -> None:
+    """
+    标准化数据集成功生成后删除输入目录。
+    """
+    if not input_dir.exists():
+        return
+
+    if not input_dir.is_dir():
+        raise NotADirectoryError(f"input_dir 不是目录，无法删除: {input_dir}")
+
+    shutil.rmtree(input_dir)
 
 def main():
     parser = argparse.ArgumentParser()
+    # 参数1: 输入目录
     parser.add_argument("--input-dir", type=Path, required=True, help="未做 segment 内 min-max 的 raw window dataset")
+    # 参数 2：输出目录
     parser.add_argument("--output-dir", type=Path, required=True, help="缩放后的新数据集目录")
-    # 定义标准化方法参数----z-score 标准化： (x - mean) / std
+    # 参数 3：标准化方法
     parser.add_argument("--method", type=str, default="standard", choices=["standard"], help="当前仅支持 standard")
+    # 参数 4：分块大小
     parser.add_argument("--chunk-size", type=int, default=20000, help="分块 transform 的样本数")
+    # 参数 5：覆盖输出目录
     parser.add_argument("--overwrite", action="store_true")
+    # 删除旧文件
+    parser.add_argument(
+        "--delete-input-after-success",
+        action="store_true",
+        help="标准化数据集成功生成后删除 input-dir，用于清理中间数据目录",
+    )
     args = parser.parse_args()
 
     input_dir = args.input_dir
     output_dir = args.output_dir
+
+    if args.delete_input_after_success:
+        validate_delete_input_paths(input_dir, output_dir)
 
     validate_dataset_dir(input_dir)
     prepare_output_dir(output_dir, overwrite=args.overwrite)
@@ -179,9 +220,11 @@ def main():
         raise ValueError("X feature_dim 与 feature_columns 数量不一致")
 
     print("Fitting scaler on train split only...")
+    # 拟合标准化参数
     mean, std, safe_std = fit_standard_scaler(X, train_indices)
 
     print("Transforming full X with train-fitted scaler...")
+    # 标准化完整 X
     X_scaled = transform_in_chunks(
         X=X,
         mean=mean,
@@ -193,6 +236,7 @@ def main():
         raise ValueError("缩放后的 X 存在 NaN 或 inf")
 
     print(f"Saving scaled X to: {output_dir / 'X.npy'}")
+    # 保存新的 X.npy
     np.save(output_dir / "X.npy", X_scaled)
 
     copy_required_metadata(input_dir, output_dir)
@@ -241,6 +285,11 @@ def main():
     print(f"train_samples: {len(train_indices)}")
     print(f"val_samples: {len(val_indices)}")
     print(f"test_samples: {len(test_indices)}")
+
+    if args.delete_input_after_success:
+        print(f"Deleting input dataset directory: {input_dir}")
+        delete_input_dir_after_success(input_dir)
+        print("Input dataset directory deleted successfully.")
 
 
 if __name__ == "__main__":

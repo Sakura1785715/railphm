@@ -1,3 +1,7 @@
+"""
+InferRequestSchema   负责校验请求参数，并把参数转换成后续业务可用的格式
+InferResponseSchema  负责校验推理结果是否完整，并筛选最终允许返回给前端的字段
+"""
 from datetime import datetime
 from typing import Any, Dict
 

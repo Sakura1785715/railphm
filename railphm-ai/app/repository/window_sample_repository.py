@@ -16,17 +16,19 @@ class WindowSampleRepository:
     X.npy / y.npy 使用 mmap 方式打开，避免接口进程一次性加载全部样本。
     """
 
+    # 初始化仓储对象
     def __init__(self, dataset_dir: str | Path) -> None:
         self.dataset_dir = Path(dataset_dir)
-        self.x_path = self.dataset_dir / "X.npy"
-        self.y_path = self.dataset_dir / "y.npy"
-        self.manifest_path = self.dataset_dir / "window_manifest.csv"
+        self.x_path = self.dataset_dir / "X.npy" # dataset_dir/X.npy
+        self.y_path = self.dataset_dir / "y.npy" # dataset_dir/y.npy
+        self.manifest_path = self.dataset_dir / "window_manifest.csv" # dataset_dir/window_manifest.csv
 
         self._validate_dataset_files()
         self._x = np.load(self.x_path, mmap_mode="r")
         self._y = np.load(self.y_path, mmap_mode="r")
         self._validate_arrays()
-
+    
+    # 根据 sample_index 取出一个窗口样本
     def get_window_by_sample_index(self, sample_index: int) -> dict[str, Any]:
         self._validate_sample_index(sample_index)
 
@@ -35,13 +37,14 @@ class WindowSampleRepository:
                 f"sample_index 越界: sample_index={sample_index}, "
                 f"available_samples={self._x.shape[0]}"
             )
-
+        #从 X.npy 取窗口：X[sample_index]
         window = np.asarray(self._x[sample_index], dtype=np.float32)
+        # 从 y.npy 取真实标签: y[sample_index]
         y_true = self._normalize_label(self._y[sample_index])
         self._validate_window(window)
-
+        # 返回结果被 infer_repository.py 使用
         return {
-            "window": window,
+            "window": window, # 进入模型推理
             "y_true": y_true,
             "sample_index": int(sample_index),
             "trace": self._read_trace(sample_index),

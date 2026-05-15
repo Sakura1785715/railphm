@@ -17,6 +17,10 @@ def create_app(config_name: str = "default") -> Flask:
     config_obj = get_config(config_name)
     app.config.from_object(config_obj)
 
+    print("AI_MODEL_DIR =", app.config.get("AI_MODEL_DIR"))
+    print("AI_DATASET_DIR =", app.config.get("AI_DATASET_DIR"))
+    print("AI_ENABLE_MOCK_FALLBACK =", app.config.get("AI_ENABLE_MOCK_FALLBACK"))
+
     init_logging(app)
     register_blueprints(app)
     register_error_handlers(app)
