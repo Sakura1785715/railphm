@@ -27,6 +27,12 @@ class BaseConfig:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
     MYSQL_URL: str = os.getenv("MYSQL_URL", "")
+    MYSQL_HOST: str = os.getenv("MYSQL_HOST", "127.0.0.1")
+    MYSQL_PORT: int = int(os.getenv("MYSQL_PORT", "3306"))
+    MYSQL_USER: str = os.getenv("MYSQL_USER", "root")
+    MYSQL_PASSWORD: str = os.getenv("MYSQL_PASSWORD", "mdgq04l08y11x")
+    MYSQL_DATABASE: str = os.getenv("MYSQL_DATABASE", "railphm")
+    MYSQL_CHARSET: str = os.getenv("MYSQL_CHARSET", "utf8mb4")
     INFLUXDB_URL: str = os.getenv("INFLUXDB_URL", "")
 
     AI_SERVICE_BASE_URL: str = os.getenv("AI_SERVICE_BASE_URL", "http://127.0.0.1:5001")
@@ -38,10 +44,10 @@ class BaseConfig:
         "yes",
         "on",
     }
-    AI_DEFAULT_THRESHOLD: float = float(os.getenv("AI_DEFAULT_THRESHOLD", "0.26"))
-    RISK_THRESHOLD_NORMAL: float = float(os.getenv("RISK_THRESHOLD_NORMAL", "0.26"))
-    RISK_THRESHOLD_WARNING: float = float(os.getenv("RISK_THRESHOLD_WARNING", "0.45"))
-    RISK_THRESHOLD_CRITICAL: float = float(os.getenv("RISK_THRESHOLD_CRITICAL", "0.65"))
+    AI_DEFAULT_THRESHOLD: float = float(os.getenv("AI_DEFAULT_THRESHOLD", "0.5"))
+    RISK_THRESHOLD_NORMAL: float = float(os.getenv("RISK_THRESHOLD_NORMAL", "0.3"))
+    RISK_THRESHOLD_WARNING: float = float(os.getenv("RISK_THRESHOLD_WARNING", "0.58"))
+    RISK_THRESHOLD_CRITICAL: float = float(os.getenv("RISK_THRESHOLD_CRITICAL", "0.8"))
     HEALTH_SCORE_DECIMALS: int = int(os.getenv("HEALTH_SCORE_DECIMALS", "2"))
 
     REALTIME_STREAM_ID: str = os.getenv("REALTIME_STREAM_ID", "default")

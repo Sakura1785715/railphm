@@ -262,7 +262,6 @@ class PredictionService:
             "risk_score",
             required=True,
         )
-        # AI 未返回 threshold 时，使用当前模型验证集最佳阈值配置兜底，默认 0.26。
         threshold = PredictionService._parse_ai_float(
             ai_data.get("threshold"),
             "threshold",
@@ -290,17 +289,40 @@ class PredictionService:
 
         return {
             "device_id": request_data["device_id"],
+            "device_code": str(request_data["device_id"]),
             "sample_index": ai_data.get("sample_index", request_data["sample_index"]),
+
             "risk_raw": risk_raw,
             "risk_score": risk_score,
+            "risk_raw_std": PredictionService._parse_ai_float(
+                ai_data.get("risk_raw_std"),
+                "risk_raw_std",
+                required=False,
+                default=0.0,
+            ),
             "risk_std": risk_std,
             "threshold": threshold,
             "predicted_label": predicted_label,
+
+            "model_name": ai_data.get("model_name") or "unknown",
             "model_version": ai_data.get("model_version") or "unknown",
+
+            "calibration_enabled": bool(ai_data.get("calibration_enabled", False)),
+            "calibration_method": ai_data.get("calibration_method"),
+            "uncertainty_enabled": bool(ai_data.get("uncertainty_enabled", False)),
+            "uncertainty_method": ai_data.get("uncertainty_method") or "unknown",
+            "mc_samples": ai_data.get("mc_samples", request_data["mc_samples"]),
+
+            "condition_label": ai_data.get("condition_label"),
+            "y_true": ai_data.get("y_true"),
+            "trace": ai_data.get("trace") or {},
+            "runtime_error": ai_data.get("runtime_error"),
+
             "window_start_time": ai_data.get("window_start_time"),
             "window_end_time": ai_data.get("window_end_time") or request_data["ts_end"],
+            "ts_end": ai_data.get("ts_end") or request_data["ts_end"],
+            "window_minutes": ai_data.get("window_minutes") or request_data["window_minutes"],
             "data_source": ai_data.get("data_source") or "ai_service",
-            "uncertainty_method": ai_data.get("uncertainty_method") or "unknown",
         }
 
     @staticmethod
@@ -327,6 +349,19 @@ class PredictionService:
             "window_end_time": validated_data["ts_end"],
             "data_source": "mock_fallback",
             "uncertainty_method": "unknown",
+            "risk_raw_std": 0.0,
+            "model_name": "mock",
+            "calibration_enabled": False,
+            "calibration_method": None,
+            "uncertainty_enabled": False,
+            "mc_samples": 0,
+            "condition_label": None,
+            "y_true": None,
+            "trace": {},
+            "runtime_error": None,
+            "device_code": str(validated_data["device_id"]),
+            "ts_end": validated_data["ts_end"],
+            "window_minutes": validated_data["window_minutes"],
         }
 
     @staticmethod

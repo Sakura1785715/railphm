@@ -12,27 +12,46 @@ class PredictionSchema:
 
     INFER_FIELDS = (
         "device_id",
+        "device_code",
         "sample_index",
+
         "risk_raw",
         "risk_score",
+        "risk_raw_std",
         "risk_std",
         "threshold",
         "predicted_label",
-        "model_version",
-        "window_start_time",
-        "window_end_time",
-        "data_source",
-        "uncertainty_method",
+
         "health_score",
         "health_level",
         "health_status",
         "health_description",
+
         "alert_generated",
         "alert_level",
         "alert_status",
         "alert_status_text",
         "alert_message",
         "alert_advice",
+
+        "model_name",
+        "model_version",
+        "calibration_enabled",
+        "calibration_method",
+        "uncertainty_enabled",
+        "uncertainty_method",
+        "mc_samples",
+
+        "condition_label",
+        "y_true",
+        "trace",
+        "runtime_error",
+
+        "window_start_time",
+        "window_end_time",
+        "ts_end",
+        "window_minutes",
+        "data_source",
     )
 
     @staticmethod
