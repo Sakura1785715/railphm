@@ -309,7 +309,8 @@ function buildApiParams() {
     device_code: filters.deviceCode,
     start_time: filters.startTime,
     end_time: filters.endTime,
-    condition_label: filters.conditionLabel || undefined
+    condition_label: filters.conditionLabel || undefined,
+    limit: 1000
   }
 }
 

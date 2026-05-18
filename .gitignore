@@ -47,3 +47,4 @@ railphm-ai/reports/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+railphm-ai/data/influx_test_segments/

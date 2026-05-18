@@ -1,11 +1,13 @@
-#!/usr/bin/env python3
+"""
+把 CSV 文件里的 ATP 运行监测数据导入 InfluxDB
+"""
 from __future__ import annotations
 
 import argparse
 import csv
 import os
 import sys
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict#
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,14 +20,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.core.config import BaseConfig  # noqa: E402
+from app.core.config import BaseConfig  
 
-
+# 字段映射表
 FIELD_ALIASES = {
     "source_time": ("数据时间", "DataTime", "data_time", "source_time"),
     "speed": ("速度", "Speed", "speed"),
     "mileage": ("里程", "Mileage", "mileage"),
-    "condition_label": ("工况标签", "condition_label", "condition_name", "工况", "condition"),
+    # "condition_label": ("工况标签", "condition_label", "condition_name", "工况", "condition"),
     "atp_type": ("ATP类型", "atp_type"),
     "source_car_no": ("车号", "TrainID", "source_car_no"),
     "source_train_no": ("车次", "source_train_no"),
@@ -48,8 +50,10 @@ FIELD_ALIASES = {
     "humidity": ("湿度", "humidity"),
     "alarm_part": ("报警部位", "alarm_part"),
 }
+# CSV必须存在的字段
+REQUIRED_FIELDS = ("source_time", "speed", "mileage")
 
-REQUIRED_FIELDS = ("source_time", "speed", "mileage", "condition_label")
+# 要转成数字的字段
 NUMERIC_FIELDS = {
     "speed",
     "mileage",
@@ -60,12 +64,17 @@ NUMERIC_FIELDS = {
     "outdoor_temperature",
     "humidity",
 }
-TAG_FIELDS = ("device_code", "condition_label", "source_segment", "atp_type", "line_id", "direction")
+
+# 标签字段（tag):InfluxDB查询时可以根据这些条件过滤
+TAG_FIELDS = ("device_code", "source_segment", "atp_type", "line_id", "direction")
+
+# 数值字段（field): 用于展示数据
 FIELD_FIELDS = tuple(
     field
     for field in FIELD_ALIASES
-    if field not in {"source_time", "condition_label", "atp_type", "line_id", "direction"}
+    if field not in {"source_time", "atp_type", "line_id", "direction"}
 )
+
 
 
 @dataclass
@@ -100,7 +109,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    # 传一个演示开始时间
     demo_start_time = datetime.strptime(args.demo_start_time, "%Y-%m-%d %H:%M:%S")
+    # 每个设备都从这个演示时间开始写数据
     device_codes = [item.strip() for item in args.device_codes.split(",") if item.strip()]
     if not device_codes:
         raise ValueError("device-codes 不能为空")
@@ -153,7 +164,7 @@ def main() -> None:
                 summary=summary,
             )
             if points:
-                device_next_time[device_code] = points[-1]["next_time"] + timedelta(seconds=60)
+                device_next_time[device_code] = points[-1]["sample_time"] + timedelta(seconds=1)
 
             for point_info in points:
                 point = point_info["point"]
@@ -170,8 +181,9 @@ def main() -> None:
 
     print_summary(summary, args)
 
-
+# 读取 CSV 并切片
 def load_chunks(args: argparse.Namespace) -> list[SegmentChunk]:
+    # 传的是单个文件：按 chunk-size 切片
     if args.input_file:
         rows = read_csv_rows(args.input_file, args.encoding)
         return split_rows_into_chunks(args.input_file.name, rows, args.chunk_size)
@@ -179,11 +191,13 @@ def load_chunks(args: argparse.Namespace) -> list[SegmentChunk]:
     files = sorted(args.input_dir.glob("*.csv"))
     if args.limit_files:
         files = files[: args.limit_files]
+    # 传的是目录，目录里只有一个 CSV：按 chunk-size 切片
     if len(files) == 1:
         rows = read_csv_rows(files[0], args.encoding)
         return split_rows_into_chunks(files[0].name, rows, args.chunk_size)
 
     return [
+        # 传的是目录，目录里有多个 CSV：每个 CSV 文件就是一个 chunk
         SegmentChunk(source_name=file_path.stem, rows=read_csv_rows(file_path, args.encoding))
         for file_path in files
     ]
@@ -224,6 +238,7 @@ def validate_required_columns(chunks: list[SegmentChunk]) -> None:
         raise ValueError(f"CSV 缺少核心字段: {', '.join(missing)}")
 
 
+# 把行数据变成 InfluxDB 点
 def build_points_for_chunk(
     chunk: SegmentChunk,
     device_code: str,
@@ -237,12 +252,14 @@ def build_points_for_chunk(
 
     for index, row in enumerate(chunk.rows):
         summary["total_rows"] += 1
+        # 统一字段名
         normalized = normalize_row(row)
+        # 检查必填字段
         missing = [field for field in REQUIRED_FIELDS if normalized.get(field) in (None, "")]
         if missing:
             summary["skipped"][f"missing_{','.join(missing)}"] += 1
             continue
-
+        # 构造 InfluxDB 点
         point = Point(measurement).tag("device_code", device_code).tag("source_segment", chunk.source_name)
         for tag in TAG_FIELDS:
             if tag == "device_code" or tag == "source_segment":
@@ -256,6 +273,7 @@ def build_points_for_chunk(
             value = normalized.get(field)
             if value not in (None, ""):
                 point = point.field(field, value)
+        # 设置时间戳
         point = point.time(time_cursor, WritePrecision.S)
 
         summary["written_points"] += 1
@@ -264,9 +282,8 @@ def build_points_for_chunk(
         if condition_label:
             summary["condition_counts"][device_code][condition_label] += 1
         update_time_range(summary["device_ranges"][device_code], time_cursor)
-        point_infos.append({"point": point, "next_time": time_cursor})
-
-        time_cursor += infer_step_seconds(source_times, index)
+        point_infos.append({"point": point, "sample_time": time_cursor})
+        time_cursor += timedelta(seconds=1)
 
     return point_infos
 

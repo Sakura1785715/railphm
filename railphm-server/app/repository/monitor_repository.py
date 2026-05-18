@@ -36,6 +36,18 @@ class MonitorRepository:
         "alarm_part",
     )
 
+    DEFAULT_QUERY_FIELDS = (
+        "speed",
+        "mileage",
+        "source_time",
+        "station_name",
+        "longitude",
+        "latitude",
+        "outdoor_temperature",
+        "humidity",
+        "weather",
+    )
+
     TAG_COLUMNS = (
         "device_code",
         "condition_label",
@@ -59,7 +71,7 @@ class MonitorRepository:
         bucket = current_app.config["INFLUXDB_BUCKET"]
         measurement = current_app.config.get("MONITOR_MEASUREMENT", "atp_monitor")
         query_limit = limit or current_app.config.get("MONITOR_QUERY_LIMIT", 5000)
-        selected_fields = fields or list(cls.FIELD_COLUMNS)
+        selected_fields = fields or list(cls.DEFAULT_QUERY_FIELDS)
 
         flux = cls._build_flux_query(
             bucket=bucket,
