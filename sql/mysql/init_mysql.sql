@@ -139,13 +139,3 @@ INSERT INTO phm_device (
 ('ATP002', 'ATP车载设备002', 'ATP', 1, '300T', '3001003', 'C2048', '宁'),
 ('ATP003', 'ATP车载设备003', 'ATP', 2, '300T', '3001004', 'D1024', '宁');
 
--- 执行：
--- mysql -u root -p < sql/mysql/init_mysql.sql
---
--- 验收：
--- USE railphm;
--- SHOW TABLES;
--- DESC phm_device;
--- DESC phm_risk_result;
--- DESC phm_alert_record;
--- SELECT * FROM phm_device;

@@ -5,6 +5,7 @@ from flask import current_app
 
 from app.clients import AIClient, AIResponseFormatError, AIServiceError
 from app.core.errors import BusinessException
+from app.repository.alert_repository import AlertRepository
 from app.repository.prediction_repository import PredictionRepository
 from app.schema.prediction_schema import PredictionSchema
 from app.service.alert_service import AlertService
@@ -70,6 +71,20 @@ class PredictionService:
         }
 
     @staticmethod
+    def _attach_no_alert_fields(result: Dict[str, Any]) -> Dict[str, Any]:
+        """fallback 或 AI mock 结果不生成真实告警。"""
+        return {
+            **result,
+            "alert_generated": False,
+            "alert_level": "none",
+            "alert_status": "none",
+            "alert_status_text": "无",
+            "alert_message": "当前设备状态正常，暂未生成告警",
+            "alert_advice": "保持常规监测",
+            "alert_id": None,
+        }
+
+    @staticmethod
     def _parse_device_id(device_id_value: Any) -> int:
         if device_id_value is None or device_id_value == "":
             raise BusinessException(code=400, message="device_id 不能为空", status_code=400)
@@ -81,15 +96,31 @@ class PredictionService:
             raise BusinessException(code=400, message="device_id 必须为整数", status_code=400)
 
     @staticmethod
-    def get_latest_prediction(device_id_str: str) -> Optional[Dict[str, Any]]:
-        device_id = PredictionService._parse_device_id(device_id_str)
+    def _parse_query_device_value(device_id_value: Any) -> Any:
+        """latest/history 查询允许设备主键或业务设备编号。"""
+        if device_id_value is None or device_id_value == "":
+            raise BusinessException(code=400, message="device_id 不能为空", status_code=400)
+        if isinstance(device_id_value, bool):
+            raise BusinessException(code=400, message="device_id 格式非法", status_code=400)
+        if isinstance(device_id_value, int):
+            return device_id_value
+        if isinstance(device_id_value, str):
+            normalized_device_id = device_id_value.strip()
+            if not normalized_device_id:
+                raise BusinessException(code=400, message="device_id 不能为空", status_code=400)
+            return normalized_device_id
+        raise BusinessException(code=400, message="device_id 格式非法", status_code=400)
 
-        record = PredictionRepository.get_latest_by_device_id(device_id)
+    @staticmethod
+    def get_latest_prediction(device_id_str: str) -> Optional[Dict[str, Any]]:
+        device_value = PredictionService._parse_query_device_value(device_id_str)
+
+        record = PredictionRepository.get_latest_by_device_id(device_value)
         return PredictionSchema.dump_latest(record)
 
     @staticmethod
     def get_prediction_history(device_id_str: str, start_str: str, end_str: str) -> Dict[str, Any]:
-        device_id = PredictionService._parse_device_id(device_id_str)
+        device_value = PredictionService._parse_query_device_value(device_id_str)
 
         if not start_str:
             raise BusinessException(code=400, message="start_time 不能为空", status_code=400)
@@ -106,8 +137,8 @@ class PredictionService:
         if start_dt >= end_dt:
             raise BusinessException(code=400, message="开始时间必须早于结束时间", status_code=400)
 
-        records = PredictionRepository.query_history_by_device_and_range(device_id, start_dt, end_dt)
-        return PredictionSchema.dump_history(device_id, start_str, end_str, records)
+        records = PredictionRepository.query_history_by_device_and_range(device_value, start_dt, end_dt)
+        return PredictionSchema.dump_history(device_value, start_str, end_str, records)
 
     @staticmethod
     def _parse_ts_end(ts_end: Any) -> str:
@@ -379,16 +410,36 @@ class PredictionService:
                     "AI infer failed; returning mock fallback",
                     extra={"error": exc.message},
                 )
+                fallback_record = PredictionService._attach_health_fields(
+                    PredictionService._build_mock_fallback(validated_data)
+                )
+                fallback_record["risk_result_id"] = None
                 return PredictionSchema.dump_infer_result(
-                    PredictionService._attach_alert_fields(
-                        PredictionService._attach_health_fields(
-                            PredictionService._build_mock_fallback(validated_data)
-                        )
-                    )
+                    PredictionService._attach_no_alert_fields(fallback_record)
                 )
             raise
 
         record = PredictionService._normalize_ai_result(ai_result, validated_data)
         record = PredictionService._attach_health_fields(record)
-        record = PredictionService._attach_alert_fields(record)
+        if record.get("data_source") != "mock_fallback" and not record.get("runtime_error"):
+            saved_record = PredictionRepository.save_infer_result(record)
+            record = {
+                **record,
+                "risk_result_id": saved_record.get("risk_result_id"),
+                "device_id": saved_record.get("device_id"),
+                "device_code": saved_record.get("device_code"),
+            }
+            record = PredictionService._attach_alert_fields(record)
+            if record.get("alert_generated"):
+                alert_record = AlertRepository.create_from_prediction(record)
+                record["alert_id"] = alert_record.get("alert_id") if alert_record else None
+            else:
+                record["alert_id"] = None
+        else:
+            record = PredictionService._attach_no_alert_fields(
+                {
+                    **record,
+                    "risk_result_id": None,
+                }
+            )
         return PredictionSchema.dump_infer_result(record)

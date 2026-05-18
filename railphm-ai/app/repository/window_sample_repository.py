@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from numbers import Integral
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,11 @@ class WindowSampleRepository:
         self.x_path = self.dataset_dir / "X.npy" # dataset_dir/X.npy
         self.y_path = self.dataset_dir / "y.npy" # dataset_dir/y.npy
         self.manifest_path = self.dataset_dir / "window_manifest.csv" # dataset_dir/window_manifest.csv
+        self.condition_manifest_path = self.dataset_dir / "condition_manifest.csv"
+        self.condition_labels_path = self.dataset_dir / "condition_labels.npy"
+        self.condition_summary_path = self.dataset_dir / "condition_summary.json"
+        self._condition_labels = None
+        self._condition_label_mapping = None
 
         self._validate_dataset_files()
         self._x = np.load(self.x_path, mmap_mode="r")
@@ -43,11 +49,29 @@ class WindowSampleRepository:
         y_true = self._normalize_label(self._y[sample_index])
         self._validate_window(window)
         # 返回结果被 infer_repository.py 使用
+        trace = self._read_trace(sample_index)
+        condition_trace = self._read_condition_trace(sample_index)
+
+        if condition_trace:
+            condition_id = condition_trace.get("condition_id")
+            condition_label = condition_trace.get("condition_label")
+
+            if condition_id is not None and condition_id != "":
+                trace["condition_id"] = condition_id
+
+            if condition_label:
+                trace["condition_label"] = condition_label
+        else:
+            condition_id = None
+            condition_label = None
+
         return {
-            "window": window, # 进入模型推理
+            "window": window,
             "y_true": y_true,
             "sample_index": int(sample_index),
-            "trace": self._read_trace(sample_index),
+            "trace": trace,
+            "condition_id": condition_id,
+            "condition_label": condition_label,
         }
 
     def _validate_dataset_files(self) -> None:
@@ -94,6 +118,107 @@ class WindowSampleRepository:
                     return self._normalize_trace(row)
 
         return {}
+
+    def _read_condition_trace(self, sample_index: int) -> dict[str, Any]:
+        """
+        读取工况划分结果。
+
+        工况划分脚本会生成 condition_manifest.csv，其中包含：
+        - sample_index
+        - condition_id
+        - condition_label
+
+        在线推理时需要按 sample_index 找回当前窗口对应的工况标签。
+        """
+        if self.condition_manifest_path.exists():
+            with self.condition_manifest_path.open("r", encoding="utf-8-sig", newline="") as file_obj:
+                reader = csv.DictReader(file_obj)
+
+                for row_index, row in enumerate(reader):
+                    matched = False
+
+                    if "sample_index" in row and row["sample_index"] not in (None, ""):
+                        try:
+                            matched = int(row["sample_index"]) == int(sample_index)
+                        except (TypeError, ValueError):
+                            matched = False
+                    else:
+                        matched = row_index == sample_index
+
+                    if matched:
+                        return self._normalize_condition_trace(row)
+
+        return self._read_condition_labels_trace(sample_index)
+
+    def _read_condition_labels_trace(self, sample_index: int) -> dict[str, Any]:
+        """condition_manifest.csv 缺失或未命中时，用 condition_labels.npy 兜底。"""
+        if not self.condition_labels_path.exists():
+            return {}
+
+        if self._condition_labels is None:
+            self._condition_labels = np.load(self.condition_labels_path, mmap_mode="r")
+
+        if sample_index >= self._condition_labels.shape[0]:
+            return {}
+
+        condition_id = self._normalize_condition_id(self._condition_labels[sample_index])
+        if condition_id is None:
+            return {}
+
+        return {
+            "condition_id": condition_id,
+            "condition_label": self._build_condition_label(condition_id),
+        }
+
+    def _normalize_condition_trace(self, row: dict[str, Any]) -> dict[str, Any]:
+        trace = dict(row)
+
+        if "condition_id" in trace:
+            trace["condition_id"] = self._normalize_condition_id(trace["condition_id"])
+
+        if "sample_index" in trace:
+            try:
+                trace["sample_index"] = int(trace["sample_index"])
+            except (TypeError, ValueError):
+                pass
+
+        if not trace.get("condition_label") and trace.get("condition_id") is not None:
+            trace["condition_label"] = self._build_condition_label(trace["condition_id"])
+
+        return trace
+
+    @staticmethod
+    def _normalize_condition_id(value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, np.generic):
+            value = value.item()
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_condition_label(self, condition_id: int) -> str:
+        mapping = self._load_condition_label_mapping()
+        return mapping.get(str(condition_id)) or mapping.get(condition_id) or f"condition_{condition_id}"
+
+    def _load_condition_label_mapping(self) -> dict[Any, str]:
+        if self._condition_label_mapping is not None:
+            return self._condition_label_mapping
+
+        if not self.condition_summary_path.exists():
+            self._condition_label_mapping = {}
+            return self._condition_label_mapping
+
+        try:
+            summary = json.loads(self.condition_summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            self._condition_label_mapping = {}
+            return self._condition_label_mapping
+
+        mapping = summary.get("condition_label_mapping", {})
+        self._condition_label_mapping = mapping if isinstance(mapping, dict) else {}
+        return self._condition_label_mapping
 
     @staticmethod
     def _normalize_label(value: Any) -> int | float:

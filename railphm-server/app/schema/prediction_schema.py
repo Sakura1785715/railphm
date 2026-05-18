@@ -11,6 +11,7 @@ class PredictionSchema:
     """
 
     INFER_FIELDS = (
+        "risk_result_id",
         "device_id",
         "device_code",
         "sample_index",
@@ -33,6 +34,7 @@ class PredictionSchema:
         "alert_status_text",
         "alert_message",
         "alert_advice",
+        "alert_id",
 
         "model_name",
         "model_version",
@@ -73,7 +75,12 @@ class PredictionSchema:
 
         try:
             risk_score = clamp_risk_score(cls._get_raw_risk_score(record))
-            health_score = calculate_health_score(risk_score)
+            raw_health_score = record.get("health_score")
+            health_score = (
+                float(raw_health_score)
+                if raw_health_score is not None and raw_health_score != ""
+                else calculate_health_score(risk_score)
+            )
             alert_level = map_alert_level(health_score)
         except (TypeError, ValueError) as exc:
             raise BusinessException(code=500, message="预测结果风险分数字段非法", status_code=500) from exc
@@ -89,21 +96,33 @@ class PredictionSchema:
     def _format_item(cls, record: Dict[str, Any]) -> Dict[str, Any]:
         """统一单条结果格式转换"""
         normalized_record = cls._attach_interpretation_fields(record)
-        item = {
-            "device_id": normalized_record["device_id"],
-            "risk_score": normalized_record["risk_score"],
-            "risk_std": normalized_record["risk_std"],
-            "health_score": normalized_record["health_score"],
-            "alert_level": normalized_record["alert_level"],
-            "model_version": normalized_record["model_version"],
-            "window_start_time": normalized_record["window_start_time"],
-            "window_end_time": normalized_record["window_end_time"],
+        return {
+            "risk_result_id": normalized_record.get("risk_result_id"),
+            "device_id": normalized_record.get("device_id"),
+            "device_code": normalized_record.get("device_code"),
+            "sample_index": normalized_record.get("sample_index"),
+
+            "risk_raw": normalized_record.get("risk_raw"),
+            "risk_score": normalized_record.get("risk_score"),
+            "risk_std": normalized_record.get("risk_std", 0.0),
+            "threshold": normalized_record.get("threshold"),
+            "predicted_label": normalized_record.get("predicted_label"),
+
+            "health_score": normalized_record.get("health_score"),
+            "health_level": normalized_record.get("health_level"),
+            "health_status": normalized_record.get("health_status"),
+            "health_description": normalized_record.get("health_description"),
+
+            "alert_level": normalized_record.get("alert_level"),
+
+            "condition_label": normalized_record.get("condition_label"),
+            "model_version": normalized_record.get("model_version"),
+
+            "window_start_time": normalized_record.get("window_start_time"),
+            "window_end_time": normalized_record.get("window_end_time"),
+            "ts_end": normalized_record.get("ts_end"),
+            "created_at": normalized_record.get("created_at"),
         }
-
-        if "condition_label" in normalized_record:
-            item["condition_label"] = normalized_record["condition_label"]
-
-        return item
 
     @classmethod
     def dump_latest(cls, record: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -113,7 +132,7 @@ class PredictionSchema:
         return cls._format_item(record)
 
     @classmethod
-    def dump_history(cls, device_id: int, start_str: str, end_str: str, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def dump_history(cls, device_id: Any, start_str: str, end_str: str, records: List[Dict[str, Any]]) -> Dict[str, Any]:
         """返回带有 items 的稳定数组结构"""
         return {
             "device_id": device_id,

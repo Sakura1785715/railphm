@@ -135,6 +135,7 @@ class InferResponseSchema:
         "sample_index",
         "y_true",
         "risk_raw",
+        "condition_id",
         "condition_label",
         "risk_score",
         "risk_raw_std",

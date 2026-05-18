@@ -77,11 +77,28 @@ class InferRepository:
             sample["window"],
             mc_samples=mc_samples,
         )
+        trace = sample.get("trace", {}) or {}
+
+        condition_id = sample.get("condition_id")
+        if condition_id is None or condition_id == "":
+            condition_id = trace.get("condition_id")
+        condition_label = (
+            sample.get("condition_label")
+            or trace.get("condition_label")
+            or trace.get("condition_name")
+            or trace.get("工况标签")
+        )
+
+        if not condition_label and condition_id is not None:
+            condition_label = f"condition_{condition_id}"
 
         prediction["sample_index"] = sample["sample_index"]
         prediction["y_true"] = sample["y_true"]
-        prediction["trace"] = sample.get("trace", {})
+        prediction["condition_id"] = condition_id
+        prediction["condition_label"] = condition_label
+        prediction["trace"] = trace
         prediction["data_source"] = "local_window_dataset"
+
         return prediction
 
     @classmethod
