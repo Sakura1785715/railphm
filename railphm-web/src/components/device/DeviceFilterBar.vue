@@ -5,19 +5,18 @@
         <p class="section-tag">筛选查询</p>
         <h3>基础查询条件</h3>
       </div>
-      <p class="device-filter-card__hint">按设备 ID、车号和设备状态定位台账记录，点击查询后发起请求。</p>
+      <p class="device-filter-card__hint">按设备编号、车号和设备状态定位台账记录，点击查询后发起请求。</p>
     </div>
 
     <form class="device-filter-form" @submit.prevent="$emit('search')">
       <label class="filter-field">
-        <span>设备 ID</span>
+        <span>设备编号</span>
         <input
-          :value="deviceId"
+          :value="deviceCode"
           type="search"
-          inputmode="numeric"
-          placeholder="例如：1"
+          placeholder="例如：ATP001"
           :disabled="loading"
-          @input="$emit('update:deviceId', $event.target.value)"
+          @input="$emit('update:deviceCode', $event.target.value)"
         />
       </label>
 
@@ -64,7 +63,7 @@
 
 <script setup>
 defineProps({
-  deviceId: {
+  deviceCode: {
     type: String,
     default: ''
   },
@@ -86,7 +85,7 @@ defineProps({
   }
 })
 
-defineEmits(['update:deviceId', 'update:carNo', 'update:deviceStatus', 'search', 'reset'])
+defineEmits(['update:deviceCode', 'update:carNo', 'update:deviceStatus', 'search', 'reset'])
 </script>
 
 <style scoped>

@@ -29,7 +29,6 @@
           <input
             v-model.trim="filters.deviceId"
             type="search"
-            inputmode="numeric"
             placeholder="请输入设备编号"
             :disabled="listLoading"
           />
@@ -39,8 +38,8 @@
           <span>告警等级</span>
           <select v-model="filters.alertLevel" :disabled="listLoading">
             <option value="">全部</option>
-            <option v-for="option in levelOptions" :key="option" :value="option">
-              {{ option }}
+            <option v-for="option in levelOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
             </option>
           </select>
         </label>
@@ -49,8 +48,8 @@
           <span>告警状态</span>
           <select v-model="filters.alertStatus" :disabled="listLoading">
             <option value="">全部</option>
-            <option v-for="option in statusOptions" :key="option" :value="option">
-              {{ option }}
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
             </option>
           </select>
         </label>
@@ -98,7 +97,7 @@
                 <th>告警等级</th>
                 <th>告警状态</th>
                 <th class="alert-table__time-col">告警时间</th>
-                <th>告警位置</th>
+                <th>告警信息</th>
                 <th class="alert-table__action-col">操作</th>
               </tr>
             </thead>
@@ -120,7 +119,7 @@
                 @keydown.space.prevent="handleSelectAlert(item)"
               >
                 <td class="alert-table__mono">{{ displayValue(item.alert_id) }}</td>
-                <td>{{ displayValue(item.device_id) }}</td>
+                <td>{{ displayValue(item.device_code || item.device_id) }}</td>
                 <td>
                   <span :class="['alert-badge', getRiskLevelClass(item.alert_level)]">
                     {{ getLevelLabel(item.alert_level) }}
@@ -132,8 +131,8 @@
                   </span>
                 </td>
                 <td class="alert-table__time">{{ formatDateTimeForList(item.alert_time) }}</td>
-                <td class="alert-table__position" :title="displayValue(item.alert_position)">
-                  {{ displayValue(item.alert_position) }}
+                <td class="alert-table__position" :title="displayValue(item.alert_message || item.message)">
+                  {{ displayValue(item.alert_message || item.message) }}
                 </td>
                 <td class="alert-table__action-cell">
                   <button
@@ -228,7 +227,7 @@
                 </span>
               </div>
             </div>
-            <strong>{{ displayValue(alertDetail.message) }}</strong>
+            <strong>{{ displayValue(alertDetail.alert_message || alertDetail.message) }}</strong>
           </div>
 
           <div class="alert-handle-panel">
@@ -319,6 +318,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getAlertDetail, getAlertList, updateAlertStatus } from '../api/alert'
 import { hasAnyRole } from '../utils/auth'
+import {
+  displayText,
+  formatAlertLevel,
+  formatAlertStatus,
+  formatDateTime,
+  formatPercent,
+  formatScore
+} from '../utils/formatters'
 
 const route = useRoute()
 
@@ -329,10 +336,16 @@ const DEFAULT_FILTERS = {
   alertStatus: ''
 }
 
-const levelOptions = ['HIGH', 'MEDIUM', 'LOW']
-const statusOptions = ['PENDING', 'PROCESSING', 'RESOLVED']
+const levelOptions = ['low', 'medium', 'high'].map((value) => ({
+  value,
+  label: formatAlertLevel(value)
+}))
+const statusOptions = ['unhandled', 'processing', 'resolved'].map((value) => ({
+  value,
+  label: formatAlertStatus(value)
+}))
 
-const queryDeviceId = normalizeQueryDeviceId(route.query.device_id)
+const queryDeviceId = normalizeQueryDeviceId(route.query.device_code || route.query.device_id)
 const filters = reactive({
   ...DEFAULT_FILTERS,
   deviceId: queryDeviceId || DEFAULT_FILTERS.deviceId
@@ -456,12 +469,13 @@ const rangeText = computed(() => {
 })
 
 const isAlertResolved = computed(() =>
-  String(alertDetail.value?.alert_status || '').toUpperCase() === 'RESOLVED'
+  normalizeAlertStatusKey(alertDetail.value?.alert_status) === 'resolved'
 )
 
 const canHandleAlert = computed(() => {
   const status = String(alertDetail.value?.alert_status || '').toUpperCase()
-  return hasAnyRole(['OPS', 'ADMIN']) && (status === 'PENDING' || status === 'PROCESSING')
+  const normalizedStatus = normalizeAlertStatusKey(status)
+  return hasAnyRole(['OPS', 'ADMIN']) && (normalizedStatus === 'unhandled' || normalizedStatus === 'processing')
 })
 
 const detailGroups = computed(() => {
@@ -474,7 +488,8 @@ const detailGroups = computed(() => {
       title: '基础信息',
       fields: [
         { key: 'alert_id', label: '告警ID', value: displayValue(alertDetail.value.alert_id) },
-        { key: 'device_id', label: '设备编号', value: displayValue(alertDetail.value.device_id) },
+        { key: 'device_code', label: '设备编号', value: displayValue(alertDetail.value.device_code || alertDetail.value.device_id) },
+        { key: 'device_name', label: '设备名称', value: displayValue(alertDetail.value.device_name) },
         { key: 'alert_level', label: '告警等级', value: displayValue(getLevelLabel(alertDetail.value.alert_level)) },
         { key: 'alert_status', label: '告警状态', value: displayValue(getStatusLabel(alertDetail.value.alert_status)) },
         { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(alertDetail.value.alert_time) }
@@ -483,19 +498,20 @@ const detailGroups = computed(() => {
     {
       title: '告警对象',
       fields: [
-        { key: 'alert_position', label: '告警位置', value: displayValue(alertDetail.value.alert_position) },
-        { key: 'alert_source', label: '告警来源', value: displayValue(alertDetail.value.alert_source) },
-        { key: 'alert_object_type', label: '对象类型', value: displayValue(alertDetail.value.alert_object_type) },
-        { key: 'alert_object_code', label: '对象编号', value: displayValue(alertDetail.value.alert_object_code) }
+        { key: 'risk_score', label: '风险分数', value: formatPercent(alertDetail.value.risk_score, 2) },
+        { key: 'health_score', label: '健康度', value: formatScore(alertDetail.value.health_score, 2) },
+        { key: 'health_level', label: '健康等级', value: displayValue(alertDetail.value.health_level || alertDetail.value.health_status) },
+        { key: 'alert_advice', label: '处理建议', value: displayValue(alertDetail.value.alert_advice) }
       ]
     },
     {
       title: '关联与处理',
       fields: [
         { key: 'risk_result_id', label: '风险结果ID', value: displayValue(alertDetail.value.risk_result_id) },
-        { key: 'handler_id', label: '处理人ID', value: displayValue(alertDetail.value.handler_id) },
+        { key: 'handler_id', label: '处理人ID', value: displayValue(alertDetail.value.handler_id || alertDetail.value.handler) },
         { key: 'handle_time', label: '处理时间', value: formatDateTimeForDetail(alertDetail.value.handle_time) },
-        { key: 'handle_desc', label: '处理说明', value: displayValue(alertDetail.value.handle_desc) }
+        { key: 'handle_desc', label: '处理说明', value: displayValue(alertDetail.value.handle_desc || alertDetail.value.handle_remark || alertDetail.value.remark) },
+        { key: 'update_time', label: '更新时间', value: formatDateTimeForDetail(alertDetail.value.update_time || alertDetail.value.updated_at) }
       ]
     }
   ]
@@ -673,7 +689,7 @@ async function submitAlertHandle() {
 
   try {
     const result = await updateAlertStatus(currentAlertId, {
-      alert_status: 'RESOLVED',
+      alert_status: 'resolved',
       handler_id: Number(handleForm.handlerId),
       handle_note: handleForm.handleNote.trim()
     })
@@ -785,12 +801,23 @@ function normalizeAlertRecord(record) {
   return {
     alert_id: source.alert_id ?? '',
     device_id: source.device_id ?? '',
+    device_code: source.device_code ?? '',
+    device_name: source.device_name ?? '',
     alert_level: source.alert_level ?? '',
     alert_status: source.alert_status ?? '',
+    alert_status_text: source.alert_status_text ?? '',
     alert_time: source.alert_time ?? '',
+    created_at: source.created_at ?? source.create_time ?? '',
+    updated_at: source.updated_at ?? source.update_time ?? '',
     alert_position: source.alert_position ?? '',
     alert_source: source.alert_source ?? '',
-    message: source.message ?? '',
+    message: source.message ?? source.alert_message ?? '',
+    alert_message: source.alert_message ?? source.message ?? '',
+    alert_advice: source.alert_advice ?? '',
+    risk_score: source.risk_score ?? null,
+    health_score: source.health_score ?? null,
+    health_level: source.health_level ?? '',
+    health_status: source.health_status ?? '',
     alert_object_type: source.alert_object_type ?? '',
     alert_object_code: source.alert_object_code ?? '',
     risk_result_id: source.risk_result_id ?? '',
@@ -840,54 +867,34 @@ async function enrichAlertListItems(items, requestId) {
   })
 }
 
-function displayValue(value) {
-  if (value === null || value === undefined) {
-    return '-'
-  }
-
-  if (typeof value === 'string' && value.trim() === '') {
-    return '-'
-  }
-
-  return String(value)
-}
-
 function formatDateTimeForList(value) {
-  const displayText = displayValue(value)
-
-  if (displayText === '-') {
-    return displayText
-  }
-
-  return displayText.replace('T', ' ').slice(0, 16)
+  return formatDateTime(value).slice(0, 16)
 }
 
 function formatDateTimeForDetail(value) {
-  return displayValue(value).replace('T', ' ')
+  return formatDateTime(value)
 }
 
 function getLevelLabel(level) {
-  const normalizedLevel = String(level || '').toUpperCase()
-  return normalizedLevel || '-'
+  return formatAlertLevel(level)
 }
 
 function getStatusLabel(status) {
-  const normalizedStatus = String(status || '').toUpperCase()
-  return normalizedStatus || '-'
+  return formatAlertStatus(status)
 }
 
 function getRiskLevelClass(level) {
-  const normalizedLevel = String(level || '').toUpperCase()
+  const normalizedLevel = String(level || '').toLowerCase()
 
-  if (normalizedLevel === 'HIGH') {
+  if (normalizedLevel === 'high' || normalizedLevel === 'critical') {
     return 'alert-badge--high'
   }
 
-  if (normalizedLevel === 'MEDIUM') {
+  if (normalizedLevel === 'medium' || normalizedLevel === 'warning') {
     return 'alert-badge--medium'
   }
 
-  if (normalizedLevel === 'LOW') {
+  if (normalizedLevel === 'low' || normalizedLevel === 'info') {
     return 'alert-badge--low'
   }
 
@@ -895,21 +902,34 @@ function getRiskLevelClass(level) {
 }
 
 function getStatusClass(status) {
-  const normalizedStatus = String(status || '').toUpperCase()
+  const normalizedStatus = normalizeAlertStatusKey(status)
 
-  if (normalizedStatus === 'PENDING') {
+  if (normalizedStatus === 'unhandled') {
     return 'alert-badge--pending'
   }
 
-  if (normalizedStatus === 'PROCESSING') {
+  if (normalizedStatus === 'processing') {
     return 'alert-badge--processing'
   }
 
-  if (normalizedStatus === 'RESOLVED') {
+  if (normalizedStatus === 'resolved') {
     return 'alert-badge--resolved'
   }
 
+  if (normalizedStatus === 'ignored') {
+    return 'alert-badge--muted'
+  }
+
   return 'alert-badge--muted'
+}
+
+function displayValue(value) {
+  return displayText(value, '-')
+}
+
+function normalizeAlertStatusKey(status) {
+  const normalizedStatus = String(status || '').trim().toLowerCase()
+  return normalizedStatus === 'pending' ? 'unhandled' : normalizedStatus
 }
 
 function isSelected(alertId) {

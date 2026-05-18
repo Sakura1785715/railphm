@@ -5,7 +5,7 @@
         <p class="page-tag">风险预测</p>
         <h2>设备故障风险趋势</h2>
         <p class="page-description">
-          展示设备最新故障风险结果、历史风险变化趋势，并支持触发一次 mock 推理验证 AI 服务调用链路。
+          展示设备最新故障风险结果、历史风险变化趋势，并支持触发一次真实模型推理。
         </p>
       </div>
 
@@ -19,14 +19,14 @@
       <div class="monitor-filter-card__header">
         <div>
           <h3>查询条件</h3>
-          <p>默认参数用于匹配当前后端 mock 风险结果，可按设备编号和时间范围重新查询。</p>
+          <p>按设备编号和时间范围查询服务端已持久化的风险结果。</p>
         </div>
       </div>
 
       <div class="monitor-filter-grid prediction-filter-grid">
         <label class="filter-field">
           <span>设备编号</span>
-          <input v-model.trim="filters.deviceId" type="text" placeholder="1" :disabled="queryLoading" />
+          <input v-model.trim="filters.deviceId" type="text" placeholder="ATP001" :disabled="queryLoading" />
         </label>
 
         <label class="filter-field">
@@ -82,7 +82,7 @@
       </div>
 
       <div class="prediction-panel__meta">
-        <span class="device-chip">设备 ID {{ currentDeviceIdDisplay }}</span>
+        <span class="device-chip">设备编号 {{ currentDeviceDisplay }}</span>
         <span :class="['status-pill', `status-pill--${latestRiskMeta.tone}`]">{{ latestRiskMeta.label }}</span>
       </div>
 
@@ -99,19 +99,31 @@
       >
         <article class="monitor-overview-card">
           <span>设备编号</span>
-          <strong>{{ displayText(latestRecord.device_id) }}</strong>
+          <strong>{{ displayText(latestRecord.device_code || latestRecord.device_id) }}</strong>
         </article>
         <article class="monitor-overview-card">
           <span>风险分数</span>
-          <strong>{{ formatNumber(latestRecord.risk_score, 2) }}</strong>
+          <strong>{{ formatPercent(latestRecord.risk_score, 2) }}</strong>
         </article>
         <article class="monitor-overview-card">
           <span>健康度</span>
-          <strong>{{ formatNumber(latestRecord.health_score, 1) }}</strong>
+          <strong>{{ formatScore(latestRecord.health_score, 2) }}</strong>
+        </article>
+        <article class="monitor-overview-card">
+          <span>健康等级</span>
+          <strong>{{ displayText(latestRecord.health_level || latestRecord.health_status) }}</strong>
         </article>
         <article class="monitor-overview-card">
           <span>风险波动</span>
-          <strong>{{ formatNumber(latestRecord.risk_std, 3) }}</strong>
+          <strong>{{ formatPercent(latestRecord.risk_std, 2) }}</strong>
+        </article>
+        <article class="monitor-overview-card">
+          <span>原始风险</span>
+          <strong>{{ formatPercent(latestRecord.risk_raw, 2) }}</strong>
+        </article>
+        <article class="monitor-overview-card">
+          <span>工况标签</span>
+          <strong>{{ displayText(latestRecord.condition_label) }}</strong>
         </article>
         <article class="monitor-overview-card">
           <span>模型版本</span>
@@ -144,9 +156,10 @@
       <div class="prediction-chart-grid">
         <MetricTrendChart
           title="风险趋势折线图"
-          description="展示指定设备在查询时间范围内的风险分数变化，不自动追加 mock 推理结果。"
+          description="展示指定设备在查询时间范围内的真实风险分数变化。"
           metric-name="风险分数"
           :points="riskTrendPoints"
+          :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
           :error="queryErrors.history"
           height="320px"
@@ -158,6 +171,7 @@
           metric-name="健康度"
           unit=""
           :points="healthTrendPoints"
+          :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
           :error="queryErrors.history"
           height="320px"
@@ -168,17 +182,17 @@
     <section class="prediction-infer-card">
       <div class="monitor-section__header">
         <div>
-          <p class="section-tag">Mock 推理</p>
-          <h3>触发一次 mock 推理</h3>
+          <p class="section-tag">模型推理</p>
+          <h3>触发一次风险推理</h3>
         </div>
-        <p>当前结果仅用于演示 `railphm-web -> railphm-server -> railphm-ai` 调用链路，不写入历史趋势。</p>
+        <p>调用 `railphm-web -> railphm-server -> railphm-ai` 链路，结果由服务端统一持久化并用于历史趋势展示。</p>
       </div>
 
       <form class="prediction-infer-form" @submit.prevent="handleInfer">
         <div class="prediction-infer-grid">
           <label class="filter-field">
             <span>设备编号</span>
-            <input v-model.trim="inferForm.deviceId" type="text" placeholder="1" :disabled="inferLoading" />
+            <input v-model.trim="inferForm.deviceId" type="text" placeholder="ATP001" :disabled="inferLoading" />
           </label>
 
           <label class="filter-field">
@@ -204,13 +218,13 @@
 
         <div class="action-bar prediction-infer-form__actions">
           <button type="submit" class="primary-button" :disabled="inferLoading">
-            {{ inferLoading ? '推理中...' : '触发一次 mock 推理' }}
+            {{ inferLoading ? '推理中...' : '触发一次风险推理' }}
           </button>
         </div>
       </form>
 
       <div v-if="inferLoading" class="state-panel loading-state">
-        正在触发 mock 推理...
+        正在触发风险推理...
       </div>
 
       <div v-if="inferError" class="state-panel error-state">
@@ -218,12 +232,12 @@
       </div>
 
       <div v-if="!inferLoading && !inferError && !inferResult" class="state-panel empty-state">
-        当前尚未触发 mock 推理，点击按钮后将在此处展示本次推理结果。
+        当前尚未触发风险推理，点击按钮后将在此处展示本次推理结果。
       </div>
 
       <div v-else-if="inferResult" class="prediction-infer-result">
         <div class="prediction-panel__meta">
-          <span class="device-chip">设备 ID {{ displayText(inferResult.device_id) }}</span>
+          <span class="device-chip">设备编号 {{ displayText(inferResult.device_code || inferResult.device_id) }}</span>
           <span :class="['status-pill', `status-pill--${inferAlertMeta.tone}`]">{{ inferAlertMeta.label }}</span>
           <span class="status-pill status-pill--default">{{ displayText(inferResult.condition_label) }}</span>
         </div>
@@ -231,23 +245,23 @@
         <div class="monitor-overview-grid prediction-overview-grid">
           <article class="monitor-overview-card">
             <span>风险分数</span>
-            <strong>{{ formatNumber(inferResult.risk_score, 2) }}</strong>
+            <strong>{{ formatPercent(inferResult.risk_score, 2) }}</strong>
           </article>
           <article class="monitor-overview-card">
             <span>健康度</span>
-            <strong>{{ formatNumber(inferResult.health_score, 1) }}</strong>
+            <strong>{{ formatScore(inferResult.health_score, 2) }}</strong>
           </article>
           <article class="monitor-overview-card">
-            <span>alert_level</span>
-            <strong>{{ displayText(inferResult.alert_level) }}</strong>
+            <span>健康等级</span>
+            <strong>{{ displayText(inferResult.health_level || inferResult.health_status) }}</strong>
           </article>
           <article class="monitor-overview-card">
             <span>风险波动</span>
-            <strong>{{ formatNumber(inferResult.risk_std, 3) }}</strong>
+            <strong>{{ formatPercent(inferResult.risk_std, 2) }}</strong>
           </article>
           <article class="monitor-overview-card">
-            <span>condition_label</span>
-            <strong>{{ displayText(inferResult.condition_label) }}</strong>
+            <span>模型名称</span>
+            <strong>{{ displayText(inferResult.model_name) }}</strong>
           </article>
           <article class="monitor-overview-card">
             <span>模型版本</span>
@@ -261,6 +275,29 @@
             <span>窗口结束时间</span>
             <strong>{{ displayText(inferResult.window_end_time) }}</strong>
           </article>
+        </div>
+
+        <div class="prediction-detail-groups">
+          <div v-for="group in inferDetailGroups" :key="group.title" class="prediction-detail-group">
+            <h4>{{ group.title }}</h4>
+            <dl class="prediction-detail-grid">
+              <div v-for="field in group.fields" :key="field.key">
+                <dt>{{ field.label }}</dt>
+                <dd>{{ field.value }}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        <div :class="['state-panel', inferResult.alert_generated ? 'error-state' : 'empty-state']">
+          <template v-if="inferResult.alert_generated">
+            <strong>已生成告警：{{ formatAlertLevel(inferResult.alert_level) }} / {{ formatAlertStatus(inferResult.alert_status) }}</strong>
+            <p>{{ displayText(inferResult.alert_message) }}</p>
+            <p>{{ displayText(inferResult.alert_advice) }}</p>
+          </template>
+          <template v-else>
+            当前未生成告警，{{ displayText(inferResult.alert_message, '设备状态暂无告警提示') }}
+          </template>
         </div>
       </div>
     </section>
@@ -277,22 +314,35 @@ import {
   inferPrediction
 } from '../api/prediction'
 import { getRiskLevelMeta } from '../utils/dashboard'
+import {
+  displayText,
+  formatAlertLevel,
+  formatAlertStatus,
+  formatBoolean,
+  formatCalibrationMethod,
+  formatDataSource,
+  formatDateTime,
+  formatPercent,
+  formatScore,
+  formatUncertaintyMethod,
+  toFiniteNumber
+} from '../utils/formatters'
 
 const route = useRoute()
 
 const DEFAULT_FILTERS = {
-  deviceId: '1',
-  startTime: '2026-04-01 08:00:00',
-  endTime: '2026-04-01 11:00:00'
+  deviceId: 'ATP001',
+  startTime: '2026-05-18 10:00:00',
+  endTime: '2026-05-18 10:10:00'
 }
 
 const DEFAULT_INFER_FORM = {
   deviceId: DEFAULT_FILTERS.deviceId,
-  tsEnd: '2026-04-01 10:05:00',
+  tsEnd: '2026-05-18 10:05:00',
   windowMinutes: '5'
 }
 
-const queryDeviceId = normalizeQueryDeviceId(route.query.device_id)
+const queryDeviceId = normalizeQueryDeviceId(route.query.device_code || route.query.device_id)
 const filters = reactive({
   ...DEFAULT_FILTERS,
   deviceId: queryDeviceId || DEFAULT_FILTERS.deviceId
@@ -323,8 +373,8 @@ const inferResult = ref(null)
 
 const hasPredictionData = computed(() => Boolean(latestRecord.value) || historyRecords.value.length > 0)
 const latestRiskMeta = computed(() => getRiskLevelMeta(latestRecord.value?.health_score))
-const currentDeviceIdDisplay = computed(
-  () => displayText(latestRecord.value?.device_id ?? historyMeta.value.device_id ?? filters.deviceId)
+const currentDeviceDisplay = computed(
+  () => displayText(latestRecord.value?.device_code || latestRecord.value?.device_id || historyMeta.value.device_id || filters.deviceId)
 )
 
 const queryErrorMessage = computed(() =>
@@ -356,6 +406,16 @@ const healthTrendPoints = computed(() =>
     time: getRecordTime(item),
     value: item.health_score
   }))
+)
+
+const historyTooltipDetails = computed(() =>
+  historyRecords.value.map((item) => [
+    { label: '原始风险', value: formatPercent(item.risk_raw, 2) },
+    { label: '风险波动', value: formatPercent(item.risk_std, 2) },
+    { label: '健康等级', value: displayText(item.health_level || item.health_status) },
+    { label: '工况标签', value: displayText(item.condition_label) },
+    { label: '模型版本', value: displayText(item.model_version) }
+  ])
 )
 
 const statusTone = computed(() => {
@@ -404,32 +464,32 @@ const statusDescription = computed(() => {
   }
 
   if (hasPredictionData.value) {
-    return `当前设备 ${currentDeviceIdDisplay.value} 已返回 ${historyRecords.value.length} 个历史点位`
+    return `当前设备 ${currentDeviceDisplay.value} 已返回 ${historyRecords.value.length} 个历史点位`
   }
 
   return '按设备编号与时间范围查看风险趋势与健康度趋势'
 })
 
 const inferAlertMeta = computed(() => {
-  const alertLevel = inferResult.value?.alert_level
+  const alertLevel = String(inferResult.value?.alert_level || '').toLowerCase()
 
-  if (alertLevel === 'HIGH') {
+  if (alertLevel === 'high' || alertLevel === 'critical') {
     return {
-      label: '高等级预警',
+      label: formatAlertLevel(alertLevel),
       tone: 'danger'
     }
   }
 
-  if (alertLevel === 'MEDIUM') {
+  if (alertLevel === 'medium' || alertLevel === 'warning') {
     return {
-      label: '中等级关注',
+      label: formatAlertLevel(alertLevel),
       tone: 'warning'
     }
   }
 
-  if (alertLevel === 'LOW') {
+  if (alertLevel === 'low' || alertLevel === 'info') {
     return {
-      label: '低等级提示',
+      label: formatAlertLevel(alertLevel),
       tone: 'success'
     }
   }
@@ -438,6 +498,56 @@ const inferAlertMeta = computed(() => {
     label: '结果待解释',
     tone: 'default'
   }
+})
+
+const inferDetailGroups = computed(() => {
+  const record = inferResult.value
+  if (!record) {
+    return []
+  }
+
+  return [
+    {
+      title: '结果详情',
+      fields: [
+        { key: 'risk_result_id', label: '风险结果ID', value: displayText(record.risk_result_id) },
+        { key: 'sample_index', label: '样本索引', value: displayText(record.sample_index) },
+        { key: 'risk_raw', label: '原始风险', value: formatPercent(record.risk_raw, 2) },
+        { key: 'risk_raw_std', label: '原始风险波动', value: formatPercent(record.risk_raw_std, 2) },
+        { key: 'threshold', label: '阈值', value: formatPercent(record.threshold, 2) },
+        { key: 'predicted_label', label: '预测标签', value: displayText(record.predicted_label) }
+      ]
+    },
+    {
+      title: '模型与数据',
+      fields: [
+        { key: 'model_name', label: '模型名称', value: displayText(record.model_name) },
+        { key: 'model_version', label: '模型版本', value: displayText(record.model_version) },
+        { key: 'data_source', label: '数据来源', value: formatDataSource(record.data_source) },
+        { key: 'condition_label', label: '工况标签', value: displayText(record.condition_label) }
+      ]
+    },
+    {
+      title: '校准与不确定性',
+      fields: [
+        { key: 'calibration_enabled', label: '启用校准', value: formatBoolean(record.calibration_enabled) },
+        { key: 'calibration_method', label: '校准方法', value: formatCalibrationMethod(record.calibration_method) },
+        { key: 'uncertainty_enabled', label: '启用不确定性', value: formatBoolean(record.uncertainty_enabled) },
+        { key: 'uncertainty_method', label: '不确定性方法', value: formatUncertaintyMethod(record.uncertainty_method) },
+        { key: 'mc_samples', label: 'MC 样本数', value: displayText(record.mc_samples) },
+        { key: 'risk_std', label: '风险标准差', value: formatPercent(record.risk_std, 2) }
+      ]
+    },
+    {
+      title: '时间窗口',
+      fields: [
+        { key: 'window_start_time', label: '窗口开始时间', value: formatDateTime(record.window_start_time) },
+        { key: 'window_end_time', label: '窗口结束时间', value: formatDateTime(record.window_end_time) },
+        { key: 'ts_end', label: 'ts_end', value: formatDateTime(record.ts_end) },
+        { key: 'window_minutes', label: '窗口分钟数', value: displayText(record.window_minutes) }
+      ]
+    }
+  ]
 })
 
 watch(
@@ -535,8 +645,9 @@ async function handleInfer() {
   try {
     const result = await inferPrediction(buildInferPayload())
     inferResult.value = normalizeLatest(normalizePayload(result))
+    await fetchPredictionData()
   } catch (error) {
-    inferError.value = error.message || 'mock 推理失败，请稍后重试'
+    inferError.value = error.message || '风险推理失败，请稍后重试'
   } finally {
     inferLoading.value = false
   }
@@ -564,20 +675,20 @@ function validateFilters() {
 
 function validateInferForm() {
   if (!inferForm.deviceId) {
-    return 'mock 推理的设备编号不能为空'
+    return '风险推理的设备编号不能为空'
   }
 
   if (!inferForm.tsEnd) {
-    return 'mock 推理的 ts_end 不能为空'
+    return '风险推理的 ts_end 不能为空'
   }
 
   if (!inferForm.windowMinutes) {
-    return 'mock 推理的 window_minutes 不能为空'
+    return '风险推理的 window_minutes 不能为空'
   }
 
   const windowMinutes = Number.parseInt(inferForm.windowMinutes, 10)
   if (!Number.isFinite(windowMinutes) || windowMinutes <= 0) {
-    return 'mock 推理的 window_minutes 必须为正整数'
+    return '风险推理的 window_minutes 必须为正整数'
   }
 
   return ''
@@ -609,17 +720,40 @@ function normalizeLatest(record) {
   }
 
   return {
+    risk_result_id: record.risk_result_id ?? null,
     device_id: record.device_id ?? null,
+    device_code: record.device_code || '',
+    sample_index: record.sample_index ?? null,
     ts_end: record.ts_end || '',
     window_minutes: toFiniteNumber(record.window_minutes),
+    risk_raw: toFiniteNumber(record.risk_raw),
     risk_score: getRiskScore(record),
+    risk_raw_std: toFiniteNumber(record.risk_raw_std),
     health_score: toFiniteNumber(record.health_score),
+    health_level: record.health_level || '',
+    health_status: record.health_status || '',
     risk_std: toFiniteNumber(record.risk_std),
+    threshold: toFiniteNumber(record.threshold),
+    predicted_label: record.predicted_label ?? '',
+    alert_generated: Boolean(record.alert_generated),
     alert_level: record.alert_level || '',
+    alert_status: record.alert_status || '',
+    alert_status_text: record.alert_status_text || '',
+    alert_message: record.alert_message || '',
+    alert_advice: record.alert_advice || '',
+    alert_id: record.alert_id ?? '',
     condition_label: record.condition_label || '',
+    model_name: record.model_name || '',
     model_version: record.model_version || '',
+    calibration_enabled: record.calibration_enabled,
+    calibration_method: record.calibration_method || '',
+    uncertainty_enabled: record.uncertainty_enabled,
+    uncertainty_method: record.uncertainty_method || '',
+    mc_samples: record.mc_samples ?? '',
+    data_source: record.data_source || '',
     window_start_time: record.window_start_time || '',
-    window_end_time: record.window_end_time || ''
+    window_end_time: record.window_end_time || '',
+    created_at: record.created_at || ''
   }
 }
 
@@ -661,26 +795,8 @@ function getRiskScore(record) {
   return toFiniteNumber(record?.calibrated_risk_score)
 }
 
-function formatNumber(value, digits = 2) {
-  const normalizedValue = toFiniteNumber(value)
-  return normalizedValue === null ? '-' : normalizedValue.toFixed(digits)
-}
-
-function toFiniteNumber(value) {
-  if (value === null || value === undefined || value === '') {
-    return null
-  }
-
-  const normalizedValue = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(normalizedValue) ? normalizedValue : null
-}
-
 function getRecordTime(record) {
-  return record?.window_end_time || record?.window_start_time || ''
-}
-
-function displayText(value) {
-  return value === null || value === undefined || value === '' ? '-' : String(value)
+  return record?.window_end_time || record?.created_at || record?.window_start_time || ''
 }
 
 function normalizeQueryDeviceId(value) {
@@ -750,6 +866,56 @@ function normalizeQueryDeviceId(value) {
   gap: 18px;
 }
 
+.prediction-detail-groups {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.prediction-detail-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--rail-border);
+  border-radius: var(--rail-radius-md);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.prediction-detail-group h4 {
+  margin: 0;
+  color: var(--rail-text-strong);
+}
+
+.prediction-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.prediction-detail-grid div {
+  min-width: 0;
+}
+
+.prediction-detail-grid dt,
+.prediction-detail-grid dd {
+  margin: 0;
+}
+
+.prediction-detail-grid dt {
+  color: var(--rail-text-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.prediction-detail-grid dd {
+  margin-top: 6px;
+  color: var(--rail-text-strong);
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1180px) {
   .prediction-overview-grid,
   .prediction-chart-grid {
@@ -766,7 +932,9 @@ function normalizeQueryDeviceId(value) {
   .prediction-filter-grid,
   .prediction-overview-grid,
   .prediction-chart-grid,
-  .prediction-infer-grid {
+  .prediction-infer-grid,
+  .prediction-detail-groups,
+  .prediction-detail-grid {
     grid-template-columns: 1fr;
   }
 

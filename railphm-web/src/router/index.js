@@ -68,7 +68,7 @@ const routes = [
     component: PredictionView,
     meta: {
       title: '风险预测',
-      description: '展示设备最新风险结果、历史趋势和 mock 推理演示页面。'
+      description: '展示设备最新风险结果、历史趋势和模型推理页面。'
     }
   },
   {

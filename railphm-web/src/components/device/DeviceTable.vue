@@ -23,18 +23,19 @@
       <table class="device-table">
         <thead>
           <tr>
-            <th>设备 ID</th>
+            <th>设备编号</th>
+            <th>设备名称</th>
+            <th>设备类型</th>
             <th>车号</th>
-            <th>ATP 类型</th>
-            <th>配属铁路局</th>
             <th>设备状态</th>
+            <th>更新时间</th>
             <th>操作</th>
           </tr>
         </thead>
 
         <tbody v-if="loading">
           <tr>
-            <td colspan="6" class="device-table__placeholder">
+            <td colspan="7" class="device-table__placeholder">
               <LoadingBlock text="正在加载设备台账数据..." type="inline" />
             </td>
           </tr>
@@ -42,17 +43,18 @@
 
         <tbody v-else-if="rows.length">
           <tr v-for="row in rows" :key="row.device_id">
-            <td class="device-table__mono">{{ row.device_id }}</td>
-            <td>{{ row.car_no || '未返回' }}</td>
-            <td>{{ row.atp_type || '未返回' }}</td>
-            <td>{{ row.attach_bureau || '未返回' }}</td>
+            <td class="device-table__mono">{{ row.device_code || row.device_id || '暂无' }}</td>
+            <td>{{ row.device_name || '暂无' }}</td>
+            <td>{{ row.device_type || row.atp_type || '暂无' }}</td>
+            <td>{{ row.car_no || '暂无' }}</td>
             <td>
               <StatusTag
-                :label="getDeviceStatusMeta(row.device_status).label"
+                :label="row.device_status_text || row.status_text || getDeviceStatusMeta(row.device_status).label"
                 :type="getDeviceStatusMeta(row.device_status).tone"
                 size="small"
               />
             </td>
+            <td>{{ row.update_time || row.create_time || '暂无' }}</td>
             <td>
               <div class="device-table__actions">
                 <RouterLink :to="buildDetailRoute(row.device_id)" class="table-link">
@@ -73,7 +75,7 @@
 
         <tbody v-else>
           <tr>
-            <td colspan="6" class="device-table__placeholder">
+            <td colspan="7" class="device-table__placeholder">
               <EmptyState title="暂无设备数据" :description="emptyText" />
             </td>
           </tr>

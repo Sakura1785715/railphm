@@ -66,6 +66,10 @@ const props = defineProps({
   height: {
     type: String,
     default: '320px'
+  },
+  tooltipDetails: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -108,8 +112,14 @@ const chartOption = computed(() => ({
           return `${item.marker}<span>${escapeTooltipText(item.seriesName)}</span><strong style="float:right;margin-left:18px;color:#0f172a;">${escapeTooltipText(displayValue)}</strong>`
         })
         .join('<br/>')
+      const detailRows = normalizeTooltipDetails(props.tooltipDetails[items[0]?.dataIndex])
+        .map(
+          (row) =>
+            `<br/><span style="color:#667085;">${escapeTooltipText(row.label)}</span><strong style="float:right;margin-left:18px;color:#0f172a;">${escapeTooltipText(row.value)}</strong>`
+        )
+        .join('')
 
-      return `<div style="min-width:140px;"><div style="margin-bottom:6px;color:#667085;">${title}</div>${rows}</div>`
+      return `<div style="min-width:160px;"><div style="margin-bottom:6px;color:#667085;">${title}</div>${rows}${detailRows}</div>`
     }
   },
   legend: {
@@ -178,6 +188,19 @@ const chartOption = computed(() => ({
       : undefined
   }))
 }))
+
+function normalizeTooltipDetails(details) {
+  if (!Array.isArray(details)) {
+    return []
+  }
+
+  return details
+    .filter((row) => row && row.label)
+    .map((row) => ({
+      label: row.label,
+      value: row.value === null || row.value === undefined || row.value === '' ? '-' : row.value
+    }))
+}
 </script>
 
 <style scoped>

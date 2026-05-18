@@ -11,7 +11,7 @@
 
       <div class="device-detail-topbar__actions">
         <span :class="['status-pill', `status-pill--${topbarStatus.tone}`]">{{ topbarStatus.label }}</span>
-        <span v-if="device" class="device-detail-topbar__chip">设备 ID {{ displayValue(device.device_id) }}</span>
+        <span v-if="device" class="device-detail-topbar__chip">设备编号 {{ displayValue(device.device_code || device.device_id) }}</span>
         <RouterLink :to="backToList" class="secondary-link">返回设备台账</RouterLink>
       </div>
     </div>
@@ -77,15 +77,15 @@
             <div class="device-kpi-grid">
               <article class="device-kpi">
                 <span>最新风险分数</span>
-                <strong>{{ formatNumber(riskScore, 2) }}</strong>
+                <strong>{{ formatPercent(riskScore, 2) }}</strong>
               </article>
               <article class="device-kpi">
                 <span>当前健康度</span>
-                <strong>{{ formatNumber(latestPrediction.health_score, 1) }}</strong>
+                <strong>{{ formatScore(latestPrediction.health_score, 2) }}</strong>
               </article>
               <article class="device-kpi">
                 <span>风险波动</span>
-                <strong>{{ formatNumber(latestPrediction.risk_std, 3) }}</strong>
+                <strong>{{ formatPercent(latestPrediction.risk_std, 2) }}</strong>
               </article>
               <article class="device-kpi">
                 <span>模型版本</span>
@@ -134,10 +134,10 @@
               <div class="device-alert-item__top">
                 <span class="device-alert-item__id">#{{ displayValue(item.alert_id) }}</span>
                 <span :class="['alert-badge', getAlertLevelClass(item.alert_level)]">
-                  {{ displayValue(item.alert_level) }}
+                  {{ formatAlertLevel(item.alert_level) }}
                 </span>
                 <span :class="['alert-badge', getAlertStatusClass(item.alert_status)]">
-                  {{ displayValue(item.alert_status) }}
+                  {{ formatAlertStatus(item.alert_status) }}
                 </span>
               </div>
               <p class="device-alert-item__message" :title="displayValue(item.message)">
@@ -158,7 +158,7 @@
             <p class="section-tag">快捷入口</p>
             <h3>围绕该设备继续查看</h3>
           </div>
-          <span class="status-pill status-pill--default">自动携带 device_id</span>
+          <span class="status-pill status-pill--default">自动携带设备编号</span>
         </div>
 
         <div class="quick-entry-grid">
@@ -191,6 +191,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { getAlertList } from '../api/alert'
 import { getDeviceDetail } from '../api/device'
 import { getLatestPrediction } from '../api/prediction'
+import { formatAlertLevel, formatAlertStatus, formatDeviceStatus, formatPercent, formatScore } from '../utils/formatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -219,7 +220,7 @@ const backToList = computed(() => ({
 
 const deviceTitle = computed(() => {
   if (device.value) {
-    return `ATP设备详情：${displayValue(device.value.car_no || device.value.device_id)}`
+    return `ATP设备详情：${displayValue(device.value.device_code || device.value.car_no || device.value.device_id)}`
   }
 
   return routeDeviceId.value ? `设备 ${routeDeviceId.value}` : 'ATP设备详情'
@@ -251,6 +252,22 @@ const deviceFields = computed(() => [
     value: displayValue(device.value?.device_id)
   },
   {
+    label: '设备编号',
+    value: displayValue(device.value?.device_code)
+  },
+  {
+    label: '设备名称',
+    value: displayValue(device.value?.device_name)
+  },
+  {
+    label: '设备类型',
+    value: displayValue(device.value?.device_type)
+  },
+  {
+    label: '车组号',
+    value: displayValue(device.value?.train_no)
+  },
+  {
     label: '车号',
     value: displayValue(device.value?.car_no)
   },
@@ -259,7 +276,7 @@ const deviceFields = computed(() => [
     value: displayValue(device.value?.atp_type)
   },
   {
-    label: '配属铁路局',
+    label: '位置/配属铁路局',
     value: displayValue(device.value?.attach_bureau)
   },
   {
@@ -375,8 +392,9 @@ async function loadDeviceDetail() {
 }
 
 function loadAuxiliaryData(deviceId, requestId) {
-  loadLatestPrediction(deviceId, requestId)
-  loadRecentAlerts(deviceId, requestId)
+  const deviceKey = device.value?.device_code || deviceId
+  loadLatestPrediction(deviceKey, requestId)
+  loadRecentAlerts(deviceKey, requestId)
 }
 
 async function loadLatestPrediction(deviceId, requestId) {
@@ -458,7 +476,7 @@ function goToBusiness(name) {
   router.push({
     name,
     query: {
-      device_id: String(routeDeviceId.value)
+      device_id: String(device.value?.device_code || routeDeviceId.value)
     }
   })
 }
@@ -484,11 +502,6 @@ function getRiskScore(record) {
   return toFiniteNumber(record?.calibrated_risk_score)
 }
 
-function formatNumber(value, digits) {
-  const normalizedValue = toFiniteNumber(value)
-  return normalizedValue === null ? '-' : normalizedValue.toFixed(digits)
-}
-
 function formatDateTime(value) {
   const text = displayValue(value)
 
@@ -508,10 +521,17 @@ function normalizeDevice(result) {
 
   return {
     device_id: payload.device_id ?? '',
+    device_code: payload.device_code ?? '',
+    device_name: payload.device_name ?? '',
+    device_type: payload.device_type ?? '',
     car_no: payload.car_no ?? '',
+    train_no: payload.train_no ?? '',
     atp_type: payload.atp_type ?? '',
     attach_bureau: payload.attach_bureau ?? '',
-    device_status: payload.device_status ?? ''
+    device_status: payload.device_status ?? '',
+    device_status_text: payload.device_status_text ?? payload.status_text ?? '',
+    create_time: payload.create_time ?? '',
+    update_time: payload.update_time ?? ''
   }
 }
 
@@ -556,11 +576,12 @@ function normalizeAlertRecord(record) {
 
   return {
     alert_id: source.alert_id ?? '',
+    device_code: source.device_code ?? '',
     alert_level: source.alert_level ?? '',
     alert_status: source.alert_status ?? '',
     alert_time: source.alert_time ?? '',
     alert_position: source.alert_position ?? '',
-    message: source.message ?? ''
+    message: source.alert_message ?? source.message ?? ''
   }
 }
 
@@ -577,38 +598,47 @@ function unwrapData(result) {
 }
 
 function getDeviceStatusMeta(status) {
-  if (Number(status) === 1) {
+  if (device.value?.device_status_text) {
     return {
-      label: '在册运行',
-      tone: 'success'
-    }
-  }
-
-  if (Number(status) === 0) {
-    return {
-      label: '停用观察',
-      tone: 'warning'
+      label: device.value.device_status_text,
+      tone: getDeviceStatusTone(status)
     }
   }
 
   return {
-    label: '未知状态',
-    tone: 'muted'
+    label: formatDeviceStatus(status),
+    tone: getDeviceStatusTone(status)
   }
 }
 
-function getAlertLevelClass(level) {
-  const normalizedLevel = String(level || '').toUpperCase()
+function getDeviceStatusTone(status) {
+  if (Number(status) === 1) {
+    return 'success'
+  }
 
-  if (normalizedLevel === 'HIGH') {
+  if (Number(status) === 2 || Number(status) === 3) {
+    return 'warning'
+  }
+
+  if (Number(status) === 4) {
+    return 'danger'
+  }
+
+  return 'muted'
+}
+
+function getAlertLevelClass(level) {
+  const normalizedLevel = String(level || '').toLowerCase()
+
+  if (normalizedLevel === 'high' || normalizedLevel === 'critical') {
     return 'alert-badge--high'
   }
 
-  if (normalizedLevel === 'MEDIUM') {
+  if (normalizedLevel === 'medium' || normalizedLevel === 'warning') {
     return 'alert-badge--medium'
   }
 
-  if (normalizedLevel === 'LOW') {
+  if (normalizedLevel === 'low' || normalizedLevel === 'info') {
     return 'alert-badge--low'
   }
 
@@ -616,17 +646,17 @@ function getAlertLevelClass(level) {
 }
 
 function getAlertStatusClass(status) {
-  const normalizedStatus = String(status || '').toUpperCase()
+  const normalizedStatus = String(status || '').toLowerCase()
 
-  if (normalizedStatus === 'PENDING') {
+  if (normalizedStatus === 'pending' || normalizedStatus === 'unhandled') {
     return 'alert-badge--pending'
   }
 
-  if (normalizedStatus === 'PROCESSING') {
+  if (normalizedStatus === 'processing') {
     return 'alert-badge--processing'
   }
 
-  if (normalizedStatus === 'RESOLVED') {
+  if (normalizedStatus === 'resolved') {
     return 'alert-badge--resolved'
   }
 

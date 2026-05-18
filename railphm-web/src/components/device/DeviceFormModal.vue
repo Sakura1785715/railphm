@@ -21,6 +21,42 @@
 
         <form class="device-form" @submit.prevent="handleSubmit">
           <label class="device-form__field">
+            <span>设备编号</span>
+            <input
+              v-model.trim="form.deviceCode"
+              type="text"
+              placeholder="请输入设备编号，如 ATP001"
+              :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.deviceCode)"
+            />
+            <small v-if="fieldErrors.deviceCode">{{ fieldErrors.deviceCode }}</small>
+          </label>
+
+          <label class="device-form__field">
+            <span>设备名称</span>
+            <input
+              v-model.trim="form.deviceName"
+              type="text"
+              placeholder="请输入设备名称"
+              :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.deviceName)"
+            />
+            <small v-if="fieldErrors.deviceName">{{ fieldErrors.deviceName }}</small>
+          </label>
+
+          <label class="device-form__field">
+            <span>设备类型</span>
+            <input
+              v-model.trim="form.deviceType"
+              type="text"
+              placeholder="ATP"
+              :disabled="submitting"
+              :aria-invalid="Boolean(fieldErrors.deviceType)"
+            />
+            <small v-if="fieldErrors.deviceType">{{ fieldErrors.deviceType }}</small>
+          </label>
+
+          <label class="device-form__field">
             <span>车号</span>
             <input
               v-model.trim="form.carNo"
@@ -45,7 +81,17 @@
           </label>
 
           <label class="device-form__field">
-            <span>配属铁路局</span>
+            <span>车组号</span>
+            <input
+              v-model.trim="form.trainNo"
+              type="text"
+              placeholder="请输入车组号，可为空"
+              :disabled="submitting"
+            />
+          </label>
+
+          <label class="device-form__field">
+            <span>位置/配属铁路局</span>
             <input
               v-model.trim="form.attachBureau"
               type="text"
@@ -64,8 +110,10 @@
               :aria-invalid="Boolean(fieldErrors.deviceStatus)"
             >
               <option value="">请选择设备状态</option>
-              <option value="1">正常 / 在册运行</option>
-              <option value="0">停用 / 停用观察</option>
+              <option value="1">正常</option>
+              <option value="2">关注</option>
+              <option value="3">预警</option>
+              <option value="4">告警</option>
             </select>
             <small v-if="fieldErrors.deviceStatus">{{ fieldErrors.deviceStatus }}</small>
           </label>
@@ -115,13 +163,20 @@ const props = defineProps({
 const emit = defineEmits(['submit', 'close'])
 
 const form = reactive({
+  deviceCode: '',
+  deviceName: '',
+  deviceType: 'ATP',
   carNo: '',
   atpType: '',
+  trainNo: '',
   attachBureau: '',
   deviceStatus: '1'
 })
 const validationError = ref('')
 const fieldErrors = reactive({
+  deviceCode: '',
+  deviceName: '',
+  deviceType: '',
   carNo: '',
   atpType: '',
   attachBureau: '',
@@ -148,15 +203,23 @@ function syncForm() {
   resetErrors()
 
   if (props.mode === 'edit' && props.initialDevice) {
+    form.deviceCode = props.initialDevice.device_code ? String(props.initialDevice.device_code) : ''
+    form.deviceName = props.initialDevice.device_name ? String(props.initialDevice.device_name) : ''
+    form.deviceType = props.initialDevice.device_type ? String(props.initialDevice.device_type) : 'ATP'
     form.carNo = props.initialDevice.car_no ? String(props.initialDevice.car_no) : ''
     form.atpType = props.initialDevice.atp_type ? String(props.initialDevice.atp_type) : ''
+    form.trainNo = props.initialDevice.train_no ? String(props.initialDevice.train_no) : ''
     form.attachBureau = props.initialDevice.attach_bureau ? String(props.initialDevice.attach_bureau) : ''
     form.deviceStatus = normalizeDeviceStatus(props.initialDevice.device_status)
     return
   }
 
+  form.deviceCode = ''
+  form.deviceName = ''
+  form.deviceType = 'ATP'
   form.carNo = ''
   form.atpType = ''
+  form.trainNo = ''
   form.attachBureau = ''
   form.deviceStatus = '1'
 }
@@ -170,14 +233,30 @@ function handleSubmit() {
   }
 
   emit('submit', {
+    device_code: form.deviceCode.trim(),
+    device_name: form.deviceName.trim(),
+    device_type: form.deviceType.trim() || 'ATP',
     car_no: form.carNo.trim(),
     atp_type: form.atpType.trim(),
+    train_no: form.trainNo.trim() || null,
     attach_bureau: form.attachBureau.trim(),
     device_status: Number(form.deviceStatus)
   })
 }
 
 function validateForm() {
+  if (!form.deviceCode.trim()) {
+    fieldErrors.deviceCode = '请输入设备编号'
+  }
+
+  if (!form.deviceName.trim()) {
+    fieldErrors.deviceName = '请输入设备名称'
+  }
+
+  if (!form.deviceType.trim()) {
+    fieldErrors.deviceType = '请输入设备类型'
+  }
+
   if (!form.carNo.trim()) {
     fieldErrors.carNo = '请输入车号'
   }
@@ -192,11 +271,11 @@ function validateForm() {
 
   if (form.deviceStatus === '') {
     fieldErrors.deviceStatus = '请选择设备状态'
-  } else if (!['0', '1'].includes(String(form.deviceStatus))) {
-    fieldErrors.deviceStatus = '设备状态只能为 0 或 1'
+  } else if (!['1', '2', '3', '4'].includes(String(form.deviceStatus))) {
+    fieldErrors.deviceStatus = '设备状态只能为 1、2、3 或 4'
   }
 
-  return !fieldErrors.carNo && !fieldErrors.atpType && !fieldErrors.attachBureau && !fieldErrors.deviceStatus
+  return !fieldErrors.deviceCode && !fieldErrors.deviceName && !fieldErrors.deviceType && !fieldErrors.carNo && !fieldErrors.atpType && !fieldErrors.attachBureau && !fieldErrors.deviceStatus
 }
 
 function handleClose() {
@@ -209,11 +288,14 @@ function handleClose() {
 
 function normalizeDeviceStatus(status) {
   const normalized = String(status)
-  return normalized === '0' || normalized === '1' ? normalized : ''
+  return ['1', '2', '3', '4'].includes(normalized) ? normalized : ''
 }
 
 function resetErrors() {
   validationError.value = ''
+  fieldErrors.deviceCode = ''
+  fieldErrors.deviceName = ''
+  fieldErrors.deviceType = ''
   fieldErrors.carNo = ''
   fieldErrors.atpType = ''
   fieldErrors.attachBureau = ''
