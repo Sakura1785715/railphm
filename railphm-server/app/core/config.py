@@ -34,6 +34,12 @@ class BaseConfig:
     MYSQL_DATABASE: str = os.getenv("MYSQL_DATABASE", "railphm")
     MYSQL_CHARSET: str = os.getenv("MYSQL_CHARSET", "utf8mb4")
     INFLUXDB_URL: str = os.getenv("INFLUXDB_URL", "")
+    INFLUXDB_TOKEN: str = os.getenv("INFLUXDB_TOKEN", "")
+    INFLUXDB_ORG: str = os.getenv("INFLUXDB_ORG", "railphm")
+    INFLUXDB_BUCKET: str = os.getenv("INFLUXDB_BUCKET", "railphm")
+    INFLUXDB_TIMEOUT: int = int(os.getenv("INFLUXDB_TIMEOUT", "10000"))
+    MONITOR_MEASUREMENT: str = os.getenv("MONITOR_MEASUREMENT", "atp_monitor")
+    MONITOR_QUERY_LIMIT: int = int(os.getenv("MONITOR_QUERY_LIMIT", "5000"))
 
     AI_SERVICE_BASE_URL: str = os.getenv("AI_SERVICE_BASE_URL", "http://127.0.0.1:5001")
     AI_INFER_PATH: str = os.getenv("AI_INFER_PATH", "/infer")

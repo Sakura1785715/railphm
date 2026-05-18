@@ -13,14 +13,14 @@ def init_mysql(app: Flask) -> None:
     app.extensions["mysql_client"] = None
 
 def init_influxdb(app: Flask) -> None:
-    """InfluxDB 初始化占位"""
+    """InfluxDB 初始化占位，client 在首次查询时懒加载。"""
     influx_url = app.config.get("INFLUXDB_URL")
     if not influx_url:
         app.logger.warning("INFLUXDB_URL not configured. InfluxDB initialization skipped (Placeholder).")
     else:
-        app.logger.info("INFLUXDB_URL detected. InfluxDB connection placeholder ready.")
+        app.logger.info("INFLUXDB_URL detected. InfluxDB client will be initialized lazily.")
     
-    # 将客户端挂载到 Flask 标准 extensions 字典中（目前为 None）
+    # 将客户端挂载到 Flask 标准 extensions 字典中，首次使用时创建真实 client。
     app.extensions["influxdb_client"] = None
 
 def init_extensions(app: Flask) -> None:
