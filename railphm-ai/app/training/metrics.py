@@ -7,7 +7,7 @@ compute_binary_metrics 函数，用于计算二分类模型在风险预测任务
 - precision（精确率）
 - recall（召回率）
 - f1（F1 分数）
-- auc（ROC-AUC 分数，若只有单类别则返回 None）
+- auc： 衡量模型能不能把真正有风险的样本（y_prob应趋近于1）排在正常样本（y_prob应趋近于0）前面。
 - brier_score（Brier 分数）
 - threshold（使用的概率阈值）
 - positive_count / negative_count（真实正/负样本数）
@@ -31,11 +31,12 @@ def compute_binary_metrics(
     计算二分类风险预测指标。
 
     y_true: 真实标签，取值只能为 0/1。
-    y_prob: 模型输出的正类概率，取值范围必须在 [0, 1]。
-    threshold: 概率阈值，y_prob >= threshold 判为正类。
+    y_prob: 模型输出的正类概率(模型输出logits经过sigmoid后得到的正类概率)，取值范围必须在 [0, 1]。
+    threshold: 概率阈值y_prob >= threshold 判为正类。
     """
     _validate_threshold(threshold)
 
+    # 转成 numpy 数组
     y_true_array = _to_numpy_array(y_true)
     y_prob_array = _to_numpy_array(y_prob)
 
@@ -66,12 +67,14 @@ def compute_binary_metrics(
         raise ValueError("y_prob 必须位于 [0, 1] 范围内")
 
     y_true_array = y_true_array.astype(np.int64)
+    # 根据阈值把概率变成预测类别
     y_pred_array = (y_prob_array >= float(threshold)).astype(np.int64)
 
-    tn = int(((y_true_array == 0) & (y_pred_array == 0)).sum())
-    fp = int(((y_true_array == 0) & (y_pred_array == 1)).sum())
-    fn = int(((y_true_array == 1) & (y_pred_array == 0)).sum())
-    tp = int(((y_true_array == 1) & (y_pred_array == 1)).sum())
+    # 计算混淆矩阵
+    tn = int(((y_true_array == 0) & (y_pred_array == 0)).sum()) # TP：真实是风险，预测也是风险
+    fp = int(((y_true_array == 0) & (y_pred_array == 1)).sum()) # FP：真实是正常，预测成风险
+    fn = int(((y_true_array == 1) & (y_pred_array == 0)).sum()) # FN：真实是风险，预测成正常
+    tp = int(((y_true_array == 1) & (y_pred_array == 1)).sum()) # TN：真实是正常，预测也是正常
 
     total = int(y_true_array.shape[0])
     positive_count = int((y_true_array == 1).sum())
@@ -90,19 +93,19 @@ def compute_binary_metrics(
             "precision is set to 0.0 because there are no predicted positive samples"
         )
     else:
-        precision = float(tp / precision_denominator)
+        precision = float(tp / precision_denominator) # precision = tp / (tp + fp)
 
     recall_denominator = tp + fn
     if recall_denominator == 0:
         recall = 0.0
         warnings.append("recall is set to 0.0 because there are no positive samples")
     else:
-        recall = float(tp / recall_denominator)
+        recall = float(tp / recall_denominator) # recall = tp / (tp + fn)
 
     if precision + recall == 0:
         f1 = 0.0
     else:
-        f1 = float(2 * precision * recall / (precision + recall))
+        f1 = float(2 * precision * recall / (precision + recall)) # f1 = 2 * precision * recall / (precision + recall)
 
     brier_score = float(np.mean((y_prob_array - y_true_array) ** 2))
 

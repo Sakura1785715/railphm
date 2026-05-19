@@ -9,6 +9,7 @@
     :empty="isEmpty"
     :error="error"
     :height="height"
+    :tooltip-details="tooltipDetails"
   />
 </template>
 
@@ -48,6 +49,10 @@ const props = defineProps({
   height: {
     type: String,
     default: '300px'
+  },
+  tooltipDetails: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -62,4 +67,3 @@ const trendSeries = computed(() => [
 ])
 const isEmpty = computed(() => props.points.length === 0)
 </script>
-

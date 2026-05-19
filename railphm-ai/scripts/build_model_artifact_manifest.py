@@ -2,6 +2,7 @@
 为默认 Bi-LSTM+Attention 模型输出目录生成一个统一的模型产物清单 model_artifact_manifest.json
 生成路径：
 outputs/sequence_models/bilstm_attention_h1_full_features/model_artifact_manifest.json
+后续根据 model_artifact_manifest.json 加载模型、特征列、阈值、权重
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ REQUIRED_FILES = {
     "threshold_summary.json",
     "evaluation_summary.json",
     "feature_columns.json",
+    "calibrator.pkl",
+    "calibration_summary.json",
 }
 
 OPTIONAL_FILES = {
@@ -120,7 +123,8 @@ def extract_model_metadata(model_dir: Path) -> dict[str, Any]:
     training_config = load_json(model_dir / "training_config.json")
     sequence_model_report = load_json(model_dir / "sequence_model_report.json")
     threshold_summary = load_json(model_dir / "threshold_summary.json")
-    load_json(model_dir / "evaluation_summary.json")
+    evaluation_summary = load_json(model_dir / "evaluation_summary.json")
+    calibration_summary = load_json(model_dir / "calibration_summary.json")
 
     feature_columns = load_json(model_dir / "feature_columns.json")
     feature_columns = _validate_feature_columns(feature_columns)
@@ -181,6 +185,8 @@ def extract_model_metadata(model_dir: Path) -> dict[str, Any]:
         "output_dir": output_dir,
         "feature_columns": feature_columns,
         "condition_feature_columns": condition_feature_columns,
+        "calibration_summary": calibration_summary,
+        "evaluation_summary": evaluation_summary,
     }
 
 
@@ -218,6 +224,19 @@ def build_manifest(model_dir: Path) -> dict[str, Any]:
             "val_predictions": "val_predictions.csv",
             "test_predictions": "test_predictions.csv",
             "feature_columns": "feature_columns.json",
+            "calibrator": "calibrator.pkl",
+            "calibration_summary": "calibration_summary.json",
+        },
+        "calibration": {
+            "enabled": True,
+            "method": "isotonic_regression",
+            "calibrator": "calibrator.pkl",
+            "summary": "calibration_summary.json",
+        },
+        "uncertainty": {
+            "enabled": True,
+            "method": "mc_dropout",
+            "mc_samples": 30,
         },
         "checks": {
             "required_files_exist": True,
@@ -228,7 +247,8 @@ def build_manifest(model_dir: Path) -> dict[str, Any]:
         "notes": [
             "This manifest is generated from existing training artifacts.",
             "Model weights are not loaded during manifest generation.",
-            "Probability calibration and MC-Dropout are not included in this stage.",
+            "Isotonic regression calibration is enabled through calibrator.pkl.",
+            "MC-Dropout uncertainty estimation is enabled at runtime.",
         ],
     }
 

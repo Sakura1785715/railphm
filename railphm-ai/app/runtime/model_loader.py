@@ -1,17 +1,12 @@
 """
 模型运行时加载器。
 
-本文件负责从模型产物目录加载 RailPHM 时序预测模型，包括读取模型产物清单、
-加载特征字段、构造 Bi-LSTM+Attention 模型、恢复模型权重，并提供单窗口
-风险预测能力。
-
-当前文件支持三类运行时能力：
+读取 model_artifact_manifest.json，根据清单恢复 Bi-LSTM+Attention 模型结构，
+加载 best_model.pt 权重，然后提供单窗口风险预测能力：
 1. 确定性单窗口预测 predict_proba；
 2. 可选概率校准器加载，输出校准后的 risk_score；
 3. MC-Dropout 不确定性估计 predict_with_uncertainty。
 
-本文件不负责重新训练模型，不修改模型结构，不重新拟合校准器，不修改训练产物，
-不接入 /infer，不访问数据库，也不保存 MC 采样明细文件。
 """
 
 from __future__ import annotations
@@ -35,6 +30,7 @@ from app.uncertainty import (
 
 DEFAULT_MODEL_VERSION = "bilstm_attention_h1_full_features"
 
+# 支持模型
 SUPPORTED_RUNTIME_MODELS = {
     "bilstm_attention": "BiLSTMAttentionClassifier",
 }
@@ -47,7 +43,7 @@ SUPPORTED_UNCERTAINTY_METHODS = {
     "mc_dropout",
 }
 
-
+# 运行时模型对象类
 @dataclass
 class SequenceModelRuntime:
     """
@@ -62,15 +58,18 @@ class SequenceModelRuntime:
     """
 
     manifest: ArtifactManifest
-    model: torch.nn.Module
-    device: torch.device
+    model: torch.nn.Module # 已经加载权重的 Bi-LSTM+Attention 模型
+    device: torch.device # 模型运行设备
+    # 推理解释信息
     feature_columns: list[str]
     threshold: float
     model_version: str
+    # 模型结构信息
     model_name: str
     model_class: str
     window_size: int
     feature_dim: int
+    # 拓展：概率校准 + MC-dropout
     calibrator: IsotonicRiskCalibrator | None = None
     calibration_enabled: bool = False
     calibration_method: str | None = None
@@ -79,6 +78,7 @@ class SequenceModelRuntime:
     default_mc_samples: int = 30
 
     @classmethod
+    # 从模型目录加载运行时模型
     def from_model_dir(
         cls,
         model_dir: str | Path,
@@ -96,9 +96,10 @@ class SequenceModelRuntime:
         6. 如果 manifest 启用 calibration，则加载 calibrator.pkl；
         7. 如果 manifest 启用 uncertainty，则读取默认 MC-Dropout 配置。
         """
-        manifest = ArtifactManifest.load(model_dir)
+        manifest = ArtifactManifest.load(model_dir) # 读取：model_dir / model_artifact_manifest.json
         runtime_device = resolve_runtime_device(device)
 
+        # 加载 feature_columns.json
         feature_columns = load_feature_columns(manifest.get_path("feature_columns"))
         if len(feature_columns) != manifest.feature_dim:
             raise ValueError(
@@ -106,27 +107,32 @@ class SequenceModelRuntime:
                 f"feature_columns={len(feature_columns)}, "
                 f"feature_dim={manifest.feature_dim}"
             )
-
+        
+        # 根据 manifest 构造模型结构
         model = _build_model_from_manifest(manifest)
-
+        
         checkpoint_path = manifest.get_path("model_weight")
+        # 加载 best_model.pt 权重
         checkpoint = _load_checkpoint(checkpoint_path, runtime_device)
 
         model_state_dict = checkpoint.get("model_state_dict")
         if model_state_dict is None:
             raise ValueError("checkpoint missing model_state_dict")
-
+        
+        # 把训练好的参数加载进模型
         model.load_state_dict(model_state_dict, strict=True)
         model.to(runtime_device)
+        # 切换 eval 模式
         model.eval()
-
+        # 加载概率校准器
         calibrator, calibration_enabled, calibration_method = _load_calibrator_if_enabled(
             manifest
         )
+        # 加载不确定性配置
         uncertainty_enabled, uncertainty_method, default_mc_samples = (
             _load_uncertainty_config(manifest)
         )
-
+        # 返回 SequenceModelRuntime 对象
         return cls(
             manifest=manifest,
             model=model,
@@ -149,7 +155,6 @@ class SequenceModelRuntime:
     def predict_proba(self, window: np.ndarray) -> dict[str, Any]:
         """
         对单个窗口样本执行确定性风险概率预测。
-
         输入 window 必须是 shape=[window_size, feature_dim] 的 numpy.ndarray。
         对默认模型而言，即 shape=(30, 23)。
 
@@ -164,15 +169,30 @@ class SequenceModelRuntime:
         self.model.eval()
 
         with torch.no_grad():
+            # 加 batch 维度--->[batch_size, window_size, feature_dim]
             features = (
                 torch.from_numpy(window_array)
                 .unsqueeze(0)
                 .to(device=self.device, dtype=torch.float32)
             )
+           
+            """
+            前向推理
+            features: [1, 30, 23]
+            ↓ (Bi-LSTM)
+            output_seq: [1, 30, 128]
+            ↓ (Attention)
+            context: [1, 128]
+            ↓ (Linear 分类器)
+            logits: [1]
+            ↓ (sigmoid)
+            risk_raw: 一个 0~1 概率
+            """
             logits = self.model(features).view(-1)
             probs = torch.sigmoid(logits)
             risk_raw = float(probs.detach().cpu().item())
-
+        
+        # 概率校准（保序回归）
         risk_score = self._apply_calibration(risk_raw)
         predicted_label = int(risk_score >= self.threshold)
 
@@ -189,6 +209,7 @@ class SequenceModelRuntime:
             "calibration_method": self.calibration_method,
         }
 
+    # MC-Dropout 不确定性预测
     def predict_with_uncertainty(
         self,
         window: np.ndarray,
@@ -196,10 +217,6 @@ class SequenceModelRuntime:
     ) -> dict[str, Any]:
         """
         使用 MC-Dropout 对单个窗口样本进行不确定性估计。
-
-        本方法会执行多次随机前向传播，返回原始概率均值、系统风险分数、
-        原始概率标准差和系统不确定性指标。正式输出中不包含完整采样数组。
-
         输出说明：
         - risk_raw：多次 MC-Dropout 原始概率的均值；
         - risk_score：系统最终风险分数，启用校准时为校准后概率均值；

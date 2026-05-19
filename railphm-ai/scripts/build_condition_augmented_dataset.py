@@ -3,7 +3,7 @@
 工况 one-hot 增强数据集构造脚本。
 
 该脚本读取已经完成工况划分的窗口数据集，将每个样本的 condition_id 转换为 one-hot 特征，
-并在每个时间步重复拼接到 X.npy 的最后一个特征维度，生成可直接用于现有检查和 baseline 训练流程的增强数据集。
+并在每个时间步重复拼接到 X.npy 的最后一个特征维度。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-
+# 输入数据集必须有的文件
 REQUIRED_DATASET_FILES = [
     "X.npy",
     "y.npy",
@@ -31,25 +31,38 @@ REQUIRED_DATASET_FILES = [
     "window_manifest.csv",
     "dataset_summary.json",
 ]
-
+# 必须已经完成数据集划分
 REQUIRED_SPLIT_FILES = [
     "train_indices.npy",
     "val_indices.npy",
     "test_indices.npy",
 ]
 
-
+# 定义命令行参数
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build RailPHM condition one-hot augmented window dataset."
     )
 
-    parser.add_argument("--input-dir", type=Path, required=True, help="已完成工况划分的窗口数据集目录")
-    parser.add_argument("--output-dir", type=Path, required=True, help="增强数据集输出目录")
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        required=True,
+        help="已完成工况划分的窗口数据集目录；默认会在该目录中原地完成工况增强",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help=(
+            "增强数据集输出目录。默认不填写，表示直接原地更新 input-dir；"
+            "只有需要保留独立增强数据集副本时才指定该参数。"
+        ),
+    )
     parser.add_argument("--condition-labels-file", type=Path, default=None, help="condition_labels.npy 路径")
     parser.add_argument("--condition-summary-file", type=Path, default=None, help="condition_summary.json 路径")
     parser.add_argument("--condition-manifest-file", type=Path, default=None, help="condition_manifest.csv 路径")
-    parser.add_argument("--overwrite", action="store_true", help="如果输出目录已存在，则删除后重建")
+    parser.add_argument("--overwrite", action="store_true", help="仅在指定 --output-dir 且输出目录已存在时生效；原地增强不使用该参数覆盖重复增强")
     parser.add_argument("--verbose", action="store_true", help="打印更详细的增强数据集信息")
 
     return parser
@@ -95,19 +108,29 @@ def validate_input_dir(
         raise FileNotFoundError(f"缺少工况统计文件：{condition_summary_file}")
 
 
-def prepare_output_dir(input_dir: Path, output_dir: Path, overwrite: bool) -> None:
-    if input_dir.resolve() == output_dir.resolve():
-        raise ValueError("output_dir 不能与 input_dir 相同，避免覆盖原始数据集")
-
+def prepare_output_dir(input_dir: Path, output_dir: Path, overwrite: bool) -> bool:
+    """
+    准备输出目录。
+    返回：
+        in_place: 是否为原地增强模式。
+    说明：
+    - 默认 output_dir == input_dir，表示直接在输入目录中更新 X.npy、feature_columns.json 和 dataset_summary.json；
+    - 如果显式指定了不同的 output_dir，则保留原有“导出独立增强数据集目录”的能力。
+    """
+    input_dir = input_dir.resolve()
+    output_dir = output_dir.resolve()
+    in_place = input_dir == output_dir
+    if in_place:
+        return True
     if output_dir.exists():
         if not overwrite:
             raise FileExistsError(f"output_dir 已存在: {output_dir}，如需覆盖请使用 --overwrite")
         shutil.rmtree(output_dir)
-
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "splits").mkdir(parents=True, exist_ok=True)
+    return False
 
-
+# 加载输入文件
 def load_inputs(
     input_dir: Path,
     condition_labels_file: Path,
@@ -188,7 +211,7 @@ def validate_inputs(
 
     return normalized_condition_labels
 
-
+# 把工况标签变成 int64
 def normalize_condition_labels(condition_labels: np.ndarray) -> np.ndarray:
     if not isinstance(condition_labels, np.ndarray):
         raise ValueError("condition_labels 必须是 numpy.ndarray")
@@ -256,7 +279,39 @@ def append_condition_coverage_warning(
     if missing_labels:
         warnings.append(f"condition_labels 未覆盖全部工况，缺失工况: {missing_labels}")
 
+def validate_not_already_augmented(
+    dataset_summary: dict,
+    feature_columns: list[str],
+    n_clusters: int,
+) -> None:
+    """
+    防止对同一个数据集重复执行工况增强。
+    原地增强会覆盖 X.npy，如果重复运行，会导致特征维度不断追加：
+    第一次：原始特征 + condition_0/1/2
+    第二次：原始特征 + condition_0/1/2 + condition_0/1/2
+    因此只要检测到 dataset_summary 或 feature_columns 中已经存在工况增强痕迹，
+    就直接拒绝执行。
+    """
+    condition_augmentation = dataset_summary.get("condition_augmentation")
+    if isinstance(condition_augmentation, dict) and condition_augmentation.get("enabled") is True:
+        raise ValueError(
+            "当前数据集已经完成过工况增强，拒绝重复增强。"
+            "如需重新增强，请先重新生成标准化数据集，或从未增强的 X.npy 开始。"
+        )
+    expected_condition_columns = {
+        f"condition_{cluster_id}" for cluster_id in range(n_clusters)
+    }
+    existing_condition_columns = [
+        column for column in feature_columns
+        if column in expected_condition_columns or column.startswith("condition_")
+    ]
+    if existing_condition_columns:
+        raise ValueError(
+            "feature_columns.json 中已经存在工况特征列，拒绝重复增强: "
+            + ", ".join(existing_condition_columns)
+        )
 
+# 把工况编号转成 one-hot
 def build_condition_onehot(condition_labels: np.ndarray, n_clusters: int) -> np.ndarray:
     onehot = np.zeros((condition_labels.shape[0], n_clusters), dtype=np.float32)
     onehot[np.arange(condition_labels.shape[0]), condition_labels.astype(np.int64)] = 1.0
@@ -381,11 +436,14 @@ def build_condition_augmented_summary(
     n_clusters: int,
     copied_files: list[str],
     warnings: list[str],
+    in_place: bool,
 ) -> dict[str, Any]:
     return {
         "task": "condition_augmented_dataset",
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
+        "in_place": bool(in_place),
+        "write_mode": "in_place_update" if in_place else "export_new_dataset",
         "sample_count": int(X.shape[0]),
         "window_size": int(X.shape[1]),
         "original_feature_dim": int(X.shape[2]),
@@ -414,6 +472,8 @@ def print_summary(summary: dict, verbose: bool = False) -> None:
     print("RailPHM condition augmented dataset created.")
     print(f"input_dir: {summary['input_dir']}")
     print(f"output_dir: {summary['output_dir']}")
+    print(f"write_mode: {summary.get('write_mode')}")
+    print(f"in_place: {summary.get('in_place')}")
     print(f"sample_count: {summary['sample_count']}")
     print(f"window_size: {summary['window_size']}")
     print(f"original_feature_dim: {summary['original_feature_dim']}")
@@ -474,7 +534,7 @@ def print_summary(summary: dict, verbose: bool = False) -> None:
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     input_dir = args.input_dir
-    output_dir = args.output_dir
+    output_dir = args.output_dir or args.input_dir
 
     condition_labels_file = args.condition_labels_file or input_dir / "condition_labels.npy"
     condition_summary_file = args.condition_summary_file or input_dir / "condition_summary.json"
@@ -487,7 +547,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         condition_labels_file=condition_labels_file,
         condition_summary_file=condition_summary_file,
     )
-    prepare_output_dir(input_dir=input_dir, output_dir=output_dir, overwrite=args.overwrite)
+    in_place = prepare_output_dir(
+        input_dir=input_dir,
+        output_dir=output_dir,
+        overwrite=args.overwrite,
+    )
 
     inputs = load_inputs(
         input_dir=input_dir,
@@ -510,6 +574,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         condition_summary=condition_summary,
         warnings=warnings,
     )
+
+    if in_place:
+        validate_not_already_augmented(
+            dataset_summary=inputs["dataset_summary"],
+            feature_columns=inputs["feature_columns"],
+            n_clusters=n_clusters,
+        )
 
     condition_labels = validate_inputs(
         X=X,
@@ -539,14 +610,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         n_clusters=n_clusters,
     )
 
-    copied_files = copy_metadata_files(
-        input_dir=input_dir,
-        output_dir=output_dir,
-        condition_labels_file=condition_labels_file,
-        condition_summary_file=condition_summary_file,
-        condition_manifest_file=condition_manifest_file,
-        warnings=warnings,
-    )
+    if in_place:
+        copied_files = []
+    else:
+        copied_files = copy_metadata_files(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            condition_labels_file=condition_labels_file,
+            condition_summary_file=condition_summary_file,
+            condition_manifest_file=condition_manifest_file,
+            warnings=warnings,
+        )
 
     np.save(output_dir / "X.npy", X_aug)
     save_json(output_dir / "feature_columns.json", feature_columns_aug)
@@ -573,6 +647,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         n_clusters=n_clusters,
         copied_files=copied_files,
         warnings=warnings,
+        in_place=in_place,
     )
     save_json(output_dir / "condition_augmented_summary.json", condition_augmented_summary)
 

@@ -26,7 +26,7 @@ class BaseConfig:
     )
     AI_DATASET_DIR: str = os.getenv(
         "RAILPHM_AI_DATASET_DIR",
-        "data/datasets/bilstm_attention_h1_full_features/train_scaled_condition_k3",
+        "data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1",
     )
     AI_RUNTIME_DEVICE: str = os.getenv("RAILPHM_AI_RUNTIME_DEVICE", "auto")
     AI_DEFAULT_MC_SAMPLES: int = int(os.getenv("RAILPHM_AI_DEFAULT_MC_SAMPLES", "30"))

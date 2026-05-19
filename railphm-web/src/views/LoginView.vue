@@ -113,8 +113,8 @@
           </button>
         </form>
 
-        <div class="account-hint" aria-label="mock accounts">
-          <p>Mock Accounts</p>
+        <div class="account-hint" aria-label="test accounts">
+          <p>测试账号</p>
           <div>
             <span>admin / 123456</span>
             <strong>系统管理员</strong>

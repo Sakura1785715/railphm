@@ -24,7 +24,7 @@
     <p v-if="operationMessage" class="device-operation-message">{{ operationMessage }}</p>
 
     <DeviceFilterBar
-      v-model:device-id="filters.deviceId"
+      v-model:device-code="filters.deviceCode"
       v-model:car-no="filters.carNo"
       v-model:device-status="filters.deviceStatus"
       :loading="loading"
@@ -76,7 +76,7 @@ const route = useRoute()
 const router = useRouter()
 
 const filters = reactive({
-  deviceId: '',
+  deviceCode: '',
   carNo: '',
   deviceStatus: ''
 })
@@ -102,18 +102,14 @@ const rolePermissionMessage = computed(() =>
 )
 
 const statusOptions = [
-  {
-    label: '正常 / 在册运行',
-    value: '1'
-  },
-  {
-    label: '停用 / 停用观察',
-    value: '0'
-  }
+  { label: '正常', value: '1' },
+  { label: '关注', value: '2' },
+  { label: '预警', value: '3' },
+  { label: '告警', value: '4' }
 ]
 
 const hasActiveFilters = computed(
-  () => Boolean(filters.deviceId.trim() || filters.carNo.trim() || filters.deviceStatus !== '')
+  () => Boolean(filters.deviceCode.trim() || filters.carNo.trim() || filters.deviceStatus !== '')
 )
 
 const emptyText = computed(() =>
@@ -271,15 +267,16 @@ async function handleDeviceFormSubmit(payload) {
 
 async function refreshCreatedDevicePage(createdDevice = {}) {
   const createdDeviceId = createdDevice.device_id ? String(createdDevice.device_id) : ''
+  const createdDeviceCode = createdDevice.device_code ? String(createdDevice.device_code) : ''
 
-  filters.deviceId = createdDeviceId
+  filters.deviceCode = createdDeviceCode
   filters.carNo = ''
   filters.deviceStatus = ''
   pagination.page = 1
 
   await router.push({
     name: 'devices',
-    query: createdDeviceId ? { device_id: createdDeviceId } : {}
+    query: createdDeviceCode ? { device_code: createdDeviceCode } : createdDeviceId ? { device_id: createdDeviceId } : {}
   })
   await fetchDevices()
 }
@@ -304,7 +301,7 @@ async function handleSearch() {
 
 async function handleReset() {
   operationMessage.value = ''
-  filters.deviceId = ''
+  filters.deviceCode = ''
   filters.carNo = ''
   filters.deviceStatus = ''
   pagination.page = 1
@@ -358,7 +355,7 @@ function handleSizeChange(nextSize) {
 }
 
 function syncStateFromRoute(query) {
-  filters.deviceId = normalizeQueryValue(query.device_id)
+  filters.deviceCode = normalizeQueryValue(query.device_code || query.device_id)
   filters.carNo = normalizeQueryValue(query.car_no)
   filters.deviceStatus = normalizeDeviceStatusQuery(query.device_status)
   pagination.page = toPositiveInteger(query.page, 1)
@@ -371,8 +368,8 @@ function buildApiParams() {
     size: pagination.size
   }
 
-  if (filters.deviceId.trim()) {
-    params.device_id = filters.deviceId.trim()
+  if (filters.deviceCode.trim()) {
+    params.device_code = filters.deviceCode.trim()
   }
 
   if (filters.carNo.trim()) {
@@ -391,8 +388,8 @@ function buildRouteQuery(overrides = {}) {
   const currentPage = overrides.page ?? pagination.page
   const currentSize = overrides.size ?? pagination.size
 
-  if (filters.deviceId.trim()) {
-    query.device_id = filters.deviceId.trim()
+  if (filters.deviceCode.trim()) {
+    query.device_code = filters.deviceCode.trim()
   }
 
   if (filters.carNo.trim()) {
@@ -420,7 +417,7 @@ function normalizeQueryValue(value) {
 
 function normalizeDeviceStatusQuery(value) {
   const normalizedValue = normalizeQueryValue(value)
-  return normalizedValue === '0' || normalizedValue === '1' ? normalizedValue : ''
+  return ['1', '2', '3', '4'].includes(normalizedValue) ? normalizedValue : ''
 }
 
 function toPositiveInteger(value, fallback) {

@@ -7,11 +7,11 @@ TIME_COL = "数据时间"
 LABEL_COL = "报警部位"
 TIME_FORMAT = "%Y%m%d%H%M%S"
 
-DEFAULT_WINDOW_SIZE = 30
-DEFAULT_STRIDE = 1
-DEFAULT_PREDICTION_HORIZON = 1
+DEFAULT_WINDOW_SIZE = 30 # 默认滑动窗口长度。
+DEFAULT_STRIDE = 1 # 默认滑动步长，每次向后移动一个记录
+DEFAULT_PREDICTION_HORIZON = 1 # 默认预测步长，预测窗口之后第 1 个时间点
 
-# 排除特征列表
+# 这些字段可以被CSV读取层读取，也可以保存在原始数据或样本清单中，但不会作为模型输入特征
 MODEL_EXCLUDED_COLUMNS = [
     "报警部位",
     "报警部位.1",
@@ -27,7 +27,7 @@ MODEL_EXCLUDED_COLUMNS = [
     "常用制动速度",
 ]
 
-# 数值特征列（输入）
+# 数值特征列（输入），滑动窗口构造出来的X，主要由这些列组成
 NUMERIC_FEATURE_COLUMNS = [
     "速度",
     "里程",
@@ -56,7 +56,8 @@ NUMERIC_FEATURE_COLUMNS = [
     "湿度",
 ]
 
-# 元信息(存储但不输入模型的特征)
+# 元信息(虽然不进模型，但要跟着样本保存下来的字段)
+# 这些字段构建保留清单，用于追踪样本来源、生成结果记录、展示页面信息或写入manifest文件，但不会输入模型训练
 MANIFEST_METADATA_COLUMNS = [
     "ATP类型",
     "车号",

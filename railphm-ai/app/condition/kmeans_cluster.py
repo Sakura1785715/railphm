@@ -14,11 +14,9 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
-
+# K-means 配置类
 @dataclass
 class ConditionClusterConfig:
-    """K-means 工况聚类配置。"""
-
     n_clusters: int = 3
     seed: int = 42
     max_iter: int = 300
@@ -41,35 +39,34 @@ class ConditionClusterConfig:
         if not isinstance(self.auto_label, bool):
             raise ValueError("auto_label 必须为 bool")
 
-
+# 聚类结果对象
 @dataclass
 class ConditionClusterResult:
-    """K-means 工况聚类结果。"""
-
-    condition_ids: np.ndarray
-    condition_labels: list[str]
-    condition_label_mapping: dict[int, str]
-    cluster_centers: np.ndarray
+    condition_ids: np.ndarray # 每个样本对应的聚类编号
+    condition_labels: list[str] # 每个样本对应的工况名称。 例如：["高速巡航", "高速巡航", "出站加速", "进站减速", ...]
+    condition_label_mapping: dict[int, str] # 聚类编号到工况名称的映射
+    cluster_centers: np.ndarray # 聚类中心
     cluster_centers_original_scale: np.ndarray
-    feature_names: list[str]
-    summary: dict
+    feature_names: list[str] # 工况统计特征名称，比如 speed_mean、speed_delta
+    summary: dict # 聚类摘要
     warnings: list[str]
 
 
 class ConditionKMeansClusterer:
     """基于工况统计特征执行 K-means 聚类。"""
-
+    # 如果某个簇在全量样本中占比小于 1%，就发出 warning
     LOW_CLUSTER_RATIO_THRESHOLD = 0.01
+    # 如果某个簇在训练集中样本数少于 2，也发出 warning
     MIN_TRAIN_SAMPLES_PER_CLUSTER = 2
 
     def fit_predict(
         self,
-        feature_matrix: np.ndarray,
-        feature_names: list[str],
-        train_indices: np.ndarray,
-        val_indices: np.ndarray | None = None,
-        test_indices: np.ndarray | None = None,
-        config: ConditionClusterConfig | None = None,
+        feature_matrix: np.ndarray, # 提取出来的二维工况特征矩阵，shape = [num_samples, condition_feature_dim]
+        feature_names: list[str], # feature_matrix 每一列的名称。
+        train_indices: np.ndarray, # 训练集样本索引，K-means 用这些样本拟合
+        val_indices: np.ndarray | None = None, # 验证集索引，可选。不参与拟合，只用于 summary 统计
+        test_indices: np.ndarray | None = None, # 测试集索引，可选。不参与拟合，只用于 summary 统计
+        config: ConditionClusterConfig | None = None, # K-means 配置
     ) -> ConditionClusterResult:
         """
         只使用训练集样本拟合 StandardScaler 和 KMeans，并对全量样本预测工况 ID。
@@ -106,28 +103,31 @@ class ConditionKMeansClusterer:
 
         warnings: list[str] = []
 
+        # 取训练集工况特征
         train_features = feature_matrix[train_indices].astype(np.float32, copy=False)
-
+        # 用训练集拟合 StandardScaler，标准化
         scaler = StandardScaler()
         train_scaled = scaler.fit_transform(train_features).astype(np.float32, copy=False)
-
+        # 创建 sklearn 的 KMeans 模型
         kmeans = KMeans(
             n_clusters=config.n_clusters,
             random_state=config.seed,
             max_iter=config.max_iter,
             n_init=config.n_init,
         )
+        # 用训练集拟合 KMeans
         kmeans.fit(train_scaled)
-
+        # 对全量样本做相同标准化
         full_scaled = scaler.transform(feature_matrix).astype(np.float32, copy=False)
+        # 对全量样本预测工况编号
         condition_ids = kmeans.predict(full_scaled).astype(np.int64, copy=False)
-
+        # 取出 K-means 聚类中心
         cluster_centers = kmeans.cluster_centers_.astype(np.float32, copy=False)
         cluster_centers_original_scale = scaler.inverse_transform(cluster_centers).astype(
             np.float32,
             copy=False,
         )
-
+        # id映射工况名称
         condition_label_mapping = self._build_condition_label_mapping(
             feature_names=feature_names,
             cluster_centers_original_scale=cluster_centers_original_scale,

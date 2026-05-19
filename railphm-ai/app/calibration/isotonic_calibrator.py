@@ -4,6 +4,7 @@
 本文件实现 IsotonicRiskCalibrator，用于基于验证集 y_true 和模型原始
 概率 y_prob 拟合保序回归映射。该校准器只做概率后处理，不修改模型结构、
 不重训模型、不加载 best_model.pt，也不负责 MC-Dropout 不确定性估计。
+risk_raw  →  risk_score
 """
 
 from __future__ import annotations
@@ -19,27 +20,12 @@ from sklearn.isotonic import IsotonicRegression
 
 @dataclass
 class IsotonicRiskCalibrator:
-    """
-    保序回归风险概率校准器。
+    method: str = "isotonic_regression" # 校准方法名称
+    out_of_bounds: str = "clip" # IsotonicRegression 的参数：裁剪到训练的标准范围里
+    model: IsotonicRegression | None = None # 保序回归模型对象
+    is_fitted: bool = False # 表示校准器是否已经拟合完成
 
-    method:
-        校准方法名称，当前固定为 isotonic_regression。
-
-    out_of_bounds:
-        输入超出拟合区间时 IsotonicRegression 的处理策略，当前使用 clip。
-
-    model:
-        sklearn.isotonic.IsotonicRegression 实例。
-
-    is_fitted:
-        标识校准器是否已经完成拟合或从文件加载。
-    """
-
-    method: str = "isotonic_regression"
-    out_of_bounds: str = "clip"
-    model: IsotonicRegression | None = None
-    is_fitted: bool = False
-
+    # 拟合保序回归校准器
     def fit(self, y_true: Any, y_prob: Any) -> "IsotonicRiskCalibrator":
         """
         使用验证集真实标签和原始概率拟合保序回归校准器。

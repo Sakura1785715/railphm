@@ -1,15 +1,22 @@
+"""
+ATP原始segment CSV读取层。
+当前路径：/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/仿真数据/atp_segments_v1
+"""
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
+
+# 用于读取 CSV、处理表格数据、解析时间列
 import pandas as pd
+
 from app.dataset.feature_config import TIME_COL, TIME_FORMAT
 
-
+# SegmentData是一个数据容器类，用来保存某个CSV片段读取后的结果
 @dataclass
 class SegmentData:
     """
     单个 ATP segment CSV 的读取结果。
-    - df 保留完整 CSV 字段，不在读取层删列；
+    - df保留完整CSV字段，不在读取层删列；
     - parsed_time 与 df 行索引一一对应；
     - is_time_continuous 只表示原始行顺序下是否严格 1 秒递增。
     """
@@ -24,6 +31,7 @@ class SegmentData:
     is_time_continuous: bool  # 核心标记：这个片段的时间是否严格按 1 秒递增
 
 
+# 负责读取 CSV 文件的工具类
 class SegmentLoader:
     """
     ATP segment 文件读取器。
@@ -31,17 +39,11 @@ class SegmentLoader:
     2. 自动处理常见中文 CSV 编码；
     3. 解析“数据时间”；
     4. 检查原始行顺序是否严格 1 秒递增。
-    没有做：
-    - 特征选择；
-    - 缺失值填充；
-    - 归一化；
-    - 窗口构造；
-    - 标签生成。
     """
 
     ENCODINGS = ("utf-8-sig", "utf-8", "gb18030", "gbk")
 
-    # 读取csv文件
+    # 读取单个csv文件
     def load_segment(self, file_path: Path) -> SegmentData:
         file_path = Path(file_path)
 
@@ -51,7 +53,7 @@ class SegmentLoader:
         if not file_path.is_file():
             raise ValueError(f"segment 路径不是文件: {file_path}")
 
-        df = self._read_csv_with_fallback(file_path) # 调用内部方法读取CSV为DataFrame
+        df = self._read_csv_with_fallback(file_path) # 调用内部方法读取CSV，返回DataFrame
 
         if TIME_COL not in df.columns:
             raise ValueError(f"segment 文件缺少时间字段 {TIME_COL}: {file_path.name}")
@@ -77,7 +79,7 @@ class SegmentLoader:
             row_count=len(df),
             is_time_continuous=is_time_continuous,
         )
-    # 读取目录下所有csv文件，调用oad_segment生成SegmentData对象，返回一个生成器（迭代器）
+    # 读取目录下所有csv文件，调用load_segment生成SegmentData对象，返回一个生成器（迭代器）
     def iter_segments(self, segments_dir: Path) -> Iterator[SegmentData]:
         segments_dir = Path(segments_dir)
 
@@ -90,7 +92,7 @@ class SegmentLoader:
         for file_path in sorted(segments_dir.glob("segment_*.csv")):
             if not file_path.is_file():
                 continue
-
+            #yield返回， yield表示这个函数是生成器，不会一次性把所有CSV都读入内存，而是读一个返回一个
             yield self.load_segment(file_path)
 
     def _read_csv_with_fallback(self, file_path: Path) -> pd.DataFrame:

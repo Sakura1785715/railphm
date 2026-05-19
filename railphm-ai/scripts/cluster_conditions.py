@@ -2,9 +2,11 @@
 """
 K-means 工况划分命令行脚本。
 
-该脚本从已有窗口数据集目录中读取 X.npy、feature_columns.json 和数据划分索引，
-调用 app.condition 中的工况特征提取与 K-means 聚类核心模块，生成 condition_labels.npy、
-condition_manifest.csv、condition_summary.json 和 condition_model.pkl。
+从标准化后的窗口数据集里读取 X.npy、y.npy、feature_columns.json、window_manifest.csv 和 splits，
+提取每个窗口的工况统计特征，
+只用训练集样本拟合 K-means，
+再给全部样本预测 condition_id，
+最后生成 condition_labels.npy、condition_manifest.csv、condition_summary.json、condition_model.pkl。
 """
 
 from __future__ import annotations
@@ -29,13 +31,13 @@ from app.condition import ConditionClusterConfig, ConditionFeatureExtractor, Con
 
 
 OUTPUT_FILENAMES = [
-    "condition_labels.npy",
-    "condition_manifest.csv",
-    "condition_summary.json",
-    "condition_model.pkl",
+    "condition_labels.npy", # 每个窗口样本对应的工况编号，shape = [num_samples]
+    "condition_manifest.csv", # 每个窗口样本的工况追溯表，包括 sample_id、segment_id、时间、label、condition_id、condition_label、工况统计特征等
+    "condition_summary.json", # 工况聚类摘要，包括每类工况样本数、训练/验证/测试分布、正样本比例、聚类中心解释等
+    "condition_model.pkl", # 保存工况聚类相关模型信息，例如聚类配置、工况特征名、标签映射、聚类中心、summary
 ]
 
-
+# 定义命令行参数
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Cluster RailPHM window samples into operating conditions by K-means."
@@ -53,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# 检查输入数据集目录
 def validate_dataset_dir(dataset_dir: Path) -> None:
     if not dataset_dir.exists():
         raise FileNotFoundError(f"数据集目录不存在: {dataset_dir}")
@@ -110,6 +113,7 @@ def save_json(path: Path, data: Any) -> None:
     )
 
 
+# 读取工况聚类需要的全部输入
 def load_dataset_inputs(dataset_dir: Path) -> dict[str, Any]:
     return {
         "X": np.load(dataset_dir / "X.npy", allow_pickle=False),
@@ -190,6 +194,7 @@ def _validate_split_indices(indices: np.ndarray, sample_count: int, name: str) -
     return normalized
 
 
+# 生成工况追溯表
 def build_condition_manifest(
     window_manifest: pd.DataFrame,
     condition_ids: np.ndarray,

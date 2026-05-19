@@ -63,21 +63,15 @@ export function getServiceStatusMeta(status) {
 }
 
 export function getDeviceStatusMeta(deviceStatus) {
-  if (deviceStatus === 1) {
-    return {
-      label: '在册运行',
-      tone: 'success'
-    }
+  const statusMap = {
+    1: { label: '正常', tone: 'success' },
+    2: { label: '关注', tone: 'warning' },
+    3: { label: '预警', tone: 'warning' },
+    4: { label: '告警', tone: 'danger' },
+    0: { label: '停用', tone: 'muted' }
   }
 
-  if (deviceStatus === 0) {
-    return {
-      label: '停用观察',
-      tone: 'warning'
-    }
-  }
-
-  return {
+  return statusMap[Number(deviceStatus)] || {
     label: '状态未知',
     tone: 'muted'
   }

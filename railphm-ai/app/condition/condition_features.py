@@ -1,3 +1,20 @@
+"""
+把三维窗口数据 X
+[num_samples, window_size, feature_dim]
+
+转换成二维工况统计特征矩阵
+[num_samples, condition_feature_dim]
+
+选取速度作为输入特征，根据速度计算统计了七个特征：
+speed_mean：窗口内所有速度值的平均值
+speed_std：窗口内速度值的标准差
+speed_min：窗口内最低速度
+speed_max：窗口内最高速度
+speed_delta：窗口首尾速度差
+speed_diff_mean：相邻速度变化均值
+speed_diff_std：相邻速度变化标准差
+进行工况划分
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,12 +22,15 @@ from dataclasses import dataclass
 import numpy as np
 
 
+
 @dataclass
 class ConditionFeatureResult:
-    """工况统计特征提取结果。"""
-
+    """工况统计特征提取结果"""
+    # 提取出来的工况统计特征矩阵,feature_matrix.shape = [sample_num, feature_dim]
     feature_matrix: np.ndarray
+    # 每一列工况特征的名称
     feature_names: list[str]
+    # 提取过程中的警告信息
     warnings: list[str]
 
 
@@ -21,16 +41,11 @@ class ConditionFeatureExtractor:
     输入 X 的形状为 [num_samples, window_size, feature_dim]，
     feature_columns 用于定位 X 第三维对应的原始字段。
     """
-
-    SPEED_COLUMN = "速度"
-
-    OPTIONAL_FEATURES = (
-        ("里程", "mileage_delta", "delta"),
-        ("运行距离", "run_distance_delta", "delta"),
-        ("室外温度", "temperature_mean", "mean"),
-        ("湿度", "humidity_mean", "mean"),
-    )
-
+    # 核心工况字段: 速度
+    SPEED_COLUMN = "速度"   
+    # 可选工况辅助字段（原始特征名，输出特征名，计算方式）
+    OPTIONAL_FEATURES = ()
+    # 禁止进入工况特征的字段
     FORBIDDEN_EXACT_COLUMNS = {
         "报警部位",
         "报警部位.1",
@@ -75,7 +90,8 @@ class ConditionFeatureExtractor:
         num_samples, window_size, _ = X.shape
         feature_parts: list[np.ndarray] = []
         feature_names: list[str] = []
-
+        # 每个窗口样本的30个速度值
+        # speed_values.shape = [325800, 30]
         speed_values = X[:, :, column_index[self.SPEED_COLUMN]].astype(np.float32, copy=False)
 
         self._append_feature(feature_parts, feature_names, "speed_mean", np.mean(speed_values, axis=1))
@@ -95,17 +111,18 @@ class ConditionFeatureExtractor:
             self._append_feature(feature_parts, feature_names, "speed_diff_mean", zero_values)
             self._append_feature(feature_parts, feature_names, "speed_diff_std", zero_values)
         else:
+            # 相邻时间点速度变化量
             speed_diff = np.diff(speed_values, axis=1)
             self._append_feature(
                 feature_parts,
                 feature_names,
                 "speed_diff_mean",
-                np.mean(speed_diff, axis=1),
+                np.mean(speed_diff, axis=1), # 窗口内平均每一步速度变化
             )
             self._append_feature(
                 feature_parts,
                 feature_names,
-                "speed_diff_std",
+                "speed_diff_std", # 窗口内每一步速度变化标准差
                 np.std(speed_diff, axis=1),
             )
 
@@ -117,7 +134,7 @@ class ConditionFeatureExtractor:
             if self._is_forbidden_column(column_name):
                 warnings.append(f"检测到标签字段或泄露字段：{column_name}，已跳过 {output_name}")
                 continue
-
+            # values.shape = [num_samples, window_size]，取出窗口对应特征字段的值
             values = X[:, :, column_index[column_name]].astype(np.float32, copy=False)
 
             if method == "delta":

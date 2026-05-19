@@ -1,3 +1,10 @@
+"""
+WindowSampleRepository
+负责根据 sample_index 从 X.npy / y.npy 里取出一个窗口样本
+
+SequenceModelRuntime
+负责加载 Bi-LSTM+Attention 模型，并对这个窗口做预测
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +18,6 @@ from app.repository.window_sample_repository import WindowSampleRepository
 if TYPE_CHECKING:
     from app.runtime.model_loader import SequenceModelRuntime
 
-
 class InferRepository:
     """
     推理结果访问层。
@@ -20,6 +26,7 @@ class InferRepository:
     退回 mock fallback，避免开发环境服务完全不可用。
     """
 
+    # mock模拟预测结果
     _MOCK_PROFILE = {
         1: {
             "risk_score": 0.82,
@@ -38,12 +45,14 @@ class InferRepository:
         },
     }
 
+    # 类变量缓存：避免每次请求都重新加载模型
     _runtime: "SequenceModelRuntime | None" = None
     _window_repository: WindowSampleRepository | None = None
     _runtime_key: tuple[str, str] | None = None
     _window_repository_key: str | None = None
 
     @classmethod
+    # 外部推理入口
     def infer(cls, payload: dict[str, Any]) -> Dict[str, object]:
         try:
             return cls._infer_with_runtime(payload)
@@ -56,22 +65,40 @@ class InferRepository:
 
     @classmethod
     def _infer_with_runtime(cls, payload: dict[str, Any]) -> Dict[str, object]:
-        runtime = cls._get_runtime()
-        window_repository = cls._get_window_repository()
+        runtime = cls._get_runtime() # 得到 SequenceModelRuntime
+        window_repository = cls._get_window_repository() # 获取窗口样本仓储
 
         sample_index = payload["sample_index"]
         mc_samples = payload["mc_samples"]
 
         sample = window_repository.get_window_by_sample_index(sample_index)
+        # 调用模型做预测以及不确定性推理
         prediction = runtime.predict_with_uncertainty(
             sample["window"],
             mc_samples=mc_samples,
         )
+        trace = sample.get("trace", {}) or {}
+
+        condition_id = sample.get("condition_id")
+        if condition_id is None or condition_id == "":
+            condition_id = trace.get("condition_id")
+        condition_label = (
+            sample.get("condition_label")
+            or trace.get("condition_label")
+            or trace.get("condition_name")
+            or trace.get("工况标签")
+        )
+
+        if not condition_label and condition_id is not None:
+            condition_label = f"condition_{condition_id}"
 
         prediction["sample_index"] = sample["sample_index"]
         prediction["y_true"] = sample["y_true"]
-        prediction["trace"] = sample.get("trace", {})
+        prediction["condition_id"] = condition_id
+        prediction["condition_label"] = condition_label
+        prediction["trace"] = trace
         prediction["data_source"] = "local_window_dataset"
+
         return prediction
 
     @classmethod
@@ -83,6 +110,7 @@ class InferRepository:
         runtime_key = (model_dir, str(device))
 
         if cls._runtime is None or cls._runtime_key != runtime_key:
+            # 加载模型
             cls._runtime = SequenceModelRuntime.from_model_dir(
                 model_dir=model_dir,
                 device=device,
