@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 from flask import current_app
@@ -6,6 +6,7 @@ from flask import current_app
 from app.clients import AIClient, AIResponseFormatError, AIServiceError
 from app.core.errors import BusinessException
 from app.repository.alert_repository import AlertRepository
+from app.repository.monitor_repository import MonitorRepository
 from app.repository.prediction_repository import PredictionRepository
 from app.schema.prediction_schema import PredictionSchema
 from app.service.alert_service import AlertService
@@ -222,6 +223,121 @@ class PredictionService:
         if value <= 0:
             raise BusinessException(code=400, message=f"{field_name} 必须为正整数", status_code=400)
         return value
+
+    @staticmethod
+    def _parse_optional_bool(value: Any, field_name: str, default: bool) -> bool:
+        if value is None or value == "":
+            return default
+        if isinstance(value, bool):
+            return value
+        raise BusinessException(code=400, message=f"{field_name} 必须为布尔值", status_code=400)
+
+    @staticmethod
+    def _parse_datetime_value(value: Any, field_name: str) -> datetime:
+        if not isinstance(value, str) or not value.strip():
+            raise BusinessException(
+                code=400,
+                message=f"{field_name} 时间格式非法，请使用 YYYY-MM-DD HH:mm:ss 格式",
+                status_code=400,
+            )
+        try:
+            return datetime.strptime(value.strip(), "%Y-%m-%d %H:%M:%S")
+        except ValueError as exc:
+            raise BusinessException(
+                code=400,
+                message=f"{field_name} 时间格式非法，请使用 YYYY-MM-DD HH:mm:ss 格式",
+                status_code=400,
+            ) from exc
+
+    @staticmethod
+    def _format_datetime_value(value: datetime) -> str:
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def _parse_range_request(request_data: Any) -> Dict[str, Any]:
+        if not isinstance(request_data, dict):
+            raise BusinessException(code=400, message="请求体必须为 JSON 对象", status_code=400)
+
+        device_code = request_data.get("device_code")
+        if not isinstance(device_code, str) or not device_code.strip():
+            raise BusinessException(code=400, message="device_code 必须为非空字符串", status_code=400)
+        device_code = device_code.strip()
+
+        end_dt = PredictionService._parse_datetime_value(request_data.get("end_time"), "end_time")
+        if request_data.get("start_time"):
+            start_dt = PredictionService._parse_datetime_value(request_data.get("start_time"), "start_time")
+            lookback_minutes = int((end_dt - start_dt).total_seconds() // 60)
+        else:
+            lookback_minutes = PredictionService._parse_optional_positive_int(
+                request_data.get("lookback_minutes"),
+                "lookback_minutes",
+                current_app.config.get("RANGE_INFER_DEFAULT_LOOKBACK_MINUTES", 60),
+            )
+            start_dt = end_dt - timedelta(minutes=lookback_minutes)
+
+        if start_dt >= end_dt:
+            raise BusinessException(code=400, message="start_time 必须早于 end_time", status_code=400)
+
+        max_lookback_minutes = current_app.config.get("RANGE_INFER_MAX_LOOKBACK_MINUTES", 180)
+        actual_lookback_minutes = int((end_dt - start_dt).total_seconds() // 60)
+        if actual_lookback_minutes > max_lookback_minutes:
+            raise BusinessException(
+                code=400,
+                message=f"lookback_minutes 不能超过 {max_lookback_minutes}",
+                status_code=400,
+            )
+
+        inference_stride_seconds = PredictionService._parse_optional_positive_int(
+            request_data.get("inference_stride_seconds"),
+            "inference_stride_seconds",
+            current_app.config.get("RANGE_INFER_DEFAULT_STRIDE_SECONDS", 60),
+        )
+        min_stride_seconds = current_app.config.get("RANGE_INFER_MIN_STRIDE_SECONDS", 10)
+        if inference_stride_seconds < min_stride_seconds:
+            raise BusinessException(
+                code=400,
+                message=f"inference_stride_seconds 不能小于 {min_stride_seconds}",
+                status_code=400,
+            )
+
+        total_candidate_points = int((end_dt - start_dt).total_seconds()) // inference_stride_seconds + 1
+        max_points = current_app.config.get("RANGE_INFER_MAX_POINTS", 200)
+        if total_candidate_points > max_points:
+            raise BusinessException(
+                code=400,
+                message=f"候选预测点不能超过 {max_points}",
+                status_code=400,
+            )
+
+        condition_label = request_data.get("condition_label")
+        if condition_label is not None and condition_label != "":
+            if not isinstance(condition_label, str):
+                raise BusinessException(code=400, message="condition_label 必须为字符串", status_code=400)
+            condition_label = condition_label.strip() or None
+        else:
+            condition_label = None
+
+        return {
+            "device_code": device_code,
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+            "start_time": PredictionService._format_datetime_value(start_dt),
+            "end_time": PredictionService._format_datetime_value(end_dt),
+            "lookback_minutes": actual_lookback_minutes,
+            "inference_stride_seconds": inference_stride_seconds,
+            "mc_samples": PredictionService._parse_optional_positive_int(
+                request_data.get("mc_samples"),
+                "mc_samples",
+                20,
+            ),
+            "persist": PredictionService._parse_optional_bool(
+                request_data.get("persist"),
+                "persist",
+                True,
+            ),
+            "condition_label": condition_label,
+            "total_candidate_points": total_candidate_points,
+        }
 
     @staticmethod
     def _parse_optional_non_negative_int(value: Any, field_name: str, default: int) -> int:
@@ -443,3 +559,233 @@ class PredictionService:
                 }
             )
         return PredictionSchema.dump_infer_result(record)
+
+    @staticmethod
+    def _build_monitor_query_limit(start_dt: datetime, end_dt: datetime) -> int:
+        configured_limit = int(current_app.config.get("MONITOR_QUERY_LIMIT", 5000))
+        expected_seconds = int((end_dt - start_dt).total_seconds()) + 10
+        return max(configured_limit, expected_seconds * 2)
+
+    @staticmethod
+    def _build_range_ai_payload(
+        validated_data: Dict[str, Any],
+        monitor_rows: list[dict[str, Any]],
+    ) -> Dict[str, Any]:
+        return {
+            "device_id": PredictionService._build_ai_device_id(validated_data["device_code"]),
+            "device_code": validated_data["device_code"],
+            "start_time": validated_data["start_time"],
+            "end_time": validated_data["end_time"],
+            "inference_stride_seconds": validated_data["inference_stride_seconds"],
+            "mc_samples": validated_data["mc_samples"],
+            "monitor_rows": monitor_rows,
+        }
+
+    @staticmethod
+    def _normalize_range_ai_point(
+        ai_point: Dict[str, Any],
+        validated_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not isinstance(ai_point, dict):
+            raise AIResponseFormatError("AI 区间推理结果点格式非法")
+
+        risk_score = PredictionService._parse_ai_float(
+            ai_point.get("risk_score"),
+            "risk_score",
+            required=True,
+        )
+        threshold = PredictionService._parse_ai_float(
+            ai_point.get("threshold"),
+            "threshold",
+            required=False,
+            default=current_app.config.get("AI_DEFAULT_THRESHOLD", 0.26),
+        )
+        predicted_label = ai_point.get("predicted_label")
+        if predicted_label is None or predicted_label == "":
+            predicted_label = int(risk_score >= threshold)
+        elif isinstance(predicted_label, bool) or not isinstance(predicted_label, int):
+            raise AIResponseFormatError("AI 区间推理服务返回 predicted_label 格式非法")
+
+        trace = ai_point.get("trace") if isinstance(ai_point.get("trace"), dict) else {}
+        model_version = ai_point.get("model_version") or "unknown"
+        trace = {
+            **trace,
+            "model_version": model_version,
+            "range_infer_persisted_by": "railphm-server",
+        }
+
+        return {
+            "device_id": None,
+            "device_code": validated_data["device_code"],
+            "sample_index": None,
+            "risk_raw": PredictionService._parse_ai_float(
+                ai_point.get("risk_raw"),
+                "risk_raw",
+                required=False,
+                default=risk_score,
+            ),
+            "risk_score": risk_score,
+            "risk_raw_std": PredictionService._parse_ai_float(
+                ai_point.get("risk_raw_std"),
+                "risk_raw_std",
+                required=False,
+                default=0.0,
+            ),
+            "risk_std": PredictionService._parse_ai_float(
+                ai_point.get("risk_std"),
+                "risk_std",
+                required=False,
+                default=0.0,
+            ),
+            "threshold": threshold,
+            "predicted_label": predicted_label,
+            "model_name": ai_point.get("model_name") or "unknown",
+            "model_version": model_version,
+            "calibration_enabled": bool(ai_point.get("calibration_enabled", False)),
+            "calibration_method": ai_point.get("calibration_method"),
+            "uncertainty_enabled": bool(ai_point.get("uncertainty_enabled", False)),
+            "uncertainty_method": ai_point.get("uncertainty_method"),
+            "mc_samples": ai_point.get("mc_samples", validated_data["mc_samples"]),
+            "condition_label": ai_point.get("condition_label"),
+            "trace": trace,
+            "window_start_time": ai_point.get("window_start_time"),
+            "window_end_time": ai_point.get("window_end_time"),
+            "ts_end": ai_point.get("time") or ai_point.get("window_end_time"),
+            "window_minutes": validated_data["lookback_minutes"],
+            "data_source": ai_point.get("data_source") or "influxdb_online_range",
+            "time": ai_point.get("time") or ai_point.get("window_end_time"),
+        }
+
+    @staticmethod
+    def range_infer(request_data: Any) -> Dict[str, Any]:
+        validated_data = PredictionService._parse_range_request(request_data)
+
+        context_seconds = int(current_app.config.get("RANGE_INFER_CONTEXT_SECONDS", 30))
+        monitor_query_start_dt = validated_data["start_dt"] - timedelta(seconds=context_seconds)
+        monitor_query_end_dt = validated_data["end_dt"] + timedelta(seconds=1)
+
+        monitor_rows = MonitorRepository.query_history_by_device_and_range(
+            device_code=validated_data["device_code"],
+            start_dt=monitor_query_start_dt,
+            end_dt=monitor_query_end_dt,
+            fields=list(MonitorRepository.FIELD_COLUMNS),
+            limit=PredictionService._build_monitor_query_limit(
+                monitor_query_start_dt,
+                monitor_query_end_dt,
+            ),
+            condition_label=validated_data["condition_label"],
+        )
+
+        if not monitor_rows:
+            raise BusinessException(
+                code=404,
+                message="指定设备和时间范围内未查询到监测数据",
+                status_code=404,
+            )
+
+        ai_payload = PredictionService._build_range_ai_payload(validated_data, monitor_rows)
+
+        try:
+            ai_data = AIClient().infer_range(ai_payload)
+        except AIResponseFormatError:
+            raise
+        except AIServiceError:
+            current_app.logger.warning("AI range infer failed")
+            raise
+
+        risk_series: list[Dict[str, Any]] = []
+        health_series: list[Dict[str, Any]] = []
+        saved_count = 0
+        skipped_existing_count = 0
+
+        for ai_point in ai_data.get("results", []):
+            record = PredictionService._normalize_range_ai_point(ai_point, validated_data)
+            record = PredictionService._attach_health_fields(record)
+
+            risk_result_id = None
+            persist_status = "not_persisted"
+
+            if validated_data["persist"]:
+                existing_record = PredictionRepository.get_existing_by_device_window(
+                    validated_data["device_code"],
+                    record.get("window_start_time"),
+                    record.get("window_end_time"),
+                )
+                if existing_record:
+                    skipped_existing_count += 1
+                    risk_result_id = existing_record.get("risk_result_id")
+                    persist_status = "skipped_existing"
+                else:
+                    saved_record = PredictionRepository.save_infer_result(record)
+                    saved_count += 1
+                    risk_result_id = saved_record.get("risk_result_id")
+                    record["device_id"] = saved_record.get("device_id")
+                    record["device_code"] = saved_record.get("device_code") or record["device_code"]
+                    persist_status = "saved"
+
+            record["risk_result_id"] = risk_result_id
+            record["persist_status"] = persist_status
+            record["trace"] = {
+                **(record.get("trace") or {}),
+                "persist_status": persist_status,
+                "risk_result_id": risk_result_id,
+            }
+
+            risk_point = {
+                "risk_result_id": record.get("risk_result_id"),
+                "time": record.get("time"),
+                "window_start_time": record.get("window_start_time"),
+                "window_end_time": record.get("window_end_time"),
+                "risk_raw": record.get("risk_raw"),
+                "risk_score": record.get("risk_score"),
+                "risk_raw_std": record.get("risk_raw_std"),
+                "risk_std": record.get("risk_std"),
+                "threshold": record.get("threshold"),
+                "predicted_label": record.get("predicted_label"),
+                "health_score": record.get("health_score"),
+                "health_level": record.get("health_level"),
+                "health_status": record.get("health_status"),
+                "health_description": record.get("health_description"),
+                "condition_label": record.get("condition_label"),
+                "persist_status": record.get("persist_status"),
+            }
+            risk_series.append(risk_point)
+            health_series.append(
+                {
+                    "time": record.get("time"),
+                    "health_score": record.get("health_score"),
+                    "health_level": record.get("health_level"),
+                    "health_status": record.get("health_status"),
+                }
+            )
+
+        response = {
+            "device_code": validated_data["device_code"],
+            "start_time": validated_data["start_time"],
+            "end_time": validated_data["end_time"],
+            "lookback_minutes": validated_data["lookback_minutes"],
+            "inference_stride_seconds": validated_data["inference_stride_seconds"],
+            "mc_samples": validated_data["mc_samples"],
+            "monitor_query_start_time": PredictionService._format_datetime_value(
+                monitor_query_start_dt
+            ),
+            "monitor_point_count": ai_data.get("monitor_point_count", len(monitor_rows)),
+            "total_candidate_points": ai_data.get(
+                "total_candidate_points",
+                validated_data["total_candidate_points"],
+            ),
+            "result_count": len(risk_series),
+            "saved_count": saved_count,
+            "skipped_existing_count": skipped_existing_count,
+            "skipped_window_count": ai_data.get("skipped_window_count", 0),
+            "model_name": ai_data.get("model_name"),
+            "model_version": ai_data.get("model_version"),
+            "calibration_enabled": ai_data.get("calibration_enabled"),
+            "calibration_method": ai_data.get("calibration_method"),
+            "uncertainty_enabled": ai_data.get("uncertainty_enabled"),
+            "uncertainty_method": ai_data.get("uncertainty_method"),
+            "risk_series": risk_series,
+            "health_series": health_series,
+            "skipped_windows": ai_data.get("skipped_windows", []),
+        }
+        return PredictionSchema.dump_range_infer_result(response)

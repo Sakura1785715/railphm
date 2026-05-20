@@ -104,3 +104,22 @@ def test_ai_client_timeout(monkeypatch):
         })
 
     assert exc_info.value.status_code == 504
+
+
+def test_ai_client_range_infer_requires_results_list(monkeypatch):
+    mock_ai_response(monkeypatch, {"code": 200, "message": "success", "data": {"results": []}})
+
+    result = AIClient(base_url="http://railphm-ai.test").infer_range({
+        "device_code": "ATP001",
+        "monitor_rows": [{"sample_time": "2026-05-18 09:00:00"}],
+    })
+
+    assert result["results"] == []
+
+    mock_ai_response(monkeypatch, {"code": 200, "message": "success", "data": {"risk_score": 0.3}})
+
+    with pytest.raises(AIResponseFormatError):
+        AIClient(base_url="http://railphm-ai.test").infer_range({
+            "device_code": "ATP001",
+            "monitor_rows": [{"sample_time": "2026-05-18 09:00:00"}],
+        })

@@ -20,3 +20,7 @@ export function getPredictionHistory(params = {}) {
 export function inferPrediction(payload = {}) {
   return http.post('/v1/predictions/infer', payload)
 }
+
+export function inferPredictionRange(payload = {}) {
+  return http.post('/v1/predictions/range-infer', payload)
+}

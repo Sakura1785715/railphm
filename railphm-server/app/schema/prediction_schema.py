@@ -56,6 +56,31 @@ class PredictionSchema:
         "data_source",
     )
 
+    RANGE_INFER_FIELDS = (
+        "device_code",
+        "start_time",
+        "end_time",
+        "lookback_minutes",
+        "inference_stride_seconds",
+        "mc_samples",
+        "monitor_query_start_time",
+        "monitor_point_count",
+        "total_candidate_points",
+        "result_count",
+        "saved_count",
+        "skipped_existing_count",
+        "skipped_window_count",
+        "model_name",
+        "model_version",
+        "calibration_enabled",
+        "calibration_method",
+        "uncertainty_enabled",
+        "uncertainty_method",
+        "risk_series",
+        "health_series",
+        "skipped_windows",
+    )
+
     @staticmethod
     def _get_raw_risk_score(record: Dict[str, Any]) -> Any:
         if "risk_score" in record:
@@ -155,3 +180,20 @@ class PredictionSchema:
             raise BusinessException(code=502, message="AI 推理服务返回缺少必要字段", status_code=502)
 
         return {field: record[field] for field in cls.INFER_FIELDS}
+
+    @classmethod
+    def dump_range_infer_result(cls, record: Dict[str, Any]) -> Dict[str, Any]:
+        """统一收口在线区间推理输出。"""
+        if not isinstance(record, dict):
+            raise BusinessException(code=502, message="AI 区间推理服务返回数据格式非法", status_code=502)
+
+        missing_fields = [field for field in cls.RANGE_INFER_FIELDS if field not in record]
+        if missing_fields:
+            raise BusinessException(code=502, message="区间推理结果缺少必要字段", status_code=502)
+
+        if not isinstance(record.get("risk_series"), list):
+            raise BusinessException(code=502, message="区间推理 risk_series 必须为列表", status_code=502)
+        if not isinstance(record.get("health_series"), list):
+            raise BusinessException(code=502, message="区间推理 health_series 必须为列表", status_code=502)
+
+        return {field: record[field] for field in cls.RANGE_INFER_FIELDS}

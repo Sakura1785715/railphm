@@ -203,6 +203,45 @@ class PredictionRepository:
         return cls._normalize_risk_record(record) if record else None
 
     @classmethod
+    def get_existing_by_device_window(
+        cls,
+        device_value: Any,
+        window_start_time: Any,
+        window_end_time: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """按设备编号和在线窗口起止时间做轻量幂等检查。"""
+        if not window_start_time or not window_end_time:
+            return None
+
+        resolved_device = cls._resolve_device(device_value)
+        device_filter_sql, device_params = cls._build_device_filter(resolved_device)
+
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {cls._RISK_RESULT_SELECT_FIELDS}
+                    FROM phm_risk_result
+                    WHERE {device_filter_sql}
+                      AND window_start_time = %s
+                      AND window_end_time = %s
+                    ORDER BY risk_result_id DESC
+                    LIMIT 1
+                    """,
+                    [
+                        *device_params,
+                        cls._normalize_datetime(window_start_time),
+                        cls._normalize_datetime(window_end_time),
+                    ],
+                )
+                record = cursor.fetchone()
+        finally:
+            connection.close()
+
+        return cls._normalize_risk_record(record) if record else None
+
+    @classmethod
     def _resolve_device(cls, device_value: Any) -> Dict[str, Any]:
         """
         将接口传入的设备编号或数字 ID 解析为数据库主键和标准设备编号。

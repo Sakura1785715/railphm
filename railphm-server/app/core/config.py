@@ -43,7 +43,11 @@ class BaseConfig:
 
     AI_SERVICE_BASE_URL: str = os.getenv("AI_SERVICE_BASE_URL", "http://127.0.0.1:5001")
     AI_INFER_PATH: str = os.getenv("AI_INFER_PATH", "/infer")
+    AI_RANGE_INFER_PATH: str = os.getenv("AI_RANGE_INFER_PATH", "/infer/range")
     AI_REQUEST_TIMEOUT_SECONDS: float = float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "5"))
+    AI_RANGE_REQUEST_TIMEOUT_SECONDS: float = float(
+        os.getenv("AI_RANGE_REQUEST_TIMEOUT_SECONDS", "120")
+    )
     AI_ENABLE_FALLBACK: bool = os.getenv("AI_ENABLE_FALLBACK", "false").strip().lower() in {
         "1",
         "true",
@@ -55,6 +59,21 @@ class BaseConfig:
     RISK_THRESHOLD_WARNING: float = float(os.getenv("RISK_THRESHOLD_WARNING", "0.58"))
     RISK_THRESHOLD_CRITICAL: float = float(os.getenv("RISK_THRESHOLD_CRITICAL", "0.8"))
     HEALTH_SCORE_DECIMALS: int = int(os.getenv("HEALTH_SCORE_DECIMALS", "2"))
+
+    RANGE_INFER_DEFAULT_LOOKBACK_MINUTES: int = int(
+        os.getenv("RANGE_INFER_DEFAULT_LOOKBACK_MINUTES", "60")
+    )
+    RANGE_INFER_MAX_LOOKBACK_MINUTES: int = int(
+        os.getenv("RANGE_INFER_MAX_LOOKBACK_MINUTES", "180")
+    )
+    RANGE_INFER_DEFAULT_STRIDE_SECONDS: int = int(
+        os.getenv("RANGE_INFER_DEFAULT_STRIDE_SECONDS", "60")
+    )
+    RANGE_INFER_MIN_STRIDE_SECONDS: int = int(
+        os.getenv("RANGE_INFER_MIN_STRIDE_SECONDS", "10")
+    )
+    RANGE_INFER_MAX_POINTS: int = int(os.getenv("RANGE_INFER_MAX_POINTS", "200"))
+    RANGE_INFER_CONTEXT_SECONDS: int = int(os.getenv("RANGE_INFER_CONTEXT_SECONDS", "30"))
 
     REALTIME_STREAM_ID: str = os.getenv("REALTIME_STREAM_ID", "default")
     REALTIME_DEFAULT_DEVICE_ID: str = os.getenv("REALTIME_DEFAULT_DEVICE_ID", "ATP001")

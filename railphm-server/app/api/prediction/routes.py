@@ -31,3 +31,14 @@ def infer_prediction():
     payload = request.get_json(silent=True)
     data = PredictionService.infer_prediction(payload)
     return success_response(data=data)
+
+
+@prediction_bp.route('/range-infer', methods=['POST'])
+def range_infer_prediction():
+    """
+    基于 InfluxDB 监测数据触发在线区间推理。
+    本阶段只返回风险/健康序列并按需落库，不生成告警。
+    """
+    payload = request.get_json(silent=True)
+    data = PredictionService.range_infer(payload)
+    return success_response(data=data)
