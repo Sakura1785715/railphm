@@ -79,6 +79,16 @@ class PredictionSchema:
         "risk_series",
         "health_series",
         "skipped_windows",
+        "generate_alert",
+        "alert_generation_skipped",
+        "alert_generation_skip_reason",
+        "alert_suppress_window_minutes",
+        "alert_count",
+        "existing_alert_count",
+        "suppressed_alert_count",
+        "alert_segment_count",
+        "alerts",
+        "alert_segments",
     )
 
     @staticmethod

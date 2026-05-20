@@ -1,9 +1,9 @@
 <template>
   <section class="dashboard-page">
     <PageHeader
-      title="系统首页"
+      title="高铁列控设备健康管理总览"
       eyebrow="系统首页"
-      description="集中展示设备状态、风险趋势、健康度分布、最新告警和重点关注设备。"
+      description="集中展示设备运行状态、风险趋势、健康度分布、最新告警和重点关注设备。"
       :meta="headerMetaText"
     >
       <template #actions>
@@ -38,18 +38,24 @@
 
     <section class="dashboard-overview-grid">
       <SectionCard
-        title="风险趋势"
-        description="使用 Dashboard 聚合接口返回的最近风险结果绘制。"
+        title="最近风险变化趋势"
+        description="按设备运行窗口时间展示最近风险分数。"
       >
         <MetricTrendChart
-          title="最近风险变化"
-          description="按时间升序展示最近风险分数，数值越高表示风险越高。"
+          v-if="loading || errorMessage || riskTrendPoints.length > 0"
+          title="风险趋势"
+          description="数值越高表示设备风险越高。"
           metric-name="风险分数"
           :points="riskTrendPoints"
           :tooltip-details="riskTrendTooltipDetails"
           :loading="loading"
           :error="errorMessage"
           height="340px"
+        />
+        <EmptyState
+          v-else
+          title="暂无风险趋势数据"
+          description="当前暂无风险趋势数据，请先在风险预测页生成区间风险结果。"
         />
       </SectionCard>
 
@@ -61,16 +67,16 @@
         <EmptyState
           v-else-if="!hasHealthDistribution"
           title="暂无健康度分布数据"
-          description="当前没有可用于统计健康度分布的设备数据。"
+          description="当前暂无设备健康度统计数据。"
         />
         <div v-else class="health-distribution">
           <article
             v-for="item in healthDistributionRows"
-            :key="item.level"
+            :key="item.key"
             class="health-distribution__row"
           >
             <div class="health-distribution__meta">
-              <span>{{ item.label }}</span>
+              <span>{{ displayText(item.label) }}</span>
               <strong>{{ item.count }}</strong>
             </div>
             <div class="health-distribution__bar" aria-hidden="true">
@@ -87,7 +93,7 @@
     <section class="dashboard-list-grid">
       <SectionCard
         title="最新告警"
-        description="展示 Dashboard 聚合接口返回的最近 5 条告警。"
+        description="展示最近 5 条真实告警记录。"
       >
         <template #headerActions>
           <RouterLink class="secondary-link" to="/alerts">进入告警中心</RouterLink>
@@ -97,7 +103,7 @@
         <EmptyState
           v-else-if="latestAlerts.length === 0"
           title="暂无告警记录"
-          description="当前没有可展示的告警记录。"
+          description="当前暂无告警记录。"
         />
         <ul v-else class="dashboard-alert-list">
           <li v-for="item in latestAlerts" :key="item.alert_id || item.alert_time" class="dashboard-alert-item">
@@ -109,11 +115,14 @@
                 :type="getAlertStatusTone(item.alert_status)"
                 size="small"
               />
-              <span>{{ formatDateTime(item.alert_time || item.created_at) }}</span>
+              <span>{{ formatDateTime(getAlertTime(item)) }}</span>
             </div>
-            <strong>{{ displayText(item.device_code) }} {{ item.device_name ? `/ ${item.device_name}` : '' }}</strong>
+            <strong>{{ displayText(getDeviceCode(item)) }} {{ item.device_name ? `/ ${item.device_name}` : '' }}</strong>
             <p>{{ displayText(item.alert_message) }}</p>
-            <small>风险分数 {{ formatPercent(item.risk_score, 2) }}</small>
+            <div class="dashboard-alert-item__metrics">
+              <small>风险 {{ formatPercent(item.risk_score, 2) }}</small>
+              <small>健康度 {{ formatScore(item.health_score, 2) }}</small>
+            </div>
           </li>
         </ul>
       </SectionCard>
@@ -130,7 +139,7 @@
         <EmptyState
           v-else-if="keyDevices.length === 0"
           title="暂无重点设备"
-          description="当前没有可用于排序的最新风险设备。"
+          description="当前暂无需要重点关注的设备。"
         />
         <div v-else class="table-shell dashboard-table-shell">
           <table class="status-table dashboard-table">
@@ -148,7 +157,7 @@
             </thead>
             <tbody>
               <tr v-for="item in keyDevices" :key="item.device_code || item.device_id">
-                <td class="dashboard-mono">{{ displayText(item.device_code || item.device_id) }}</td>
+                <td class="dashboard-mono">{{ displayText(getDeviceCode(item)) }}</td>
                 <td>{{ displayText(item.device_name) }}</td>
                 <td>
                   <StatusTag
@@ -158,10 +167,10 @@
                     size="small"
                   />
                 </td>
-                <td>{{ formatPercent(item.risk_score, 2) }}</td>
-                <td>{{ formatScore(item.health_score, 2) }}</td>
-                <td>{{ formatAlertLevel(item.alert_level) }}</td>
-                <td>{{ formatDateTime(item.window_end_time || item.updated_at) }}</td>
+                <td class="dashboard-number-cell">{{ formatPercent(item.risk_score, 2) }}</td>
+                <td class="dashboard-number-cell">{{ formatScore(item.health_score, 2) }}</td>
+                <td>{{ formatNullableAlertLevel(item.alert_level) }}</td>
+                <td>{{ formatDateTime(getDeviceWindowTime(item)) }}</td>
                 <td>
                   <RouterLink
                     v-if="item.device_id"
@@ -181,7 +190,7 @@
 
     <SectionCard
       title="快捷入口"
-      description="围绕设备台账、运行监测、风险预测和告警中心组织常用业务入口。"
+      description="演示路径入口：设备、监测、预测、告警。"
     >
       <div class="quick-link-grid">
         <QuickLinkCard
@@ -272,33 +281,33 @@ const overviewMetrics = computed(() => [
     key: 'device-total',
     label: '设备总数',
     value: kpi.value.device_total,
-    description: '纳入系统监测与管理的 ATP 设备总量',
-    trend: '数据来源：设备台账',
+    description: '纳入监测的列控设备',
+    trend: '设备台账',
     type: 'primary'
   },
   {
     key: 'normal-device',
     label: '正常设备',
     value: kpi.value.normal_device_count,
-    description: 'device_status 为 1 的设备数量',
-    trend: '由后端聚合统计',
+    description: '当前状态正常',
+    trend: '健康运行',
     type: 'success'
   },
   {
     key: 'warning-device',
     label: '预警/告警设备',
     value: kpi.value.warning_device_count,
-    description: 'device_status 为 3 或 4 的设备数量',
-    trend: '由后端聚合统计',
+    description: '需重点关注',
+    trend: '状态聚合',
     type: Number(kpi.value.warning_device_count) > 0 ? 'warning' : 'success'
   },
   {
     key: 'unhandled-alert',
     label: '未处理告警',
     value: kpi.value.unhandled_alert_count,
-    description: '未处理或处理中告警数量',
-    trend: '数据来源：告警记录',
-    type: Number(kpi.value.unhandled_alert_count) > 0 ? 'warning' : 'success'
+    description: '待运维处理',
+    trend: '告警记录',
+    type: Number(kpi.value.unhandled_alert_count) > 0 ? 'danger' : 'success'
   }
 ])
 
@@ -306,16 +315,16 @@ const riskTrend = computed(() => ensureArray(overview.value.risk_trend))
 const riskTrendPoints = computed(() =>
   riskTrend.value.map((item) => ({
     time: formatTrendTime(item.time || item.window_end_time || item.created_at),
-    value: toFiniteNumber(item.risk_score)
+    value: getRiskTrendValue(item)
   }))
 )
 const riskTrendTooltipDetails = computed(() =>
   riskTrend.value.map((item) => [
-    { label: '设备编号', value: displayText(item.device_code) },
-    { label: '风险分数', value: formatPercent(item.risk_score, 2) },
+    { label: '设备编号', value: displayText(getDeviceCode(item)) },
+    { label: '风险分数', value: formatPercent(getRiskTrendValue(item), 2) },
     { label: '健康度', value: formatScore(item.health_score, 2) },
     { label: '风险波动', value: formatPercent(item.risk_std, 2) },
-    { label: '窗口结束', value: formatDateTime(item.window_end_time) }
+    { label: '窗口结束', value: formatDateTime(item.window_end_time || item.time || item.created_at) }
   ])
 )
 
@@ -325,13 +334,16 @@ const healthDistributionTotal = computed(() =>
 )
 const hasHealthDistribution = computed(() => healthDistributionTotal.value > 0)
 const healthDistributionRows = computed(() =>
-  healthDistribution.value.map((item) => ({
+  healthDistribution.value.map((item, index) => ({
     ...item,
+    key: `${item.level || item.label || 'level'}-${index}`,
+    level: normalizeHealthLevel(item.level || item.health_level || item.health_status),
+    label: item.label || formatHealthLevelLabel(item.level || item.health_level || item.health_status),
     percent: healthDistributionTotal.value > 0 ? Math.round((Number(item.count || 0) / healthDistributionTotal.value) * 100) : 0
   }))
 )
 
-const latestAlerts = computed(() => ensureArray(overview.value.latest_alerts))
+const latestAlerts = computed(() => ensureArray(overview.value.latest_alerts).slice(0, 5))
 const keyDevices = computed(() => ensureArray(overview.value.key_devices))
 
 async function loadDashboard() {
@@ -375,6 +387,55 @@ function formatTrendTime(value) {
   return formatDateTime(value, '暂无').replace(/^(\d{4})-/, '').replace(' ', '\n')
 }
 
+function getRiskTrendValue(item) {
+  const riskScore = toFiniteNumber(item?.risk_score)
+  if (riskScore !== null) {
+    return riskScore
+  }
+
+  const averageRiskScore = toFiniteNumber(item?.avg_risk_score)
+  if (averageRiskScore !== null) {
+    return averageRiskScore
+  }
+
+  return toFiniteNumber(item?.max_risk_score)
+}
+
+function getDeviceCode(item) {
+  return item?.device_code || item?.device_id || ''
+}
+
+function getAlertTime(item) {
+  return item?.alert_time || item?.created_at || item?.updated_at || ''
+}
+
+function getDeviceWindowTime(item) {
+  return item?.window_end_time || item?.updated_at || ''
+}
+
+function formatNullableAlertLevel(value) {
+  return value ? formatAlertLevel(value) : '--'
+}
+
+function normalizeHealthLevel(value) {
+  const normalizedValue = String(value || '').trim().toLowerCase()
+  if (normalizedValue === 'healthy' || normalizedValue === 'good') return 'normal'
+  if (normalizedValue === 'critical' || normalizedValue === 'danger' || normalizedValue === 'alert') return 'critical'
+  return normalizedValue || 'normal'
+}
+
+function formatHealthLevelLabel(value) {
+  const normalizedValue = normalizeHealthLevel(value)
+  const labelMap = {
+    normal: '正常',
+    attention: '关注',
+    warning: '预警',
+    critical: '告警'
+  }
+
+  return labelMap[normalizedValue] || displayText(value)
+}
+
 function getAlertStatusTone(status) {
   const normalizedStatus = String(status || '').toLowerCase()
   if (normalizedStatus === 'resolved') return 'success'
@@ -416,25 +477,48 @@ onBeforeUnmount(() => {
   align-items: stretch;
 }
 
-.dashboard-overview-grid,
+.dashboard-stat-grid :deep(.stat-card) {
+  min-height: 178px;
+}
+
+.dashboard-stat-grid :deep(.stat-card__label) {
+  font-size: var(--font-size-sm);
+}
+
+.dashboard-stat-grid :deep(.stat-card__value) {
+  font-size: 2.65rem;
+  line-height: 1;
+}
+
+.dashboard-stat-grid :deep(.stat-card__desc) {
+  min-height: auto;
+}
+
+.dashboard-overview-grid {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
+  align-items: start;
+}
+
 .dashboard-list-grid {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.9fr);
+  grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.28fr);
   align-items: start;
 }
 
 .health-distribution {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .health-distribution__row {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--color-bg-soft);
 }
 
@@ -452,7 +536,7 @@ onBeforeUnmount(() => {
 
 .health-distribution__meta strong {
   color: var(--color-text-primary);
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-lg);
 }
 
 .health-distribution__bar {
@@ -483,6 +567,17 @@ onBeforeUnmount(() => {
   background: var(--color-danger);
 }
 
+.health-distribution__fill--danger,
+.health-distribution__fill--alert,
+.health-distribution__fill--fault {
+  background: var(--color-danger);
+}
+
+.health-distribution__fill--healthy,
+.health-distribution__fill--good {
+  background: var(--color-success);
+}
+
 .dashboard-table-shell {
   overflow-x: auto;
   border-radius: var(--radius-lg);
@@ -496,6 +591,11 @@ onBeforeUnmount(() => {
   color: var(--color-text-primary);
   font-family: var(--font-family-mono);
   font-weight: 700;
+}
+
+.dashboard-number-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .dashboard-alert-list {
@@ -512,7 +612,7 @@ onBeforeUnmount(() => {
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-soft);
+  background: linear-gradient(180deg, #ffffff 0%, var(--color-bg-soft) 100%);
 }
 
 .dashboard-alert-item__header {
@@ -536,11 +636,23 @@ onBeforeUnmount(() => {
 
 .dashboard-alert-item strong {
   color: var(--color-text-primary);
+  font-size: var(--font-size-md);
 }
 
-.dashboard-alert-item p,
-.dashboard-alert-item small {
+.dashboard-alert-item p {
   color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+.dashboard-alert-item__metrics {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.dashboard-alert-item__metrics small {
+  color: var(--color-text-secondary);
+  font-weight: 700;
   line-height: var(--line-height-relaxed);
 }
 
@@ -548,6 +660,10 @@ onBeforeUnmount(() => {
   display: grid;
   gap: var(--space-4);
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.quick-link-grid :deep(.quick-link-card) {
+  min-height: 148px;
 }
 
 @media (max-width: 1280px) {
@@ -564,6 +680,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .dashboard-stat-grid :deep(.stat-card__value) {
+    font-size: 2.25rem;
+  }
+
   .quick-link-grid {
     grid-template-columns: 1fr;
   }

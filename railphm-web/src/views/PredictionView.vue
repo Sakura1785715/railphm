@@ -3,101 +3,489 @@
     <div class="monitor-topbar">
       <div class="monitor-topbar__content">
         <p class="page-tag">风险预测</p>
-        <h2>设备故障风险趋势</h2>
+        <h2>设备故障风险预测</h2>
         <p class="page-description">
-          支持查询已持久化风险结果，并可基于 InfluxDB 监测数据触发区间滚动推理生成风险曲线。
+          基于 ATP 监测数据执行区间滚动推理，生成风险趋势、健康度趋势，并展示经过抑制后的告警结果。
         </p>
       </div>
 
       <div class="monitor-topbar__meta">
+        <span class="device-chip">当前设备 {{ displayText(rangeInferForm.deviceCode || currentDeviceDisplay) }}</span>
         <span :class="['status-pill', `status-pill--${statusTone}`]">{{ statusLabel }}</span>
         <span class="monitor-topbar__summary">{{ statusDescription }}</span>
       </div>
     </div>
 
-    <form class="monitor-filter-card" @submit.prevent="handleSearch">
-      <div class="monitor-filter-card__header">
-        <div>
-          <h3>历史结果查询</h3>
-          <p>按设备编号和时间范围查询服务端已持久化的风险结果，用于刷新历史趋势。</p>
+    <section class="prediction-main-grid">
+      <aside class="prediction-side-panel prediction-infer-card">
+        <div class="monitor-section__header prediction-side-panel__header">
+          <div>
+            <p class="section-tag">区间滚动推理</p>
+            <h3>推理参数</h3>
+          </div>
+          <p>模型窗口大小固定采用训练参数 30 个连续监测点；本页面仅控制回看范围和区间推理输出步长。</p>
         </div>
-      </div>
 
-      <div class="monitor-filter-grid prediction-filter-grid">
-        <label class="filter-field">
-          <span>设备编号</span>
-          <input v-model.trim="filters.deviceId" type="text" placeholder="ATP001" :disabled="queryLoading" />
-        </label>
+        <form class="prediction-infer-form" @submit.prevent="handleRangeInfer">
+          <div class="range-infer-grid">
+            <label class="filter-field">
+              <span>设备编号</span>
+              <input
+                v-model.trim="rangeInferForm.deviceCode"
+                type="text"
+                placeholder="ATP001"
+                :disabled="rangeInferLoading"
+              />
+            </label>
 
-        <label class="filter-field">
-          <span>开始时间</span>
-          <input
-            v-model.trim="filters.startTime"
-            type="text"
-            placeholder="2026-04-01 08:00:00"
-            :disabled="queryLoading"
-          />
-        </label>
+            <label class="filter-field">
+              <span>预测结束时间</span>
+              <input
+                v-model.trim="rangeInferForm.endTime"
+                type="text"
+                placeholder="2026-05-18 10:00:00"
+                :disabled="rangeInferLoading"
+              />
+            </label>
 
-        <label class="filter-field">
-          <span>结束时间</span>
-          <input
-            v-model.trim="filters.endTime"
-            type="text"
-            placeholder="2026-04-01 11:00:00"
-            :disabled="queryLoading"
-          />
-        </label>
-      </div>
+            <label class="filter-field">
+              <span>回看时长（分钟）</span>
+              <input
+                v-model.trim="rangeInferForm.lookbackMinutes"
+                type="text"
+                placeholder="60"
+                :disabled="rangeInferLoading"
+              />
+            </label>
 
-      <div class="action-bar monitor-filter-card__actions">
-        <button type="submit" class="primary-button" :disabled="queryLoading">
-          {{ queryLoading ? '查询中...' : '查询风险结果' }}
-        </button>
-        <button type="button" class="secondary-button" :disabled="queryLoading" @click="handleReset">
-          重置
-        </button>
-      </div>
-    </form>
+            <label class="filter-field">
+              <span>推理步长（秒）</span>
+              <input
+                v-model.trim="rangeInferForm.inferenceStrideSeconds"
+                type="text"
+                placeholder="60"
+                :disabled="rangeInferLoading"
+              />
+            </label>
 
-    <div v-if="validationMessage" class="state-panel error-state">
-      {{ validationMessage }}
-    </div>
+            <label class="filter-field">
+              <span>MC 采样次数</span>
+              <input
+                v-model.trim="rangeInferForm.mcSamples"
+                type="text"
+                placeholder="20"
+                :disabled="rangeInferLoading"
+              />
+            </label>
 
-    <div v-if="queryLoading && !hasPredictionData" class="state-panel loading-state">
-      正在加载风险预测数据...
-    </div>
+            <div class="range-option-row">
+              <div class="filter-field range-checkbox-field">
+                <span>保存风险结果</span>
+                <label class="checkbox-control">
+                  <input v-model="rangeInferForm.persist" type="checkbox" :disabled="rangeInferLoading" />
+                  <span>写入风险结果库</span>
+                </label>
+              </div>
 
-    <div v-if="queryErrorMessage" class="state-panel error-state">
-      风险预测数据加载失败：{{ queryErrorMessage }}
-    </div>
+              <div class="filter-field range-checkbox-field">
+                <span>生成告警</span>
+                <label class="checkbox-control">
+                  <input
+                    v-model="rangeInferForm.generateAlert"
+                    type="checkbox"
+                    :disabled="rangeInferLoading || !rangeInferForm.persist"
+                  />
+                  <span>生成告警</span>
+                </label>
+              </div>
+            </div>
 
-    <section class="monitor-section prediction-panel">
+            <p class="field-hint">
+              勾选生成告警后，系统会基于区间风险结果生成经过抑制的告警记录。
+            </p>
+            <p v-if="!rangeInferForm.persist" class="field-hint field-hint--warning">
+              生成告警需要保存风险结果，请先勾选保存结果。
+            </p>
+          </div>
+
+          <div class="action-bar prediction-infer-form__actions">
+            <button type="submit" class="primary-button" :disabled="rangeInferLoading">
+              {{ rangeInferLoading ? '推理中...' : '生成区间风险曲线' }}
+            </button>
+          </div>
+        </form>
+
+        <div v-if="rangeInferLoading" class="state-panel loading-state">
+          正在执行区间滚动推理，请稍候...
+        </div>
+
+        <div v-if="rangeInferError" class="state-panel error-state">
+          {{ rangeInferError }}
+        </div>
+      </aside>
+
+      <section class="prediction-infer-card prediction-overview-panel">
+        <div class="monitor-section__header">
+          <div>
+            <p class="section-tag">本次推理概览</p>
+            <h3>结论摘要</h3>
+          </div>
+          <p>{{ rangeInferResult ? '先看结论，再查看曲线、告警和明细。' : '尚未执行区间推理，请填写参数后生成风险曲线。' }}</p>
+        </div>
+
+        <div v-if="rangeInferSuccessMessage" class="state-panel success-state range-success-state">
+          <span>{{ rangeInferSuccessMessage }}</span>
+          <div class="range-success-actions">
+            <RouterLink
+              class="secondary-button range-success-link"
+              :to="{ name: 'alerts', query: { device_code: rangeInferResult?.device_code || rangeInferForm.deviceCode } }"
+            >
+              查看告警中心
+            </RouterLink>
+            <RouterLink class="secondary-button range-success-link" :to="{ name: 'home' }">
+              刷新 Dashboard
+            </RouterLink>
+          </div>
+        </div>
+
+        <div
+          v-if="!rangeInferLoading && !rangeInferError && !rangeInferResult"
+          class="state-panel empty-state prediction-empty-hero"
+        >
+          尚未执行区间推理。输入设备编号和时间范围后，系统将生成本次风险曲线、健康度曲线和告警抑制结果。
+        </div>
+
+        <div v-else-if="rangeInferResult" class="prediction-overview-content">
+          <article class="prediction-hero-card">
+            <div>
+              <span>最高风险分数</span>
+              <strong>{{ formatPercent(rangeMaxRiskPoint?.risk_score, 2) }}</strong>
+              <p>
+                发生于 {{ formatDateTime(getRangePointTime(rangeMaxRiskPoint)) }}，
+                最新健康度 {{ formatScore(rangeLatestRiskPoint?.health_score, 2) }}。
+              </p>
+            </div>
+            <span :class="['status-pill', `status-pill--${rangeHeroMeta.tone}`]">{{ rangeHeroMeta.label }}</span>
+          </article>
+
+          <div class="prediction-summary-grid">
+            <article v-for="card in rangeHeroCards" :key="card.key" class="monitor-overview-card">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+            </article>
+          </div>
+
+          <div class="prediction-mini-grid">
+            <article v-for="card in rangeSecondaryCards" :key="card.key" class="monitor-overview-card">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+            </article>
+          </div>
+
+          <div v-if="rangeResultEmptyMessage" class="state-panel empty-state">
+            {{ rangeResultEmptyMessage }}
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="monitor-section prediction-panel prediction-chart-section">
       <div class="monitor-section__header">
         <div>
-          <p class="section-tag">最新结果</p>
-          <h3>最新风险结果卡片</h3>
+          <p class="section-tag">趋势图</p>
+          <h3>本次风险趋势与健康度趋势</h3>
         </div>
-        <div class="latest-card-header-actions">
-          <p>当前展示最新一次已落库风险结果，默认折叠以突出区间推理主流程。</p>
-          <button
-            type="button"
-            class="secondary-button compact-toggle-button"
-            @click="showLatestCard = !showLatestCard"
-          >
-            {{ showLatestCard ? '收起最新结果' : '展开最新结果' }}
+        <p>风险和健康度曲线来自本次区间推理结果，横轴优先使用风险窗口结束时间。</p>
+      </div>
+
+      <div v-if="!rangeInferResult" class="state-panel empty-state">
+        执行区间推理后，这里会展示本次风险分数和健康度变化。
+      </div>
+
+      <div v-else class="range-chart-grid">
+        <MetricTrendChart
+          title="本次风险趋势"
+          description="展示本次区间推理生成的风险分数变化。"
+          metric-name="风险分数"
+          :points="rangeRiskTrendPoints"
+          :tooltip-details="rangeRiskTooltipDetails"
+          :loading="rangeInferLoading"
+          :error="rangeInferError"
+          height="330px"
+        />
+
+        <MetricTrendChart
+          title="本次健康度趋势"
+          description="展示风险结果映射后的设备健康度变化。"
+          metric-name="健康度"
+          unit=""
+          :points="rangeHealthTrendPoints"
+          :tooltip-details="rangeHealthTooltipDetails"
+          :loading="rangeInferLoading"
+          :error="rangeInferError"
+          height="330px"
+        />
+      </div>
+    </section>
+
+    <section class="monitor-section prediction-panel prediction-alert-section">
+      <div class="monitor-section__header">
+        <div>
+          <p class="section-tag">告警结果</p>
+          <h3>本次告警概览与抑制详情</h3>
+        </div>
+        <p>告警判断以后端返回为准；片段合并解释为什么异常点多于最终告警数量。</p>
+      </div>
+
+      <div v-if="!rangeInferResult" class="state-panel empty-state">
+        执行区间推理后，这里会展示告警统计、生成告警和异常片段抑制原因。
+      </div>
+
+      <div v-else class="prediction-alert-content">
+        <div class="prediction-alert-summary-grid">
+          <article v-for="card in rangeAlertSummaryCards" :key="card.key" class="monitor-overview-card">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+          </article>
+        </div>
+
+        <div class="range-detail-block range-alert-panel">
+          <div class="range-detail-header">
+            <div>
+              <h4>本次生成告警</h4>
+              <p>{{ rangeAlertGenerationMessage }}</p>
+            </div>
+          </div>
+
+          <div v-if="hasRangeAlerts" class="range-detail-table-wrap">
+            <table class="range-detail-table range-alert-table">
+              <thead>
+                <tr>
+                  <th>告警ID</th>
+                  <th>设备编号</th>
+                  <th>告警等级</th>
+                  <th>告警状态</th>
+                  <th>风险分数</th>
+                  <th>健康度</th>
+                  <th>告警时间</th>
+                  <th>告警信息</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in rangeAlertRows" :key="row.key" :title="displayText(row.alert_advice)">
+                  <td>{{ displayText(row.alert_id) }}</td>
+                  <td>{{ displayText(row.device_code) }}</td>
+                  <td>{{ formatAlertLevel(row.alert_level) }}</td>
+                  <td>{{ formatAlertStatus(row.alert_status_text || row.alert_status) }}</td>
+                  <td>{{ formatPercent(row.risk_score, 2) }}</td>
+                  <td>{{ formatScore(row.health_score, 2) }}</td>
+                  <td>{{ formatDateTime(row.alert_time) }}</td>
+                  <td class="range-table-message">{{ displayText(row.alert_message) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="state-panel empty-state">
+            本次区间推理未生成新的告警记录。
+          </div>
+        </div>
+
+        <div class="range-detail-block range-alert-panel">
+          <div class="range-detail-header">
+            <div>
+              <h4>异常片段与抑制详情</h4>
+              <p>{{ rangeAlertSegmentMessage }}</p>
+            </div>
+          </div>
+
+          <div v-if="hasRangeAlertSegments" class="range-detail-table-wrap">
+            <table class="range-detail-table range-alert-segment-table">
+              <thead>
+                <tr>
+                  <th>告警等级</th>
+                  <th>片段时间</th>
+                  <th>片段点数</th>
+                  <th>最高风险</th>
+                  <th>代表点时间</th>
+                  <th>是否抑制</th>
+                  <th>抑制原因</th>
+                  <th>告警ID / 已有告警ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in rangeAlertSegmentRows" :key="row.key">
+                  <td>{{ formatAlertLevel(row.alert_level) }}</td>
+                  <td>{{ formatDateTime(row.segment_start_time) }} ~ {{ formatDateTime(row.segment_end_time) }}</td>
+                  <td>{{ formatInteger(row.point_count) }}</td>
+                  <td>{{ formatPercent(row.max_risk_score, 2) }}</td>
+                  <td>{{ formatDateTime(row.representative_time) }}</td>
+                  <td>{{ formatSuppressedStatus(row.suppressed) }}</td>
+                  <td>{{ formatSuppressReason(row.suppress_reason) }}</td>
+                  <td>{{ displayText(row.alert_id || row.existing_alert_id) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="state-panel empty-state">
+            {{ rangeAlertSegmentEmptyMessage }}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="monitor-section prediction-panel prediction-detail-section">
+      <div class="monitor-section__header">
+        <div>
+          <p class="section-tag">明细</p>
+          <h3>推理结果明细</h3>
+        </div>
+        <p>默认展示前 100 条业务字段，技术字段收纳在高级详情中。</p>
+      </div>
+
+      <div v-if="!rangeInferResult" class="state-panel empty-state">
+        执行区间推理后，这里会展示风险点明细。
+      </div>
+
+      <template v-else>
+        <div class="range-detail-block">
+          <div class="range-detail-header">
+            <div>
+              <h4>风险点列表</h4>
+              <p v-if="rangeDetailOverflow">当前仅展示前 100 条，完整数据已用于曲线绘制。</p>
+            </div>
+          </div>
+
+          <div v-if="rangeDetailRows.length" class="range-detail-table-wrap">
+            <table class="range-detail-table range-risk-detail-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>风险分数</th>
+                  <th>风险标准差</th>
+                  <th>健康度</th>
+                  <th>健康等级</th>
+                  <th>预测标签</th>
+                  <th>工况标签</th>
+                  <th>窗口开始</th>
+                  <th>窗口结束</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in rangeDetailRows" :key="row.key">
+                  <td>{{ formatDateTime(row.time) }}</td>
+                  <td>{{ formatPercent(row.risk_score, 2) }}</td>
+                  <td>{{ formatPercent(row.risk_std, 2) }}</td>
+                  <td>{{ formatScore(row.health_score, 2) }}</td>
+                  <td>{{ displayText(row.health_level || row.health_status) }}</td>
+                  <td>{{ displayText(row.predicted_label) }}</td>
+                  <td>{{ displayText(row.condition_label) }}</td>
+                  <td>{{ formatDateTime(row.window_start_time) }}</td>
+                  <td>{{ formatDateTime(row.window_end_time) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="state-panel empty-state">
+            当前时间范围内未生成有效风险点，请检查监测数据连续性或调整结束时间。
+          </div>
+        </div>
+
+        <details class="prediction-advanced-panel">
+          <summary>高级详情：模型、校准、不确定性与 trace</summary>
+          <div class="prediction-detail-groups">
+            <div v-for="group in rangeAdvancedGroups" :key="group.title" class="prediction-detail-group">
+              <h4>{{ group.title }}</h4>
+              <dl class="prediction-detail-grid">
+                <div v-for="field in group.fields" :key="field.key">
+                  <dt>{{ field.label }}</dt>
+                  <dd>{{ field.value }}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </details>
+      </template>
+    </section>
+
+    <section class="monitor-section prediction-panel prediction-history-section">
+      <div class="monitor-section__header">
+        <div>
+          <p class="section-tag">历史查询</p>
+          <h3>历史风险结果查询</h3>
+        </div>
+        <p>用于查询已持久化风险结果，和本次区间推理结果相互独立。</p>
+      </div>
+
+      <form class="monitor-filter-card prediction-history-filter" @submit.prevent="handleSearch">
+        <div class="monitor-filter-grid prediction-filter-grid">
+          <label class="filter-field">
+            <span>设备编号</span>
+            <input v-model.trim="filters.deviceId" type="text" placeholder="ATP001" :disabled="queryLoading" />
+          </label>
+
+          <label class="filter-field">
+            <span>开始时间</span>
+            <input
+              v-model.trim="filters.startTime"
+              type="text"
+              placeholder="2026-04-01 08:00:00"
+              :disabled="queryLoading"
+            />
+          </label>
+
+          <label class="filter-field">
+            <span>结束时间</span>
+            <input
+              v-model.trim="filters.endTime"
+              type="text"
+              placeholder="2026-04-01 11:00:00"
+              :disabled="queryLoading"
+            />
+          </label>
+        </div>
+
+        <div class="action-bar monitor-filter-card__actions">
+          <button type="submit" class="primary-button" :disabled="queryLoading">
+            {{ queryLoading ? '查询中...' : '查询风险结果' }}
+          </button>
+          <button type="button" class="secondary-button" :disabled="queryLoading" @click="handleReset">
+            重置
           </button>
         </div>
+      </form>
+
+      <div v-if="validationMessage" class="state-panel error-state">
+        {{ validationMessage }}
+      </div>
+
+      <div v-if="queryLoading && !hasPredictionData" class="state-panel loading-state">
+        正在加载风险预测数据...
+      </div>
+
+      <div v-if="queryErrorMessage" class="state-panel error-state">
+        风险预测数据加载失败：{{ queryErrorMessage }}
+      </div>
+
+      <div v-if="historyEmptyMessage" class="state-panel empty-state">
+        {{ historyEmptyMessage }}
       </div>
 
       <div class="prediction-panel__meta">
         <span class="device-chip">设备编号 {{ currentDeviceDisplay }}</span>
         <span :class="['status-pill', `status-pill--${latestRiskMeta.tone}`]">{{ latestRiskMeta.label }}</span>
-        <span v-if="latestRecord && !showLatestCard" class="latest-compact-text">
+        <span v-if="latestRecord" class="latest-compact-text">
           最新风险 {{ formatPercent(latestRecord.risk_score, 2) }}，
           健康度 {{ formatScore(latestRecord.health_score, 2) }}，
           窗口结束 {{ formatDateTime(latestRecord.window_end_time || latestRecord.ts_end) }}
         </span>
+        <button
+          v-if="latestRecord"
+          type="button"
+          class="secondary-button compact-toggle-button"
+          @click="showLatestCard = !showLatestCard"
+        >
+          {{ showLatestCard ? '收起最新结果' : '展开最新结果' }}
+        </button>
       </div>
 
       <div
@@ -132,16 +520,8 @@
           <strong>{{ formatPercent(latestRecord.risk_std, 2) }}</strong>
         </article>
         <article class="monitor-overview-card">
-          <span>原始风险</span>
-          <strong>{{ formatPercent(latestRecord.risk_raw, 2) }}</strong>
-        </article>
-        <article class="monitor-overview-card">
           <span>工况标签</span>
           <strong>{{ displayText(latestRecord.condition_label) }}</strong>
-        </article>
-        <article class="monitor-overview-card">
-          <span>模型版本</span>
-          <strong>{{ displayText(latestRecord.model_version) }}</strong>
         </article>
         <article class="monitor-overview-card">
           <span>窗口开始时间</span>
@@ -152,353 +532,133 @@
           <strong>{{ displayText(latestRecord.window_end_time) }}</strong>
         </article>
       </div>
-    </section>
-
-    <div v-if="historyEmptyMessage" class="state-panel empty-state">
-      {{ historyEmptyMessage }}
-    </div>
-
-    <section class="monitor-section prediction-panel">
-      <div class="monitor-section__header">
-        <div>
-          <p class="section-tag">趋势图</p>
-          <h3>风险趋势与健康度趋势</h3>
-        </div>
-        <p>历史数据按时间升序绘制，横轴优先使用 `window_end_time`，仅展示后端已返回的历史结果。</p>
-      </div>
 
       <div class="prediction-chart-grid">
         <MetricTrendChart
-          title="风险趋势折线图"
+          title="历史风险趋势"
           description="展示指定设备在查询时间范围内的真实风险分数变化。"
           metric-name="风险分数"
           :points="riskTrendPoints"
           :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
           :error="queryErrors.history"
-          height="320px"
+          height="300px"
         />
 
         <MetricTrendChart
-          title="健康度趋势折线图"
-          description="展示指定设备在查询时间范围内的健康度变化，帮助观察状态稳定性。"
+          title="历史健康度趋势"
+          description="展示指定设备在查询时间范围内的健康度变化。"
           metric-name="健康度"
           unit=""
           :points="healthTrendPoints"
           :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
           :error="queryErrors.history"
-          height="320px"
+          height="300px"
         />
       </div>
     </section>
 
-    <section class="prediction-infer-card">
-      <div class="monitor-section__header">
-        <div>
-          <p class="section-tag">区间滚动推理</p>
-          <h3>生成区间风险曲线</h3>
+    <details class="prediction-infer-card prediction-debug-card">
+      <summary>高级调试：单点推理</summary>
+      <div class="prediction-debug-content">
+        <div class="monitor-section__header">
+          <div>
+            <p class="section-tag">高级调试</p>
+            <h3>单点推理调试</h3>
+          </div>
+          <p>保留原单点推理入口用于调试，本页主流程为区间滚动推理。</p>
         </div>
-        <p>模型窗口大小固定采用训练参数 30 个连续监测点，本页面仅控制展示范围和区间推理输出步长。</p>
-      </div>
 
-      <form class="prediction-infer-form" @submit.prevent="handleRangeInfer">
-        <div class="range-infer-grid">
-          <label class="filter-field">
-            <span>设备编号</span>
-            <input
-              v-model.trim="rangeInferForm.deviceCode"
-              type="text"
-              placeholder="ATP001"
-              :disabled="rangeInferLoading"
-            />
-          </label>
+        <form class="prediction-infer-form" @submit.prevent="handleInfer">
+          <div class="prediction-infer-grid">
+            <label class="filter-field">
+              <span>设备编号</span>
+              <input v-model.trim="inferForm.deviceId" type="text" placeholder="ATP001" :disabled="inferLoading" />
+            </label>
 
-          <label class="filter-field">
-            <span>预测结束时间</span>
-            <input
-              v-model.trim="rangeInferForm.endTime"
-              type="text"
-              placeholder="2026-05-18 10:00:00"
-              :disabled="rangeInferLoading"
-            />
-          </label>
+            <label class="filter-field">
+              <span>ts_end</span>
+              <input
+                v-model.trim="inferForm.tsEnd"
+                type="text"
+                placeholder="2026-05-18 10:05:00"
+                :disabled="inferLoading"
+              />
+            </label>
 
-          <label class="filter-field">
-            <span>回看时长（分钟）</span>
-            <input
-              v-model.trim="rangeInferForm.lookbackMinutes"
-              type="text"
-              placeholder="60"
-              :disabled="rangeInferLoading"
-            />
-          </label>
-
-          <label class="filter-field">
-            <span>推理步长（秒）</span>
-            <input
-              v-model.trim="rangeInferForm.inferenceStrideSeconds"
-              type="text"
-              placeholder="60"
-              :disabled="rangeInferLoading"
-            />
-          </label>
-
-          <label class="filter-field">
-            <span>MC 采样次数</span>
-            <input
-              v-model.trim="rangeInferForm.mcSamples"
-              type="text"
-              placeholder="20"
-              :disabled="rangeInferLoading"
-            />
-          </label>
-
-          <div class="filter-field range-checkbox-field">
-            <span>保存结果</span>
-            <label class="checkbox-control">
-              <input v-model="rangeInferForm.persist" type="checkbox" :disabled="rangeInferLoading" />
-              <span>写入风险结果库</span>
+            <label class="filter-field">
+              <span>window_minutes</span>
+              <input
+                v-model.trim="inferForm.windowMinutes"
+                type="text"
+                placeholder="5"
+                :disabled="inferLoading"
+              />
             </label>
           </div>
+
+          <div class="action-bar prediction-infer-form__actions">
+            <button type="submit" class="secondary-button" :disabled="inferLoading">
+              {{ inferLoading ? '推理中...' : '触发单点推理' }}
+            </button>
+          </div>
+        </form>
+
+        <div v-if="inferLoading" class="state-panel loading-state">
+          正在触发单点风险推理...
         </div>
 
-        <div class="action-bar prediction-infer-form__actions">
-          <button type="submit" class="primary-button" :disabled="rangeInferLoading">
-            {{ rangeInferLoading ? '推理中...' : '生成区间风险曲线' }}
-          </button>
-        </div>
-      </form>
-
-      <div v-if="rangeInferLoading" class="state-panel loading-state">
-        正在执行区间滚动推理，请稍候...
-      </div>
-
-      <div v-if="rangeInferError" class="state-panel error-state">
-        {{ rangeInferError }}
-      </div>
-
-      <div v-if="rangeInferSuccessMessage" class="state-panel success-state">
-        {{ rangeInferSuccessMessage }}
-      </div>
-
-      <div
-        v-if="!rangeInferLoading && !rangeInferError && !rangeInferResult"
-        class="state-panel empty-state"
-      >
-        当前尚未生成区间风险曲线。后端会查询 InfluxDB 监测数据并调用 AI 完成滚动推理。
-      </div>
-
-      <div v-else-if="rangeInferResult" class="prediction-infer-result">
-        <div class="range-summary-grid">
-          <article v-for="card in rangeSummaryCards" :key="card.key" class="monitor-overview-card">
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-          </article>
+        <div v-if="inferError" class="state-panel error-state">
+          {{ inferError }}
         </div>
 
-        <div v-if="rangeResultEmptyMessage" class="state-panel empty-state">
-          {{ rangeResultEmptyMessage }}
-        </div>
+        <div v-if="inferResult" class="prediction-infer-result">
+          <div class="prediction-panel__meta">
+            <span class="device-chip">设备编号 {{ displayText(inferResult.device_code || inferResult.device_id) }}</span>
+            <span :class="['status-pill', `status-pill--${inferAlertMeta.tone}`]">{{ inferAlertMeta.label }}</span>
+            <span class="status-pill status-pill--default">{{ displayText(inferResult.condition_label) }}</span>
+          </div>
 
-        <div class="range-chart-grid">
-          <MetricTrendChart
-            title="本次风险分数曲线"
-            description="来源于本次区间推理返回的 risk_series。"
-            metric-name="风险分数"
-            :points="rangeRiskTrendPoints"
-            :tooltip-details="rangeRiskTooltipDetails"
-            :loading="rangeInferLoading"
-            :error="rangeInferError"
-            height="300px"
-          />
+          <div class="monitor-overview-grid prediction-overview-grid">
+            <article class="monitor-overview-card">
+              <span>风险分数</span>
+              <strong>{{ formatPercent(inferResult.risk_score, 2) }}</strong>
+            </article>
+            <article class="monitor-overview-card">
+              <span>健康度</span>
+              <strong>{{ formatScore(inferResult.health_score, 2) }}</strong>
+            </article>
+            <article class="monitor-overview-card">
+              <span>健康等级</span>
+              <strong>{{ displayText(inferResult.health_level || inferResult.health_status) }}</strong>
+            </article>
+            <article class="monitor-overview-card">
+              <span>风险波动</span>
+              <strong>{{ formatPercent(inferResult.risk_std, 2) }}</strong>
+            </article>
+          </div>
 
-          <MetricTrendChart
-            title="本次健康度曲线"
-            description="优先使用本次区间推理返回的 health_series。"
-            metric-name="健康度"
-            unit=""
-            :points="rangeHealthTrendPoints"
-            :tooltip-details="rangeHealthTooltipDetails"
-            :loading="rangeInferLoading"
-            :error="rangeInferError"
-            height="300px"
-          />
-        </div>
-
-        <div v-if="rangeSkippedWindows.length" class="range-skipped-panel">
-          <strong>跳过窗口 {{ rangeSkippedWindows.length }} 个</strong>
-          <ul>
-            <li v-for="item in rangeSkippedPreview" :key="`${item.time}-${item.reason}`">
-              {{ displayText(item.time) }}：{{ displayText(item.reason) }}
-            </li>
-          </ul>
-        </div>
-
-        <div class="range-detail-block">
-          <div class="range-detail-header">
-            <div>
-              <h4>本次推理结果明细</h4>
-              <p v-if="rangeDetailOverflow">当前仅展示前 100 条，完整数据已用于曲线绘制。</p>
+          <div class="prediction-detail-groups">
+            <div v-for="group in inferDetailGroups" :key="group.title" class="prediction-detail-group">
+              <h4>{{ group.title }}</h4>
+              <dl class="prediction-detail-grid">
+                <div v-for="field in group.fields" :key="field.key">
+                  <dt>{{ field.label }}</dt>
+                  <dd>{{ field.value }}</dd>
+                </div>
+              </dl>
             </div>
           </div>
-
-          <div v-if="rangeDetailRows.length" class="range-detail-table-wrap">
-            <table class="range-detail-table">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>风险分数</th>
-                  <th>风险标准差</th>
-                  <th>原始风险</th>
-                  <th>阈值</th>
-                  <th>预测标签</th>
-                  <th>健康度</th>
-                  <th>健康等级</th>
-                  <th>工况标签</th>
-                  <th>窗口开始</th>
-                  <th>窗口结束</th>
-                  <th>风险结果ID</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in rangeDetailRows" :key="row.key">
-                  <td>{{ formatDateTime(row.time) }}</td>
-                  <td>{{ formatPercent(row.risk_score, 2) }}</td>
-                  <td>{{ formatPercent(row.risk_std, 2) }}</td>
-                  <td>{{ formatPercent(row.risk_raw, 2) }}</td>
-                  <td>{{ formatPercent(row.threshold, 2) }}</td>
-                  <td>{{ displayText(row.predicted_label) }}</td>
-                  <td>{{ formatScore(row.health_score, 2) }}</td>
-                  <td>{{ displayText(row.health_level || row.health_status) }}</td>
-                  <td>{{ displayText(row.condition_label) }}</td>
-                  <td>{{ formatDateTime(row.window_start_time) }}</td>
-                  <td>{{ formatDateTime(row.window_end_time) }}</td>
-                  <td>{{ displayText(row.risk_result_id) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div v-else class="state-panel empty-state">
-            当前时间范围内未生成有效风险点，请检查监测数据连续性或调整结束时间。
-          </div>
         </div>
       </div>
-    </section>
-
-    <section class="prediction-infer-card prediction-debug-card">
-      <div class="monitor-section__header">
-        <div>
-          <p class="section-tag">高级调试</p>
-          <h3>单点推理调试</h3>
-        </div>
-        <p>保留原单点推理入口用于调试，本页主功能为区间滚动推理。</p>
-      </div>
-
-      <form class="prediction-infer-form" @submit.prevent="handleInfer">
-        <div class="prediction-infer-grid">
-          <label class="filter-field">
-            <span>设备编号</span>
-            <input v-model.trim="inferForm.deviceId" type="text" placeholder="ATP001" :disabled="inferLoading" />
-          </label>
-
-          <label class="filter-field">
-            <span>ts_end</span>
-            <input
-              v-model.trim="inferForm.tsEnd"
-              type="text"
-              placeholder="2026-05-18 10:05:00"
-              :disabled="inferLoading"
-            />
-          </label>
-
-          <label class="filter-field">
-            <span>window_minutes</span>
-            <input
-              v-model.trim="inferForm.windowMinutes"
-              type="text"
-              placeholder="5"
-              :disabled="inferLoading"
-            />
-          </label>
-        </div>
-
-        <div class="action-bar prediction-infer-form__actions">
-          <button type="submit" class="secondary-button" :disabled="inferLoading">
-            {{ inferLoading ? '推理中...' : '触发单点推理' }}
-          </button>
-        </div>
-      </form>
-
-      <div v-if="inferLoading" class="state-panel loading-state">
-        正在触发单点风险推理...
-      </div>
-
-      <div v-if="inferError" class="state-panel error-state">
-        {{ inferError }}
-      </div>
-
-      <div v-if="inferResult" class="prediction-infer-result">
-        <div class="prediction-panel__meta">
-          <span class="device-chip">设备编号 {{ displayText(inferResult.device_code || inferResult.device_id) }}</span>
-          <span :class="['status-pill', `status-pill--${inferAlertMeta.tone}`]">{{ inferAlertMeta.label }}</span>
-          <span class="status-pill status-pill--default">{{ displayText(inferResult.condition_label) }}</span>
-        </div>
-
-        <div class="monitor-overview-grid prediction-overview-grid">
-          <article class="monitor-overview-card">
-            <span>风险分数</span>
-            <strong>{{ formatPercent(inferResult.risk_score, 2) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>健康度</span>
-            <strong>{{ formatScore(inferResult.health_score, 2) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>健康等级</span>
-            <strong>{{ displayText(inferResult.health_level || inferResult.health_status) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>风险波动</span>
-            <strong>{{ formatPercent(inferResult.risk_std, 2) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>模型名称</span>
-            <strong>{{ displayText(inferResult.model_name) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>模型版本</span>
-            <strong>{{ displayText(inferResult.model_version) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>窗口开始时间</span>
-            <strong>{{ displayText(inferResult.window_start_time) }}</strong>
-          </article>
-          <article class="monitor-overview-card">
-            <span>窗口结束时间</span>
-            <strong>{{ displayText(inferResult.window_end_time) }}</strong>
-          </article>
-        </div>
-
-        <div class="prediction-detail-groups">
-          <div v-for="group in inferDetailGroups" :key="group.title" class="prediction-detail-group">
-            <h4>{{ group.title }}</h4>
-            <dl class="prediction-detail-grid">
-              <div v-for="field in group.fields" :key="field.key">
-                <dt>{{ field.label }}</dt>
-                <dd>{{ field.value }}</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-      </div>
-    </section>
+    </details>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { MetricTrendChart } from '../components/chart'
 import {
   getLatestPrediction,
@@ -510,6 +670,7 @@ import { getRiskLevelMeta } from '../utils/dashboard'
 import {
   displayText,
   formatAlertLevel,
+  formatAlertStatus,
   formatBoolean,
   formatCalibrationMethod,
   formatDataSource,
@@ -540,7 +701,8 @@ const DEFAULT_RANGE_INFER_FORM = {
   lookbackMinutes: '60',
   inferenceStrideSeconds: '60',
   mcSamples: '20',
-  persist: true
+  persist: true,
+  generateAlert: true
 }
 
 const queryDeviceId = normalizeQueryDeviceId(route.query.device_code || route.query.device_id)
@@ -639,6 +801,14 @@ const rangeSkippedWindows = computed(() =>
   Array.isArray(rangeInferResult.value?.skipped_windows) ? rangeInferResult.value.skipped_windows : []
 )
 
+const rangeAlerts = computed(() =>
+  Array.isArray(rangeInferResult.value?.alerts) ? rangeInferResult.value.alerts : []
+)
+
+const rangeAlertSegments = computed(() =>
+  Array.isArray(rangeInferResult.value?.alert_segments) ? rangeInferResult.value.alert_segments : []
+)
+
 const rangeRiskTrendPoints = computed(() =>
   rangeRiskSeries.value.map((item) => ({
     time: getRangePointTime(item),
@@ -678,31 +848,123 @@ const rangeHealthTooltipDetails = computed(() => {
   })
 })
 
-const rangeSummaryCards = computed(() => {
+const rangeMaxRiskPoint = computed(() => {
+  if (!rangeRiskSeries.value.length) {
+    return null
+  }
+
+  return rangeRiskSeries.value.reduce((maxPoint, item) => {
+    const currentRisk = toFiniteNumber(item.risk_score)
+    const maxRisk = toFiniteNumber(maxPoint?.risk_score)
+    if (maxRisk === null) {
+      return item
+    }
+    if (currentRisk === null) {
+      return maxPoint
+    }
+    return currentRisk >= maxRisk ? item : maxPoint
+  }, null)
+})
+
+const rangeLatestRiskPoint = computed(() =>
+  rangeRiskSeries.value.length ? rangeRiskSeries.value[rangeRiskSeries.value.length - 1] : null
+)
+
+const rangeAverageHealthScore = computed(() => {
+  const values = rangeHealthTrendPoints.value
+    .map((item) => toFiniteNumber(item.value))
+    .filter((value) => value !== null)
+  if (!values.length) {
+    return null
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length
+})
+
+const rangeHeroMeta = computed(() => {
+  if (!rangeInferResult.value) {
+    return {
+      label: '等待区间推理',
+      tone: 'default'
+    }
+  }
+
+  if (toFiniteNumber(rangeInferResult.value.alert_count) > 0) {
+    return {
+      label: '已生成告警',
+      tone: 'danger'
+    }
+  }
+
+  if (toFiniteNumber(rangeInferResult.value.alert_segment_count) > 0) {
+    return {
+      label: '异常已抑制',
+      tone: 'warning'
+    }
+  }
+
+  return {
+    label: '未触发告警',
+    tone: 'success'
+  }
+})
+
+const rangeHeroCards = computed(() => {
   const result = rangeInferResult.value
   if (!result) {
     return []
   }
 
   return [
-    { key: 'device_code', label: '设备编号', value: displayText(result.device_code) },
-    { key: 'start_time', label: '开始时间', value: formatDateTime(result.start_time) },
-    { key: 'end_time', label: '结束时间', value: formatDateTime(result.end_time) },
-    { key: 'monitor_point_count', label: '查询监测点数', value: formatInteger(result.monitor_point_count) },
-    { key: 'total_candidate_points', label: '候选风险点', value: formatInteger(result.total_candidate_points) },
-    { key: 'result_count', label: '成功生成点', value: formatInteger(result.result_count) },
-    { key: 'saved_count', label: '保存数量', value: formatInteger(result.saved_count) },
-    { key: 'skipped_existing_count', label: '重复跳过', value: formatInteger(result.skipped_existing_count) },
-    { key: 'skipped_window_count', label: '数据不足跳过', value: formatInteger(result.skipped_window_count) },
-    { key: 'model_version', label: '模型版本', value: displayText(result.model_version) },
-    { key: 'calibration_method', label: '校准方法', value: formatCalibrationMethod(result.calibration_method) },
-    { key: 'uncertainty_method', label: '不确定性方法', value: formatUncertaintyMethod(result.uncertainty_method) }
+    { key: 'latest-health', label: '最新健康度', value: formatScore(rangeLatestRiskPoint.value?.health_score, 2) },
+    { key: 'avg-health', label: '平均健康度', value: formatScore(rangeAverageHealthScore.value, 2) },
+    { key: 'result-count', label: '生成风险点', value: formatInteger(result.result_count) },
+    { key: 'alert-count', label: '生成告警', value: formatInteger(result.alert_count) }
+  ]
+})
+
+const rangeSecondaryCards = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return []
+  }
+
+  return [
+    { key: 'saved-count', label: '保存结果', value: formatInteger(result.saved_count) },
+    { key: 'skipped-existing', label: '重复跳过', value: formatInteger(result.skipped_existing_count) },
+    { key: 'skipped-window', label: '数据不足跳过', value: formatInteger(result.skipped_window_count) },
+    { key: 'alert-segments', label: '异常片段', value: formatInteger(result.alert_segment_count) },
+    { key: 'suppressed-alerts', label: '抑制异常点', value: formatInteger(result.suppressed_alert_count) },
+    { key: 'suppress-window', label: '告警抑制窗口', value: formatMinutes(result.alert_suppress_window_minutes) }
   ]
 })
 
 const rangeDetailRows = computed(() => rangeRiskSeries.value.slice(0, 100))
 const rangeDetailOverflow = computed(() => rangeRiskSeries.value.length > 100)
 const rangeSkippedPreview = computed(() => rangeSkippedWindows.value.slice(0, 5))
+const rangeAlertRows = computed(() => rangeAlerts.value.map((item, index) => normalizeRangeAlert(item, index)))
+const rangeAlertSegmentRows = computed(() =>
+  rangeAlertSegments.value.map((item, index) => normalizeRangeAlertSegment(item, index))
+)
+const hasRangeAlerts = computed(() => rangeAlertRows.value.length > 0)
+const hasRangeAlertSegments = computed(() => rangeAlertSegmentRows.value.length > 0)
+
+const rangeAlertSummaryCards = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return []
+  }
+
+  return [
+    { key: 'generation-status', label: '告警生成状态', value: rangeAlertGenerationStatus.value },
+    { key: 'suppress-window', label: '告警抑制窗口', value: formatMinutes(result.alert_suppress_window_minutes) },
+    { key: 'segment-count', label: '异常片段数', value: formatInteger(result.alert_segment_count) },
+    { key: 'alert-count', label: '生成告警数', value: formatInteger(result.alert_count) },
+    { key: 'existing-alert-count', label: '已有告警命中数', value: formatInteger(result.existing_alert_count) },
+    { key: 'suppressed-alert-count', label: '抑制异常点数', value: formatInteger(result.suppressed_alert_count) }
+  ]
+})
+
 const rangeResultEmptyMessage = computed(() => {
   if (!rangeInferResult.value || rangeInferLoading.value || rangeInferError.value) {
     return ''
@@ -713,25 +975,138 @@ const rangeResultEmptyMessage = computed(() => {
     : ''
 })
 
+const rangeAlertGenerationStatus = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return displayText(null)
+  }
+
+  if (result.alert_generation_skipped === false) {
+    return '告警生成已执行'
+  }
+
+  const reason = result.alert_generation_skip_reason
+  if (reason === 'generate_alert_false') {
+    return '本次未启用告警生成'
+  }
+  if (reason === 'persist_false') {
+    return '本次未生成告警：未保存风险结果'
+  }
+
+  return reason ? `本次未生成告警：${reason}` : '本次未生成告警'
+})
+
+const rangeAlertGenerationMessage = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return ''
+  }
+
+  if (result.alert_generation_skipped) {
+    return rangeAlertGenerationStatus.value
+  }
+
+  return `本次识别异常片段 ${formatInteger(result.alert_segment_count)} 个，生成告警 ${formatInteger(result.alert_count)} 条，抑制异常点 ${formatInteger(result.suppressed_alert_count)} 个。`
+})
+
+const rangeAlertSegmentMessage = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return ''
+  }
+
+  if (hasRangeAlertSegments.value) {
+    return `告警抑制窗口 ${formatMinutes(result.alert_suppress_window_minutes)}，用于解释风险曲线上多个异常点为何合并为少量告警。`
+  }
+
+  return rangeAlertSegmentEmptyMessage.value
+})
+
+const rangeAlertSegmentEmptyMessage = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return '本次区间推理未识别到需要告警的异常片段。'
+  }
+
+  if (toFiniteNumber(result.result_count) > 0 && toFiniteNumber(result.alert_segment_count) === 0) {
+    return '本次风险点未达到告警触发条件。'
+  }
+
+  if (toFiniteNumber(result.alert_segment_count) > 0 && toFiniteNumber(result.alert_count) === 0) {
+    return '本次识别到异常片段，但由于抑制规则或缺少风险结果ID，未新增告警。'
+  }
+
+  return '本次区间推理未识别到需要告警的异常片段。'
+})
+
 const rangeInferSuccessMessage = computed(() => {
   const result = rangeInferResult.value
   if (!result || rangeInferLoading.value || rangeInferError.value) {
     return ''
   }
 
-  return `本次区间推理完成，共生成 ${formatInteger(result.result_count)} 个风险点，保存 ${formatInteger(result.saved_count)} 个，重复跳过 ${formatInteger(result.skipped_existing_count)} 个。`
+  const baseMessage = `本次区间推理完成，共生成 ${formatInteger(result.result_count)} 个风险点，保存 ${formatInteger(result.saved_count)} 个，重复跳过 ${formatInteger(result.skipped_existing_count)} 个。`
+  if (result.alert_generation_skipped) {
+    return `${baseMessage}${rangeAlertGenerationStatus.value}。`
+  }
+
+  return `${baseMessage}本次识别异常片段 ${formatInteger(result.alert_segment_count)} 个，生成告警 ${formatInteger(result.alert_count)} 条，抑制异常点 ${formatInteger(result.suppressed_alert_count)} 个。`
+})
+
+const rangeAdvancedGroups = computed(() => {
+  const result = rangeInferResult.value
+  if (!result) {
+    return []
+  }
+
+  const firstPoint = rangeRiskSeries.value[0] || {}
+  const latestPoint = rangeLatestRiskPoint.value || {}
+
+  return [
+    {
+      title: '模型与推理',
+      fields: [
+        { key: 'model_name', label: '模型名称', value: displayText(result.model_name) },
+        { key: 'model_version', label: '模型版本', value: displayText(result.model_version) },
+        { key: 'mc_samples', label: 'MC 采样次数', value: displayText(result.mc_samples) },
+        { key: 'uncertainty_method', label: '不确定性方法', value: formatUncertaintyMethod(result.uncertainty_method) },
+        { key: 'calibration_method', label: '校准方法', value: formatCalibrationMethod(result.calibration_method) },
+        { key: 'calibration_enabled', label: '启用校准', value: formatBoolean(result.calibration_enabled) }
+      ]
+    },
+    {
+      title: '区间与落库',
+      fields: [
+        { key: 'device_code', label: '设备编号', value: displayText(result.device_code) },
+        { key: 'start_time', label: '区间开始', value: formatDateTime(result.start_time) },
+        { key: 'end_time', label: '区间结束', value: formatDateTime(result.end_time) },
+        { key: 'monitor_point_count', label: '监测点数', value: formatInteger(result.monitor_point_count) },
+        { key: 'first_risk_result_id', label: '首个风险结果ID', value: displayText(firstPoint.risk_result_id) },
+        { key: 'latest_risk_result_id', label: '最新风险结果ID', value: displayText(latestPoint.risk_result_id) }
+      ]
+    },
+    {
+      title: '跳过窗口',
+      fields: [
+        { key: 'skipped_window_count', label: '数据不足跳过', value: formatInteger(result.skipped_window_count) },
+        { key: 'skipped_preview_1', label: '跳过示例 1', value: formatSkippedWindow(rangeSkippedPreview.value[0]) },
+        { key: 'skipped_preview_2', label: '跳过示例 2', value: formatSkippedWindow(rangeSkippedPreview.value[1]) },
+        { key: 'skipped_preview_3', label: '跳过示例 3', value: formatSkippedWindow(rangeSkippedPreview.value[2]) }
+      ]
+    }
+  ]
 })
 
 const statusTone = computed(() => {
-  if (queryLoading.value) {
+  if (rangeInferLoading.value || queryLoading.value) {
     return 'muted'
   }
 
-  if (validationMessage.value || queryErrors.latest || queryErrors.history) {
+  if (rangeInferError.value || validationMessage.value || queryErrors.latest || queryErrors.history) {
     return 'warning'
   }
 
-  if (hasPredictionData.value) {
+  if (rangeInferResult.value || hasPredictionData.value) {
     return 'success'
   }
 
@@ -739,24 +1114,36 @@ const statusTone = computed(() => {
 })
 
 const statusLabel = computed(() => {
-  if (queryLoading.value) {
-    return '风险数据加载中'
+  if (rangeInferLoading.value) {
+    return '区间推理中'
   }
 
-  if (validationMessage.value || queryErrors.latest || queryErrors.history) {
+  if (queryLoading.value) {
+    return '历史数据加载中'
+  }
+
+  if (rangeInferError.value || validationMessage.value || queryErrors.latest || queryErrors.history) {
     return '查询待处理'
   }
 
-  if (hasPredictionData.value) {
-    return '区间推理已接入'
+  if (rangeInferResult.value) {
+    return '区间推理已完成'
   }
 
-  return '区间推理已接入'
+  return '等待区间推理'
 })
 
 const statusDescription = computed(() => {
+  if (rangeInferLoading.value) {
+    return '正在生成本次风险曲线、健康度曲线和告警抑制结果'
+  }
+
+  if (rangeInferResult.value) {
+    return `最近一次生成 ${formatInteger(rangeInferResult.value.result_count)} 个风险点，告警 ${formatInteger(rangeInferResult.value.alert_count)} 条`
+  }
+
   if (queryLoading.value) {
-    return '正在请求 /api/v1/predictions/latest 与 /api/v1/predictions/history'
+    return '正在请求历史风险结果'
   }
 
   if (queryErrors.latest || queryErrors.history) {
@@ -767,11 +1154,7 @@ const statusDescription = computed(() => {
     return '请补齐设备编号与时间范围'
   }
 
-  if (hasPredictionData.value) {
-    return `当前设备 ${currentDeviceDisplay.value} 已返回 ${historyRecords.value.length} 个历史点位`
-  }
-
-  return '区间推理已接入，可按设备编号生成滚动风险曲线'
+  return '等待区间推理'
 })
 
 const inferAlertMeta = computed(() => {
@@ -859,6 +1242,15 @@ watch(
   (deviceId) => {
     inferForm.deviceId = deviceId || DEFAULT_FILTERS.deviceId
     rangeInferForm.deviceCode = deviceId || DEFAULT_FILTERS.deviceId
+  }
+)
+
+watch(
+  () => rangeInferForm.persist,
+  (persist) => {
+    if (!persist) {
+      rangeInferForm.generateAlert = false
+    }
   }
 )
 
@@ -1064,6 +1456,10 @@ function validateRangeInferForm() {
     return 'MC 采样次数必须为正整数'
   }
 
+  if (rangeInferForm.generateAlert && !rangeInferForm.persist) {
+    return '生成告警需要保存风险结果，请先勾选保存结果。'
+  }
+
   return ''
 }
 
@@ -1090,7 +1486,8 @@ function buildRangeInferPayload() {
     lookback_minutes: Number.parseInt(rangeInferForm.lookbackMinutes, 10),
     inference_stride_seconds: Number.parseInt(rangeInferForm.inferenceStrideSeconds, 10),
     mc_samples: Number.parseInt(rangeInferForm.mcSamples, 10),
-    persist: Boolean(rangeInferForm.persist)
+    persist: Boolean(rangeInferForm.persist),
+    generate_alert: Boolean(rangeInferForm.generateAlert)
   }
 }
 
@@ -1200,7 +1597,58 @@ function normalizeRangeInferResult(record) {
     uncertainty_method: record.uncertainty_method || '',
     risk_series: riskSeries,
     health_series: healthSeries,
-    skipped_windows: Array.isArray(record.skipped_windows) ? record.skipped_windows : []
+    skipped_windows: Array.isArray(record.skipped_windows) ? record.skipped_windows : [],
+    generate_alert: Boolean(record.generate_alert),
+    alert_generation_skipped: Boolean(record.alert_generation_skipped),
+    alert_generation_skip_reason: record.alert_generation_skip_reason || '',
+    alert_suppress_window_minutes: toFiniteNumber(record.alert_suppress_window_minutes),
+    alert_count: toFiniteNumber(record.alert_count),
+    existing_alert_count: toFiniteNumber(record.existing_alert_count),
+    suppressed_alert_count: toFiniteNumber(record.suppressed_alert_count),
+    alert_segment_count: toFiniteNumber(record.alert_segment_count),
+    alerts: Array.isArray(record.alerts) ? record.alerts : [],
+    alert_segments: Array.isArray(record.alert_segments) ? record.alert_segments : []
+  }
+}
+
+function normalizeRangeAlert(record, index) {
+  const source = record && typeof record === 'object' ? record : {}
+
+  return {
+    key: `${source.alert_id ?? 'alert'}-${source.risk_result_id ?? index}`,
+    alert_id: source.alert_id ?? null,
+    risk_result_id: source.risk_result_id ?? null,
+    device_code: source.device_code || '',
+    alert_level: source.alert_level || '',
+    alert_status: source.alert_status || '',
+    alert_status_text: source.alert_status_text || '',
+    risk_score: getRiskScore(source),
+    health_score: toFiniteNumber(source.health_score),
+    health_level: source.health_level || '',
+    health_status: source.health_status || '',
+    alert_time: source.alert_time || '',
+    alert_message: source.alert_message || source.message || '',
+    alert_advice: source.alert_advice || ''
+  }
+}
+
+function normalizeRangeAlertSegment(record, index) {
+  const source = record && typeof record === 'object' ? record : {}
+
+  return {
+    key: `${source.segment_start_time || 'segment'}-${source.alert_level || 'level'}-${index}`,
+    device_code: source.device_code || '',
+    alert_level: source.alert_level || '',
+    segment_start_time: source.segment_start_time || '',
+    segment_end_time: source.segment_end_time || '',
+    point_count: toFiniteNumber(source.point_count),
+    max_risk_score: toFiniteNumber(source.max_risk_score),
+    representative_time: source.representative_time || '',
+    representative_risk_result_id: source.representative_risk_result_id ?? null,
+    suppressed: Boolean(source.suppressed),
+    suppress_reason: source.suppress_reason || '',
+    alert_id: source.alert_id ?? null,
+    existing_alert_id: source.existing_alert_id ?? null
   }
 }
 
@@ -1288,6 +1736,37 @@ function formatInteger(value) {
   return numericValue === null ? displayText(null) : Math.trunc(numericValue).toLocaleString('zh-CN')
 }
 
+function formatMinutes(value) {
+  const numericValue = toFiniteNumber(value)
+  return numericValue === null ? '--' : `${Math.trunc(numericValue)} 分钟`
+}
+
+function formatSuppressReason(reason) {
+  const normalizedReason = reason === null || reason === undefined ? '' : String(reason).trim()
+  const reasonMap = {
+    same_device_level_active_alert_within_cooldown: '同设备同等级告警处于抑制窗口内',
+    missing_risk_result_id: '缺少风险结果ID，无法生成告警',
+    generate_alert_false: '未启用告警生成',
+    persist_false: '未保存风险结果',
+    risk_result_id_already_has_alert: '该风险结果已生成告警',
+    alert_create_skipped: '告警创建被跳过'
+  }
+
+  return reasonMap[normalizedReason] || displayText(normalizedReason)
+}
+
+function formatSuppressedStatus(value) {
+  return value ? '已抑制' : '已生成/未抑制'
+}
+
+function formatSkippedWindow(item) {
+  if (!item || typeof item !== 'object') {
+    return displayText(null)
+  }
+
+  return `${displayText(item.time)}：${displayText(item.reason)}`
+}
+
 function normalizeQueryDeviceId(value) {
   if (Array.isArray(value)) {
     return typeof value[0] === 'string' ? value[0].trim() : ''
@@ -1309,6 +1788,13 @@ function normalizeQueryDeviceId(value) {
   grid-template-columns: minmax(140px, 0.65fr) repeat(2, minmax(240px, 1fr));
 }
 
+.prediction-main-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr);
+  gap: var(--rail-gap-lg);
+  align-items: start;
+}
+
 .prediction-panel,
 .prediction-infer-card {
   padding: 22px;
@@ -1319,24 +1805,93 @@ function normalizeQueryDeviceId(value) {
   box-shadow: var(--rail-shadow-md);
 }
 
+.prediction-side-panel {
+  position: sticky;
+  top: 18px;
+  align-self: start;
+}
+
+.prediction-side-panel__header {
+  display: grid;
+  gap: 8px;
+}
+
+.prediction-side-panel__header p {
+  margin: 0;
+}
+
+.prediction-overview-panel,
+.prediction-chart-section,
+.prediction-alert-section,
+.prediction-detail-section,
+.prediction-history-section {
+  min-width: 0;
+}
+
+.prediction-overview-content,
+.prediction-alert-content {
+  display: grid;
+  gap: 18px;
+}
+
+.prediction-hero-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 20px;
+  border: 1px solid rgba(15, 108, 133, 0.18);
+  border-radius: var(--rail-radius-md);
+  background: linear-gradient(180deg, rgba(248, 252, 255, 0.92), rgba(255, 255, 255, 0.82));
+}
+
+.prediction-hero-card span {
+  color: var(--rail-text-muted);
+  font-weight: 760;
+}
+
+.prediction-hero-card strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--rail-text-strong);
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.prediction-hero-card p {
+  margin: 10px 0 0;
+  color: var(--rail-text-muted);
+  line-height: 1.6;
+}
+
+.prediction-summary-grid,
+.prediction-mini-grid,
+.prediction-alert-summary-grid {
+  display: grid;
+  gap: var(--rail-gap-md);
+}
+
+.prediction-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.prediction-mini-grid,
+.prediction-alert-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.prediction-empty-hero {
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
 .prediction-panel__meta {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.latest-card-header-actions {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-  text-align: right;
-}
-
-.latest-card-header-actions p {
-  max-width: 560px;
 }
 
 .compact-toggle-button {
@@ -1357,7 +1912,6 @@ function normalizeQueryDeviceId(value) {
 .prediction-chart-grid,
 .prediction-infer-grid,
 .range-infer-grid,
-.range-summary-grid,
 .range-chart-grid {
   display: grid;
   gap: var(--rail-gap-lg);
@@ -1372,8 +1926,15 @@ function normalizeQueryDeviceId(value) {
   grid-template-columns: minmax(150px, 0.75fr) minmax(250px, 1.15fr) repeat(4, minmax(130px, 0.65fr));
 }
 
-.range-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.prediction-side-panel .range-infer-grid {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.range-option-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .range-chart-grid {
@@ -1406,6 +1967,18 @@ function normalizeQueryDeviceId(value) {
   color: var(--rail-text-strong);
 }
 
+.field-hint {
+  margin: 6px 0 0;
+  color: var(--rail-text-muted);
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.field-hint--warning {
+  color: #b45309;
+}
+
 .prediction-infer-form {
   display: grid;
   gap: 18px;
@@ -1418,27 +1991,6 @@ function normalizeQueryDeviceId(value) {
 .prediction-infer-result {
   display: grid;
   gap: 18px;
-}
-
-.range-skipped-panel {
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid rgba(217, 119, 6, 0.28);
-  border-radius: var(--rail-radius-md);
-  background: rgba(255, 251, 235, 0.78);
-  color: var(--rail-text);
-}
-
-.range-skipped-panel strong {
-  color: var(--rail-text-strong);
-}
-
-.range-skipped-panel ul {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding-left: 20px;
 }
 
 .range-detail-block {
@@ -1503,14 +2055,109 @@ function normalizeQueryDeviceId(value) {
   color: var(--rail-text);
 }
 
+.range-alert-panel {
+  padding-top: 4px;
+}
+
+.range-alert-table {
+  min-width: 980px;
+}
+
+.range-alert-segment-table {
+  min-width: 1160px;
+}
+
+.range-risk-detail-table {
+  min-width: 1040px;
+}
+
+.range-table-message {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .success-state {
   border-color: rgba(22, 163, 74, 0.24);
   background: rgba(240, 253, 244, 0.8);
   color: #166534;
 }
 
+.range-success-state {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.range-success-actions {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.range-success-link {
+  min-height: 34px;
+  padding: 0 12px;
+  text-decoration: none;
+}
+
 .prediction-debug-card {
   background: rgba(255, 255, 255, 0.62);
+}
+
+.prediction-advanced-panel,
+.prediction-debug-card {
+  overflow: hidden;
+}
+
+.prediction-advanced-panel {
+  border: 1px solid var(--rail-border);
+  border-radius: var(--rail-radius-md);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.prediction-advanced-panel summary,
+.prediction-debug-card summary {
+  cursor: pointer;
+  color: var(--rail-text-strong);
+  font-weight: 780;
+  list-style-position: inside;
+}
+
+.prediction-advanced-panel summary {
+  padding: 15px 16px;
+}
+
+.prediction-advanced-panel[open] summary {
+  border-bottom: 1px solid var(--rail-border);
+}
+
+.prediction-advanced-panel .prediction-detail-groups {
+  padding: 16px;
+}
+
+.prediction-debug-card summary {
+  margin: -2px 0;
+}
+
+.prediction-debug-card[open] summary {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rail-border);
+}
+
+.prediction-debug-content {
+  display: grid;
+  gap: 18px;
+  padding-top: 16px;
+}
+
+.prediction-history-filter {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--rail-radius-md);
 }
 
 .prediction-detail-groups {
@@ -1564,9 +2211,19 @@ function normalizeQueryDeviceId(value) {
 }
 
 @media (max-width: 1180px) {
+  .prediction-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prediction-side-panel {
+    position: static;
+  }
+
   .prediction-overview-grid,
   .prediction-chart-grid,
-  .range-summary-grid,
+  .prediction-summary-grid,
+  .prediction-mini-grid,
+  .prediction-alert-summary-grid,
   .range-chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1587,20 +2244,29 @@ function normalizeQueryDeviceId(value) {
   .prediction-chart-grid,
   .prediction-infer-grid,
   .range-infer-grid,
-  .range-summary-grid,
+  .range-option-row,
+  .prediction-summary-grid,
+  .prediction-mini-grid,
+  .prediction-alert-summary-grid,
   .range-chart-grid,
   .prediction-detail-groups,
   .prediction-detail-grid {
     grid-template-columns: 1fr;
   }
 
+  .prediction-hero-card strong {
+    font-size: 2.35rem;
+  }
+
+  .prediction-hero-card,
+  .range-success-state {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .prediction-panel__meta {
     align-items: flex-start;
   }
 
-  .latest-card-header-actions {
-    justify-content: flex-start;
-    text-align: left;
-  }
 }
 </style>

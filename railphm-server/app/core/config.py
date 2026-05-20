@@ -74,6 +74,15 @@ class BaseConfig:
     )
     RANGE_INFER_MAX_POINTS: int = int(os.getenv("RANGE_INFER_MAX_POINTS", "200"))
     RANGE_INFER_CONTEXT_SECONDS: int = int(os.getenv("RANGE_INFER_CONTEXT_SECONDS", "30"))
+    ALERT_SUPPRESS_MIN_WINDOW_MINUTES: int = int(
+        os.getenv("ALERT_SUPPRESS_MIN_WINDOW_MINUTES", "15")
+    )
+    ALERT_SUPPRESS_MAX_WINDOW_MINUTES: int = int(
+        os.getenv("ALERT_SUPPRESS_MAX_WINDOW_MINUTES", "60")
+    )
+    ALERT_SUPPRESS_LOOKBACK_RATIO: float = float(
+        os.getenv("ALERT_SUPPRESS_LOOKBACK_RATIO", "0.5")
+    )
 
     REALTIME_STREAM_ID: str = os.getenv("REALTIME_STREAM_ID", "default")
     REALTIME_DEFAULT_DEVICE_ID: str = os.getenv("REALTIME_DEFAULT_DEVICE_ID", "ATP001")

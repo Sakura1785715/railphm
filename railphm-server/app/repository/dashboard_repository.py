@@ -43,7 +43,7 @@ class DashboardRepository:
 
     @classmethod
     def get_risk_trend(cls, limit: int = 30) -> List[Dict[str, Any]]:
-        """查询最近若干条真实风险结果，按时间升序返回。"""
+        """查询最近若干条真实风险结果，按设备运行窗口时间升序返回。"""
         normalized_limit = cls._normalize_limit(limit, 30)
         connection = get_connection()
         try:
@@ -64,6 +64,7 @@ class DashboardRepository:
                             health_status,
                             risk_std,
                             condition_label,
+                            ts_end,
                             window_end_time,
                             created_at,
                             COALESCE(window_end_time, ts_end, created_at) AS time,
@@ -90,7 +91,7 @@ class DashboardRepository:
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
                         d.device_id,
                         d.device_code,
@@ -98,18 +99,7 @@ class DashboardRepository:
                         latest_risk.health_level,
                         latest_risk.health_status
                     FROM phm_device AS d
-                    LEFT JOIN (
-                        SELECT r.*
-                        FROM phm_risk_result AS r
-                        INNER JOIN (
-                            SELECT
-                                COALESCE(device_code, CAST(device_id AS CHAR)) AS device_key,
-                                MAX(risk_result_id) AS max_risk_result_id
-                            FROM phm_risk_result
-                            GROUP BY COALESCE(device_code, CAST(device_id AS CHAR))
-                        ) AS latest
-                            ON latest.max_risk_result_id = r.risk_result_id
-                    ) AS latest_risk
+                    LEFT JOIN ({cls._latest_risk_sql()}) AS latest_risk
                         ON latest_risk.device_id = d.device_id
                         OR (
                             latest_risk.device_id IS NULL
@@ -146,7 +136,7 @@ class DashboardRepository:
                         COALESCE(a.risk_score, r.calibrated_risk_score) AS risk_score,
                         COALESCE(a.health_score, r.health_score) AS health_score,
                         COALESCE(a.health_level, r.health_level) AS health_level,
-                        a.health_status,
+                        COALESCE(a.health_status, r.health_status) AS health_status,
                         a.alert_time,
                         a.create_time AS created_at,
                         a.update_time AS updated_at
@@ -179,7 +169,7 @@ class DashboardRepository:
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
                         d.device_id,
                         COALESCE(d.device_code, latest_risk.device_code) AS device_code,
@@ -193,45 +183,23 @@ class DashboardRepository:
                         latest_risk.health_status,
                         latest_alert.alert_level,
                         latest_alert.alert_status,
-                        latest_risk.window_end_time,
-                        COALESCE(latest_risk.created_at, d.update_time, d.create_time) AS updated_at
-                    FROM (
-                        SELECT r.*
-                        FROM phm_risk_result AS r
-                        INNER JOIN (
-                            SELECT
-                                COALESCE(device_code, CAST(device_id AS CHAR)) AS device_key,
-                                MAX(risk_result_id) AS max_risk_result_id
-                            FROM phm_risk_result
-                            GROUP BY COALESCE(device_code, CAST(device_id AS CHAR))
-                        ) AS latest
-                            ON latest.max_risk_result_id = r.risk_result_id
-                    ) AS latest_risk
+                        COALESCE(latest_risk.window_end_time, latest_risk.ts_end, latest_risk.created_at) AS window_end_time,
+                        COALESCE(latest_risk.window_end_time, latest_risk.ts_end, latest_risk.created_at, d.update_time, d.create_time) AS updated_at
+                    FROM ({cls._latest_risk_sql()}) AS latest_risk
                     LEFT JOIN phm_device AS d
                         ON d.device_id = latest_risk.device_id
                         OR (
                             latest_risk.device_id IS NULL
                             AND d.device_code = latest_risk.device_code
                         )
-                    LEFT JOIN (
-                        SELECT a.*
-                        FROM phm_alert_record AS a
-                        INNER JOIN (
-                            SELECT
-                                COALESCE(device_code, CAST(device_id AS CHAR)) AS device_key,
-                                MAX(alert_id) AS max_alert_id
-                            FROM phm_alert_record
-                            GROUP BY COALESCE(device_code, CAST(device_id AS CHAR))
-                        ) AS latest
-                            ON latest.max_alert_id = a.alert_id
-                    ) AS latest_alert
+                    LEFT JOIN ({cls._latest_alert_sql()}) AS latest_alert
                         ON latest_alert.device_id = COALESCE(d.device_id, latest_risk.device_id)
                         OR (
                             latest_alert.device_id IS NULL
                             AND latest_alert.device_code = COALESCE(d.device_code, latest_risk.device_code)
                         )
                     ORDER BY latest_risk.calibrated_risk_score DESC,
-                             COALESCE(latest_risk.window_end_time, latest_risk.created_at) DESC
+                             COALESCE(latest_risk.window_end_time, latest_risk.ts_end, latest_risk.created_at) DESC
                     LIMIT %s
                     """,
                     (normalized_limit,),
@@ -241,6 +209,50 @@ class DashboardRepository:
             connection.close()
 
         return list(rows or [])
+
+    @staticmethod
+    def _latest_risk_sql() -> str:
+        return """
+            SELECT r.*
+            FROM phm_risk_result AS r
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM phm_risk_result AS newer
+                WHERE COALESCE(newer.device_code, CAST(newer.device_id AS CHAR)) =
+                      COALESCE(r.device_code, CAST(r.device_id AS CHAR))
+                  AND (
+                      COALESCE(newer.window_end_time, newer.ts_end, newer.created_at) >
+                      COALESCE(r.window_end_time, r.ts_end, r.created_at)
+                      OR (
+                          COALESCE(newer.window_end_time, newer.ts_end, newer.created_at) =
+                          COALESCE(r.window_end_time, r.ts_end, r.created_at)
+                          AND newer.risk_result_id > r.risk_result_id
+                      )
+                  )
+            )
+        """
+
+    @staticmethod
+    def _latest_alert_sql() -> str:
+        return """
+            SELECT a.*
+            FROM phm_alert_record AS a
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM phm_alert_record AS newer
+                WHERE COALESCE(newer.device_code, CAST(newer.device_id AS CHAR)) =
+                      COALESCE(a.device_code, CAST(a.device_id AS CHAR))
+                  AND (
+                      COALESCE(newer.alert_time, newer.create_time, newer.update_time) >
+                      COALESCE(a.alert_time, a.create_time, a.update_time)
+                      OR (
+                          COALESCE(newer.alert_time, newer.create_time, newer.update_time) =
+                          COALESCE(a.alert_time, a.create_time, a.update_time)
+                          AND newer.alert_id > a.alert_id
+                      )
+                  )
+            )
+        """
 
     @staticmethod
     def _normalize_limit(value: Any, default: int) -> int:

@@ -1,6 +1,6 @@
 # app/service/alert_service.py
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 from app.core.errors import BusinessException
@@ -41,11 +41,17 @@ class AlertService:
         risk_threshold_normal: float = RISK_THRESHOLD_NORMAL,
         risk_threshold_warning: float = RISK_THRESHOLD_WARNING,
         risk_threshold_critical: float = RISK_THRESHOLD_CRITICAL,
+        suppress_min_window_minutes: int = 15,
+        suppress_max_window_minutes: int = 60,
+        suppress_lookback_ratio: float = 0.5,
         logger: logging.Logger | None = None,
     ):
         self.risk_threshold_normal = float(risk_threshold_normal)
         self.risk_threshold_warning = float(risk_threshold_warning)
         self.risk_threshold_critical = float(risk_threshold_critical)
+        self.suppress_min_window_minutes = int(suppress_min_window_minutes)
+        self.suppress_max_window_minutes = int(suppress_max_window_minutes)
+        self.suppress_lookback_ratio = float(suppress_lookback_ratio)
         self.logger = logger or logging.getLogger(__name__)
 
     def evaluate(
@@ -108,6 +114,364 @@ class AlertService:
             "alert_message": ALERT_MESSAGE_HIGH,
             "alert_advice": ALERT_ADVICE_HIGH,
         }
+
+    def generate_range_alerts(
+        self,
+        prediction_records: list[Dict[str, Any]],
+        lookback_minutes: int | None = None,
+        range_start_time: Any = None,
+        range_end_time: Any = None,
+        inference_stride_seconds: int = 60,
+    ) -> Dict[str, Any]:
+        """为区间推理结果生成片段级告警，并按同设备同等级活跃告警做冷却抑制。"""
+        effective_window_minutes = self._calculate_suppress_window_minutes(
+            lookback_minutes=lookback_minutes,
+            range_start_time=range_start_time,
+            range_end_time=range_end_time,
+        )
+        evaluated_records = self._evaluate_prediction_records(prediction_records or [])
+        alert_segments = self._build_alert_segments(
+            evaluated_records,
+            inference_stride_seconds=inference_stride_seconds,
+        )
+
+        alerts: list[Dict[str, Any]] = []
+        new_alert_count = 0
+        existing_alert_count = 0
+        total_abnormal_points = sum(len(segment["points"]) for segment in alert_segments)
+        segment_summaries: list[Dict[str, Any]] = []
+
+        for segment in alert_segments:
+            summary = self._build_segment_summary(segment)
+            representative = self._select_representative_point(segment["points"])
+
+            if representative is None or not representative.get("risk_result_id"):
+                summary.update(
+                    {
+                        "representative_time": self._format_datetime(
+                            self._get_record_time(representative or {})
+                        ),
+                        "representative_risk_result_id": None,
+                        "suppressed": True,
+                        "suppress_reason": "missing_risk_result_id",
+                    }
+                )
+                segment_summaries.append(summary)
+                continue
+
+            representative_time = self._get_record_time(representative)
+            representative_record = dict(representative)
+            representative_record.update(
+                {
+                    "alert_generated": True,
+                    "alert_level": segment["alert_level"],
+                }
+            )
+
+            summary.update(
+                {
+                    "representative_time": self._format_datetime(representative_time),
+                    "representative_risk_result_id": representative_record.get("risk_result_id"),
+                }
+            )
+
+            existing_by_risk_id = AlertRepository.get_by_risk_result_id(
+                int(representative_record["risk_result_id"])
+            )
+            if existing_by_risk_id:
+                existing_alert_count += 1
+                alerts.append({**existing_by_risk_id, "existing": True})
+                summary.update(
+                    {
+                        "suppressed": True,
+                        "suppress_reason": "risk_result_id_already_has_alert",
+                        "alert_id": None,
+                        "existing_alert_id": existing_by_risk_id.get("alert_id"),
+                    }
+                )
+                segment_summaries.append(summary)
+                continue
+
+            recent_alert = self._find_recent_active_alert(
+                representative_record=representative_record,
+                representative_time=representative_time,
+                suppress_window_minutes=effective_window_minutes,
+            )
+            if recent_alert:
+                existing_alert_count += 1
+                alerts.append({**recent_alert, "existing": True})
+                summary.update(
+                    {
+                        "suppressed": True,
+                        "suppress_reason": "same_device_level_active_alert_within_cooldown",
+                        "alert_id": None,
+                        "existing_alert_id": recent_alert.get("alert_id"),
+                    }
+                )
+                segment_summaries.append(summary)
+                continue
+
+            alert_record = AlertRepository.create_from_prediction(representative_record)
+            if alert_record:
+                new_alert_count += 1
+                alerts.append({**alert_record, "existing": False})
+                summary.update(
+                    {
+                        "suppressed": False,
+                        "suppress_reason": "",
+                        "alert_id": alert_record.get("alert_id"),
+                        "existing_alert_id": None,
+                    }
+                )
+            else:
+                summary.update(
+                    {
+                        "suppressed": True,
+                        "suppress_reason": "alert_create_skipped",
+                        "alert_id": None,
+                        "existing_alert_id": None,
+                    }
+                )
+            segment_summaries.append(summary)
+
+        return {
+            "generate_alert": True,
+            "alert_suppress_window_minutes": effective_window_minutes,
+            "alert_count": new_alert_count,
+            "existing_alert_count": existing_alert_count,
+            "suppressed_alert_count": max(total_abnormal_points - new_alert_count, 0),
+            "alert_segment_count": len(alert_segments),
+            "alerts": alerts,
+            "alert_segments": segment_summaries,
+        }
+
+    def build_empty_range_alert_summary(
+        self,
+        generate_alert: bool,
+        skip_reason: str,
+        lookback_minutes: int | None = None,
+        range_start_time: Any = None,
+        range_end_time: Any = None,
+    ) -> Dict[str, Any]:
+        """构造未生成区间告警时的稳定返回结构。"""
+        return {
+            "generate_alert": generate_alert,
+            "alert_generation_skipped": True,
+            "alert_generation_skip_reason": skip_reason,
+            "alert_suppress_window_minutes": self._calculate_suppress_window_minutes(
+                lookback_minutes=lookback_minutes,
+                range_start_time=range_start_time,
+                range_end_time=range_end_time,
+            ),
+            "alert_count": 0,
+            "existing_alert_count": 0,
+            "suppressed_alert_count": 0,
+            "alert_segment_count": 0,
+            "alerts": [],
+            "alert_segments": [],
+        }
+
+    def _evaluate_prediction_records(
+        self,
+        prediction_records: list[Dict[str, Any]],
+    ) -> list[Dict[str, Any]]:
+        evaluated_records: list[Dict[str, Any]] = []
+        for record in prediction_records:
+            alert_result = self.evaluate(
+                risk_score=record.get("risk_score"),
+                health_score=record.get("health_score"),
+                health_level=record.get("health_level"),
+                predicted_label=record.get("predicted_label"),
+            )
+            evaluated_records.append({**record, **alert_result})
+        return evaluated_records
+
+    def _build_alert_segments(
+        self,
+        evaluated_records: list[Dict[str, Any]],
+        inference_stride_seconds: int,
+    ) -> list[Dict[str, Any]]:
+        ordered_records = list(evaluated_records)
+        if ordered_records and all(self._get_record_time(record) for record in ordered_records):
+            ordered_records.sort(key=lambda record: self._get_record_time(record) or datetime.min)
+
+        segments: list[Dict[str, Any]] = []
+        current_points: list[Dict[str, Any]] = []
+        current_level: str | None = None
+        previous_alert_time: datetime | None = None
+        max_gap_seconds = max(
+            float(inference_stride_seconds) * 1.5,
+            float(inference_stride_seconds) + 5.0,
+        )
+
+        for record in ordered_records:
+            if not record.get("alert_generated"):
+                if current_points:
+                    segments.append(
+                        {"alert_level": current_level, "points": current_points}
+                    )
+                current_points = []
+                current_level = None
+                previous_alert_time = None
+                continue
+
+            record_level = record.get("alert_level")
+            record_time = self._get_record_time(record)
+            has_time_gap = (
+                previous_alert_time is not None
+                and record_time is not None
+                and abs((record_time - previous_alert_time).total_seconds()) > max_gap_seconds
+            )
+            should_split = (
+                bool(current_points)
+                and (record_level != current_level or has_time_gap)
+            )
+            if should_split:
+                segments.append({"alert_level": current_level, "points": current_points})
+                current_points = []
+
+            current_points.append(record)
+            current_level = record_level
+            previous_alert_time = record_time
+
+        if current_points:
+            segments.append({"alert_level": current_level, "points": current_points})
+
+        return segments
+
+    def _build_segment_summary(self, segment: Dict[str, Any]) -> Dict[str, Any]:
+        points = segment["points"]
+        start_time = self._get_record_time(points[0])
+        end_time = self._get_record_time(points[-1])
+        risk_scores = [
+            self._safe_float(point.get("risk_score"))
+            for point in points
+            if self._safe_float(point.get("risk_score")) is not None
+        ]
+        return {
+            "device_code": points[0].get("device_code"),
+            "alert_level": segment["alert_level"],
+            "segment_start_time": self._format_datetime(start_time),
+            "segment_end_time": self._format_datetime(end_time),
+            "point_count": len(points),
+            "max_risk_score": max(risk_scores) if risk_scores else None,
+            "representative_time": None,
+            "representative_risk_result_id": None,
+            "suppressed": True,
+            "suppress_reason": "",
+            "alert_id": None,
+            "existing_alert_id": None,
+        }
+
+    def _select_representative_point(
+        self,
+        points: list[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        candidates = [point for point in points if point.get("risk_result_id")]
+        if not candidates:
+            return None
+
+        def sort_key(point: Dict[str, Any]) -> tuple[float, datetime]:
+            risk_score = self._safe_float(point.get("risk_score"))
+            point_time = self._get_record_time(point) or datetime.min
+            return (risk_score if risk_score is not None else float("-inf"), point_time)
+
+        return max(candidates, key=sort_key)
+
+    def _find_recent_active_alert(
+        self,
+        representative_record: Dict[str, Any],
+        representative_time: datetime | None,
+        suppress_window_minutes: int,
+    ) -> Optional[Dict[str, Any]]:
+        device_code = representative_record.get("device_code")
+        alert_level = representative_record.get("alert_level")
+        if not device_code or not alert_level:
+            return None
+
+        if representative_time is not None:
+            since_time = representative_time - timedelta(minutes=suppress_window_minutes)
+            recent_alert = AlertRepository.find_recent_active_alert(
+                device_code=device_code,
+                alert_level=alert_level,
+                since_time=since_time,
+                until_time=representative_time,
+            )
+            if recent_alert:
+                return recent_alert
+
+        now = datetime.now()
+        current_since_time = now - timedelta(minutes=suppress_window_minutes)
+        return AlertRepository.find_recent_active_alert(
+            device_code=device_code,
+            alert_level=alert_level,
+            since_time=current_since_time,
+            until_time=now,
+        )
+
+    def _calculate_suppress_window_minutes(
+        self,
+        lookback_minutes: int | None = None,
+        range_start_time: Any = None,
+        range_end_time: Any = None,
+    ) -> int:
+        effective_range_minutes = self._safe_float(lookback_minutes)
+        if effective_range_minutes is None and range_start_time and range_end_time:
+            start_dt = self._parse_datetime(range_start_time)
+            end_dt = self._parse_datetime(range_end_time)
+            if start_dt and end_dt and end_dt > start_dt:
+                effective_range_minutes = (end_dt - start_dt).total_seconds() / 60
+        if effective_range_minutes is None or effective_range_minutes <= 0:
+            effective_range_minutes = 60
+
+        raw_window = effective_range_minutes * self.suppress_lookback_ratio
+        return int(
+            max(
+                self.suppress_min_window_minutes,
+                min(self.suppress_max_window_minutes, raw_window),
+            )
+        )
+
+    @staticmethod
+    def _get_record_time(record: Dict[str, Any]) -> datetime | None:
+        for field in ("time", "window_end_time", "ts_end", "created_at"):
+            value = record.get(field)
+            parsed_value = AlertService._parse_datetime(value)
+            if parsed_value:
+                return parsed_value
+        return None
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            normalized_value = value.strip().replace("T", " ").removesuffix("Z")
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+                try:
+                    return datetime.strptime(normalized_value, fmt)
+                except ValueError:
+                    continue
+        return None
+
+    @staticmethod
+    def _format_datetime(value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d %H:%M:%S")
+        return value
+
+    @staticmethod
+    def _safe_float(value: Any) -> float | None:
+        if value is None or value == "" or isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _parse_risk_score(self, risk_score: Any) -> float:
         if risk_score is None or risk_score == "":

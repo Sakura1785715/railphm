@@ -35,6 +35,18 @@ class PredictionService:
             risk_threshold_normal=current_app.config.get("RISK_THRESHOLD_NORMAL", 0.26),
             risk_threshold_warning=current_app.config.get("RISK_THRESHOLD_WARNING", 0.45),
             risk_threshold_critical=current_app.config.get("RISK_THRESHOLD_CRITICAL", 0.65),
+            suppress_min_window_minutes=current_app.config.get(
+                "ALERT_SUPPRESS_MIN_WINDOW_MINUTES",
+                15,
+            ),
+            suppress_max_window_minutes=current_app.config.get(
+                "ALERT_SUPPRESS_MAX_WINDOW_MINUTES",
+                60,
+            ),
+            suppress_lookback_ratio=current_app.config.get(
+                "ALERT_SUPPRESS_LOOKBACK_RATIO",
+                0.5,
+            ),
             logger=current_app.logger,
         )
 
@@ -334,6 +346,11 @@ class PredictionService:
                 request_data.get("persist"),
                 "persist",
                 True,
+            ),
+            "generate_alert": PredictionService._parse_optional_bool(
+                request_data.get("generate_alert"),
+                "generate_alert",
+                False,
             ),
             "condition_label": condition_label,
             "total_candidate_points": total_candidate_points,
@@ -695,6 +712,7 @@ class PredictionService:
 
         risk_series: list[Dict[str, Any]] = []
         health_series: list[Dict[str, Any]] = []
+        prediction_records: list[Dict[str, Any]] = []
         saved_count = 0
         skipped_existing_count = 0
 
@@ -714,6 +732,8 @@ class PredictionService:
                 if existing_record:
                     skipped_existing_count += 1
                     risk_result_id = existing_record.get("risk_result_id")
+                    record["device_id"] = existing_record.get("device_id")
+                    record["device_code"] = existing_record.get("device_code") or record["device_code"]
                     persist_status = "skipped_existing"
                 else:
                     saved_record = PredictionRepository.save_infer_result(record)
@@ -750,6 +770,7 @@ class PredictionService:
                 "persist_status": record.get("persist_status"),
             }
             risk_series.append(risk_point)
+            prediction_records.append(record)
             health_series.append(
                 {
                     "time": record.get("time"),
@@ -757,6 +778,37 @@ class PredictionService:
                     "health_level": record.get("health_level"),
                     "health_status": record.get("health_status"),
                 }
+            )
+
+        alert_service = PredictionService._build_alert_service()
+        if validated_data["generate_alert"] and validated_data["persist"]:
+            alert_summary = alert_service.generate_range_alerts(
+                prediction_records=prediction_records,
+                lookback_minutes=validated_data["lookback_minutes"],
+                range_start_time=validated_data["start_time"],
+                range_end_time=validated_data["end_time"],
+                inference_stride_seconds=validated_data["inference_stride_seconds"],
+            )
+            alert_summary = {
+                **alert_summary,
+                "alert_generation_skipped": False,
+                "alert_generation_skip_reason": "",
+            }
+        elif validated_data["generate_alert"]:
+            alert_summary = alert_service.build_empty_range_alert_summary(
+                generate_alert=True,
+                skip_reason="persist_false",
+                lookback_minutes=validated_data["lookback_minutes"],
+                range_start_time=validated_data["start_time"],
+                range_end_time=validated_data["end_time"],
+            )
+        else:
+            alert_summary = alert_service.build_empty_range_alert_summary(
+                generate_alert=False,
+                skip_reason="generate_alert_false",
+                lookback_minutes=validated_data["lookback_minutes"],
+                range_start_time=validated_data["start_time"],
+                range_end_time=validated_data["end_time"],
             )
 
         response = {
@@ -787,5 +839,6 @@ class PredictionService:
             "risk_series": risk_series,
             "health_series": health_series,
             "skipped_windows": ai_data.get("skipped_windows", []),
+            **alert_summary,
         }
         return PredictionSchema.dump_range_infer_result(response)

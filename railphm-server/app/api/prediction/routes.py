@@ -37,7 +37,7 @@ def infer_prediction():
 def range_infer_prediction():
     """
     基于 InfluxDB 监测数据触发在线区间推理。
-    本阶段只返回风险/健康序列并按需落库，不生成告警。
+    可在 persist=true 且 generate_alert=true 时按异常片段生成告警。
     """
     payload = request.get_json(silent=True)
     data = PredictionService.range_infer(payload)
