@@ -39,12 +39,12 @@
     <section class="dashboard-overview-grid">
       <SectionCard
         title="最近风险变化趋势"
-        description="按设备运行窗口时间展示最近风险分数。"
+        description="按设备运行窗口时间展示最近风险分数，曲线使用 EMA 展示层平滑。"
       >
         <MetricTrendChart
           v-if="loading || errorMessage || riskTrendPoints.length > 0"
           title="风险趋势"
-          description="数值越高表示设备风险越高。"
+          description="数值越高表示设备风险越高，展示值为 EMA 平滑风险分数。"
           metric-name="风险分数"
           :points="riskTrendPoints"
           :tooltip-details="riskTrendTooltipDetails"
@@ -219,6 +219,7 @@ import QuickLinkCard from '../components/dashboard/QuickLinkCard.vue'
 import { getDashboardOverview } from '../api/dashboard'
 import { DASHBOARD_QUICK_LINKS } from '../constants/dashboard'
 import { getStoredRole } from '../utils/auth'
+import { DISPLAY_SMOOTH_ALPHA, buildRiskHealthCurve } from '../utils/curve'
 import {
   displayText,
   formatAlertLevel,
@@ -312,17 +313,27 @@ const overviewMetrics = computed(() => [
 ])
 
 const riskTrend = computed(() => ensureArray(overview.value.risk_trend))
+const smoothedRiskTrend = computed(() =>
+  buildRiskHealthCurve(riskTrend.value, {
+    alpha: DISPLAY_SMOOTH_ALPHA,
+    timeGetter: getRiskTrendTime,
+    riskGetter: getRiskTrendValue,
+    healthGetter: (item) => item.health_score
+  })
+)
 const riskTrendPoints = computed(() =>
-  riskTrend.value.map((item) => ({
-    time: formatTrendTime(item.time || item.window_end_time || item.created_at),
-    value: getRiskTrendValue(item)
+  smoothedRiskTrend.value.map((item) => ({
+    time: formatTrendTime(item.time),
+    value: item.risk_score_smoothed
   }))
 )
 const riskTrendTooltipDetails = computed(() =>
-  riskTrend.value.map((item) => [
+  smoothedRiskTrend.value.map((item) => [
     { label: '设备编号', value: displayText(getDeviceCode(item)) },
-    { label: '风险分数', value: formatPercent(getRiskTrendValue(item), 2) },
-    { label: '健康度', value: formatScore(item.health_score, 2) },
+    { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
+    { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
+    { label: '健康度原始值', value: formatScore(item.health_score_raw, 2) },
+    { label: '健康度平滑值', value: formatScore(item.health_score_smoothed, 2) },
     { label: '风险波动', value: formatPercent(item.risk_std, 2) },
     { label: '窗口结束', value: formatDateTime(item.window_end_time || item.time || item.created_at) }
   ])
@@ -385,6 +396,10 @@ function ensureArray(value) {
 
 function formatTrendTime(value) {
   return formatDateTime(value, '暂无').replace(/^(\d{4})-/, '').replace(' ', '\n')
+}
+
+function getRiskTrendTime(item) {
+  return item?.time || item?.window_end_time || item?.created_at || ''
 }
 
 function getRiskTrendValue(item) {

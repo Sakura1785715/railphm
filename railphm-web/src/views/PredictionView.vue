@@ -205,7 +205,7 @@
       <div v-else class="range-chart-grid">
         <MetricTrendChart
           title="本次风险趋势"
-          description="展示本次区间推理生成的风险分数变化。"
+          description="展示本次区间推理生成的 EMA 平滑风险分数变化。"
           metric-name="风险分数"
           :points="rangeRiskTrendPoints"
           :tooltip-details="rangeRiskTooltipDetails"
@@ -216,7 +216,7 @@
 
         <MetricTrendChart
           title="本次健康度趋势"
-          description="展示风险结果映射后的设备健康度变化。"
+          description="展示风险结果 EMA 平滑映射后的设备健康度变化。"
           metric-name="健康度"
           unit=""
           :points="rangeHealthTrendPoints"
@@ -536,24 +536,24 @@
       <div class="prediction-chart-grid">
         <MetricTrendChart
           title="历史风险趋势"
-          description="展示指定设备在查询时间范围内的真实风险分数变化。"
+          description="展示指定设备在查询时间范围内的 EMA 平滑风险分数变化。"
           metric-name="风险分数"
           :points="riskTrendPoints"
           :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
-          :error="queryErrors.history"
+          :error="queryErrors.healthCurve"
           height="300px"
         />
 
         <MetricTrendChart
           title="历史健康度趋势"
-          description="展示指定设备在查询时间范围内的健康度变化。"
+          description="展示指定设备在查询时间范围内的 EMA 平滑健康度变化。"
           metric-name="健康度"
           unit=""
           :points="healthTrendPoints"
           :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
-          :error="queryErrors.history"
+          :error="queryErrors.healthCurve"
           height="300px"
         />
       </div>
@@ -661,6 +661,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { MetricTrendChart } from '../components/chart'
 import {
+  getHealthCurve,
   getLatestPrediction,
   getPredictionHistory,
   inferPrediction,
@@ -680,6 +681,7 @@ import {
   formatUncertaintyMethod,
   toFiniteNumber
 } from '../utils/formatters'
+import { DISPLAY_SMOOTH_ALPHA, buildRiskHealthCurve } from '../utils/curve'
 
 const route = useRoute()
 
@@ -704,7 +706,6 @@ const DEFAULT_RANGE_INFER_FORM = {
   persist: true,
   generateAlert: true
 }
-
 const queryDeviceId = normalizeQueryDeviceId(route.query.device_code || route.query.device_id)
 const filters = reactive({
   ...DEFAULT_FILTERS,
@@ -725,6 +726,7 @@ const hasLoaded = ref(false)
 const showLatestCard = ref(false)
 const latestRecord = ref(null)
 const historyRecords = ref([])
+const healthCurveRecords = ref([])
 const historyMeta = ref({
   device_id: DEFAULT_FILTERS.deviceId,
   start_time: DEFAULT_FILTERS.startTime,
@@ -732,7 +734,8 @@ const historyMeta = ref({
 })
 const queryErrors = reactive({
   latest: '',
-  history: ''
+  history: '',
+  healthCurve: ''
 })
 
 const inferLoading = ref(false)
@@ -742,7 +745,9 @@ const rangeInferLoading = ref(false)
 const rangeInferError = ref('')
 const rangeInferResult = ref(null)
 
-const hasPredictionData = computed(() => Boolean(latestRecord.value) || historyRecords.value.length > 0)
+const hasPredictionData = computed(
+  () => Boolean(latestRecord.value) || historyRecords.value.length > 0 || healthCurveRecords.value.length > 0
+)
 const latestRiskMeta = computed(() => getRiskLevelMeta(latestRecord.value?.health_score))
 const currentDeviceDisplay = computed(
   () => displayText(latestRecord.value?.device_code || latestRecord.value?.device_id || historyMeta.value.device_id || filters.deviceId)
@@ -751,37 +756,43 @@ const currentDeviceDisplay = computed(
 const queryErrorMessage = computed(() =>
   [
     queryErrors.latest ? `最新结果：${queryErrors.latest}` : '',
-    queryErrors.history ? `历史趋势：${queryErrors.history}` : ''
+    queryErrors.history ? `历史趋势：${queryErrors.history}` : '',
+    queryErrors.healthCurve ? `健康度曲线：${queryErrors.healthCurve}` : ''
   ]
     .filter(Boolean)
     .join('；')
 )
 
 const historyEmptyMessage = computed(() => {
-  if (!hasLoaded.value || queryLoading.value || queryErrors.history) {
+  if (!hasLoaded.value || queryLoading.value || queryErrors.history || queryErrors.healthCurve) {
     return ''
   }
 
-  return historyRecords.value.length === 0 ? '当前时间范围内暂无历史风险趋势数据。' : ''
+  return historyRecords.value.length === 0 && healthCurveRecords.value.length === 0
+    ? '当前时间范围内暂无健康度曲线数据。'
+    : ''
 })
 
 const riskTrendPoints = computed(() =>
-  historyRecords.value.map((item) => ({
+  healthCurveRecords.value.map((item) => ({
     time: getRecordTime(item),
-    value: item.risk_score
+    value: item.risk_score_smoothed
   }))
 )
 
 const healthTrendPoints = computed(() =>
-  historyRecords.value.map((item) => ({
+  healthCurveRecords.value.map((item) => ({
     time: getRecordTime(item),
-    value: item.health_score
+    value: item.health_score_smoothed
   }))
 )
 
 const historyTooltipDetails = computed(() =>
-  historyRecords.value.map((item) => [
-    { label: '原始风险', value: formatPercent(item.risk_raw, 2) },
+  healthCurveRecords.value.map((item) => [
+    { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
+    { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
+    { label: '健康度原始值', value: formatScore(item.health_score_raw, 2) },
+    { label: '健康度平滑值', value: formatScore(item.health_score_smoothed, 2) },
     { label: '风险波动', value: formatPercent(item.risk_std, 2) },
     { label: '健康等级', value: displayText(item.health_level || item.health_status) },
     { label: '工况标签', value: displayText(item.condition_label) },
@@ -791,10 +802,6 @@ const historyTooltipDetails = computed(() =>
 
 const rangeRiskSeries = computed(() =>
   Array.isArray(rangeInferResult.value?.risk_series) ? rangeInferResult.value.risk_series : []
-)
-
-const rangeHealthSeries = computed(() =>
-  Array.isArray(rangeInferResult.value?.health_series) ? rangeInferResult.value.health_series : []
 )
 
 const rangeSkippedWindows = computed(() =>
@@ -809,40 +816,52 @@ const rangeAlertSegments = computed(() =>
   Array.isArray(rangeInferResult.value?.alert_segments) ? rangeInferResult.value.alert_segments : []
 )
 
+const smoothedRangeRiskSeries = computed(() =>
+  buildRiskHealthCurve(rangeRiskSeries.value, {
+    alpha: DISPLAY_SMOOTH_ALPHA,
+    timeGetter: getRangePointTime,
+    riskGetter: (item) => item.risk_score,
+    healthGetter: (item) => item.health_score
+  })
+)
+
 const rangeRiskTrendPoints = computed(() =>
-  rangeRiskSeries.value.map((item) => ({
+  smoothedRangeRiskSeries.value.map((item) => ({
     time: getRangePointTime(item),
-    value: item.risk_score
+    value: item.risk_score_smoothed
   }))
 )
 
-const rangeHealthTrendPoints = computed(() => {
-  const healthSource = rangeHealthSeries.value.length ? rangeHealthSeries.value : rangeRiskSeries.value
-
-  return healthSource.map((item) => ({
+const rangeHealthTrendPoints = computed(() =>
+  smoothedRangeRiskSeries.value.map((item) => ({
     time: getRangePointTime(item),
-    value: item.health_score
+    value: item.health_score_smoothed
   }))
-})
+)
 
 const rangeRiskTooltipDetails = computed(() =>
-  rangeRiskSeries.value.map((item) => [
-    { label: '原始风险', value: formatPercent(item.risk_raw, 2) },
+  smoothedRangeRiskSeries.value.map((item) => [
+    { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
+    { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
+    { label: '健康度原始值', value: formatScore(item.health_score_raw, 2) },
+    { label: '健康度平滑值', value: formatScore(item.health_score_smoothed, 2) },
     { label: '风险标准差', value: formatPercent(item.risk_std, 2) },
     { label: '阈值', value: formatPercent(item.threshold, 2) },
-    { label: '健康度', value: formatScore(item.health_score, 2) },
     { label: '工况标签', value: displayText(item.condition_label) }
   ])
 )
 
 const rangeHealthTooltipDetails = computed(() => {
-  const riskByTime = new Map(rangeRiskSeries.value.map((item) => [getRangePointTime(item), item]))
+  const riskByTime = new Map(smoothedRangeRiskSeries.value.map((item) => [getRangePointTime(item), item]))
 
   return rangeHealthTrendPoints.value.map((point) => {
     const riskItem = riskByTime.get(point.time)
     return [
       { label: '健康等级', value: displayText(riskItem?.health_level || riskItem?.health_status) },
-      { label: '风险分数', value: formatPercent(riskItem?.risk_score, 2) },
+      { label: '风险原始值', value: formatPercent(riskItem?.risk_score_raw, 2) },
+      { label: '风险平滑值', value: formatPercent(riskItem?.risk_score_smoothed, 2) },
+      { label: '健康度原始值', value: formatScore(riskItem?.health_score_raw, 2) },
+      { label: '健康度平滑值', value: formatScore(riskItem?.health_score_smoothed, 2) },
       { label: '窗口结束', value: formatDateTime(riskItem?.window_end_time || point.time) }
     ]
   })
@@ -1102,7 +1121,7 @@ const statusTone = computed(() => {
     return 'muted'
   }
 
-  if (rangeInferError.value || validationMessage.value || queryErrors.latest || queryErrors.history) {
+  if (rangeInferError.value || validationMessage.value || queryErrors.latest || queryErrors.history || queryErrors.healthCurve) {
     return 'warning'
   }
 
@@ -1122,7 +1141,7 @@ const statusLabel = computed(() => {
     return '历史数据加载中'
   }
 
-  if (rangeInferError.value || validationMessage.value || queryErrors.latest || queryErrors.history) {
+  if (rangeInferError.value || validationMessage.value || queryErrors.latest || queryErrors.history || queryErrors.healthCurve) {
     return '查询待处理'
   }
 
@@ -1146,7 +1165,7 @@ const statusDescription = computed(() => {
     return '正在请求历史风险结果'
   }
 
-  if (queryErrors.latest || queryErrors.history) {
+  if (queryErrors.latest || queryErrors.history || queryErrors.healthCurve) {
     return '部分接口请求失败，可检查后端与 AI 服务状态后重试'
   }
 
@@ -1265,8 +1284,10 @@ async function fetchPredictionData() {
     validationMessage.value = message
     latestRecord.value = null
     historyRecords.value = []
+    healthCurveRecords.value = []
     queryErrors.latest = ''
     queryErrors.history = ''
+    queryErrors.healthCurve = ''
     return
   }
 
@@ -1274,6 +1295,7 @@ async function fetchPredictionData() {
   validationMessage.value = ''
   queryErrors.latest = ''
   queryErrors.history = ''
+  queryErrors.healthCurve = ''
 
   const params = buildQueryParams()
   historyMeta.value = {
@@ -1283,9 +1305,10 @@ async function fetchPredictionData() {
   }
 
   try {
-    const [latestResult, historyResult] = await Promise.allSettled([
+    const [latestResult, historyResult, healthCurveResult] = await Promise.allSettled([
       getLatestPrediction({ device_id: params.device_id }),
-      getPredictionHistory(params)
+      getPredictionHistory(params),
+      getHealthCurve({ ...params, alpha: DISPLAY_SMOOTH_ALPHA })
     ])
 
     if (latestResult.status === 'fulfilled') {
@@ -1307,6 +1330,14 @@ async function fetchPredictionData() {
     } else {
       historyRecords.value = []
       queryErrors.history = historyResult.reason?.message || '历史趋势加载失败'
+    }
+
+    if (healthCurveResult.status === 'fulfilled') {
+      const payload = normalizePayload(healthCurveResult.value)
+      healthCurveRecords.value = normalizeHealthCurve(payload)
+    } else {
+      healthCurveRecords.value = []
+      queryErrors.healthCurve = healthCurveResult.reason?.message || '健康度曲线加载失败'
     }
   } finally {
     hasLoaded.value = true
@@ -1563,6 +1594,48 @@ function normalizeHistory(records) {
     .sort((a, b) => getRecordTime(a).localeCompare(getRecordTime(b)))
 }
 
+function normalizeHealthCurve(payload) {
+  const sourceRecords = extractHistoryRecords(payload)
+
+  return sourceRecords
+    .map((item, index) => normalizeHealthCurvePoint(item, index))
+    .filter((item) => item && item.time)
+    .sort((a, b) => getRecordTime(a).localeCompare(getRecordTime(b)))
+}
+
+function normalizeHealthCurvePoint(item, index) {
+  const source = item && typeof item === 'object' ? item : {}
+  const time = source.time || source.window_end_time || source.ts_end || source.created_at || ''
+  const riskScoreSmoothed = toFiniteNumber(source.risk_score_smoothed)
+  const healthScoreSmoothed = toFiniteNumber(source.health_score_smoothed)
+
+  return {
+    key: `${time}-${source.risk_result_id ?? index}`,
+    risk_result_id: source.risk_result_id ?? null,
+    device_id: source.device_id ?? null,
+    device_code: source.device_code || '',
+    time,
+    ts_end: source.ts_end || '',
+    window_start_time: source.window_start_time || '',
+    window_end_time: source.window_end_time || '',
+    created_at: source.created_at || '',
+    risk_score_raw: toFiniteNumber(source.risk_score_raw),
+    risk_score_smoothed: riskScoreSmoothed,
+    risk_score: riskScoreSmoothed,
+    health_score_raw: toFiniteNumber(source.health_score_raw),
+    health_score_smoothed: healthScoreSmoothed,
+    health_score: healthScoreSmoothed,
+    risk_std: toFiniteNumber(source.risk_std),
+    threshold: toFiniteNumber(source.threshold),
+    predicted_label: source.predicted_label ?? '',
+    health_level: source.health_level || '',
+    health_status: source.health_status || '',
+    health_description: source.health_description || '',
+    condition_label: source.condition_label || '',
+    model_version: source.model_version || ''
+  }
+}
+
 function normalizeRangeInferResult(record) {
   if (!record || typeof record !== 'object') {
     return null
@@ -1719,7 +1792,7 @@ function getRiskScore(record) {
 }
 
 function getRecordTime(record) {
-  return record?.window_end_time || record?.created_at || record?.window_start_time || ''
+  return record?.time || record?.window_end_time || record?.ts_end || record?.created_at || record?.window_start_time || ''
 }
 
 function getRangePointTime(record) {

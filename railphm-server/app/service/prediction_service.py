@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
@@ -10,6 +11,7 @@ from app.repository.monitor_repository import MonitorRepository
 from app.repository.prediction_repository import PredictionRepository
 from app.schema.prediction_schema import PredictionSchema
 from app.service.alert_service import AlertService
+from app.service.health_curve_service import HealthCurveService
 from app.service.health_service import HealthService
 
 
@@ -132,9 +134,7 @@ class PredictionService:
         return PredictionSchema.dump_latest(record)
 
     @staticmethod
-    def get_prediction_history(device_id_str: str, start_str: str, end_str: str) -> Dict[str, Any]:
-        device_value = PredictionService._parse_query_device_value(device_id_str)
-
+    def _parse_history_time_range(start_str: str, end_str: str) -> tuple[datetime, datetime]:
         if not start_str:
             raise BusinessException(code=400, message="start_time 不能为空", status_code=400)
         if not end_str:
@@ -150,8 +150,52 @@ class PredictionService:
         if start_dt >= end_dt:
             raise BusinessException(code=400, message="开始时间必须早于结束时间", status_code=400)
 
+        return start_dt, end_dt
+
+    @staticmethod
+    def _parse_health_curve_alpha(alpha_value: Any) -> float:
+        if alpha_value is None or alpha_value == "":
+            return HealthCurveService.DEFAULT_ALPHA
+        if isinstance(alpha_value, bool):
+            raise BusinessException(code=400, message="alpha 必须位于 0 到 1 之间", status_code=400)
+
+        try:
+            alpha = float(alpha_value)
+        except (TypeError, ValueError):
+            raise BusinessException(code=400, message="alpha 必须位于 0 到 1 之间", status_code=400)
+
+        if not math.isfinite(alpha) or alpha <= 0 or alpha > 1:
+            raise BusinessException(code=400, message="alpha 必须位于 0 到 1 之间", status_code=400)
+        return alpha
+
+    @staticmethod
+    def get_prediction_history(device_id_str: str, start_str: str, end_str: str) -> Dict[str, Any]:
+        device_value = PredictionService._parse_query_device_value(device_id_str)
+        start_dt, end_dt = PredictionService._parse_history_time_range(start_str, end_str)
+
         records = PredictionRepository.query_history_by_device_and_range(device_value, start_dt, end_dt)
         return PredictionSchema.dump_history(device_value, start_str, end_str, records)
+
+    @staticmethod
+    def get_health_curve(
+        device_id_str: str,
+        start_str: str,
+        end_str: str,
+        alpha_value: Any = None,
+    ) -> Dict[str, Any]:
+        device_value = PredictionService._parse_query_device_value(device_id_str)
+        start_dt, end_dt = PredictionService._parse_history_time_range(start_str, end_str)
+        alpha = PredictionService._parse_health_curve_alpha(alpha_value)
+
+        records = PredictionRepository.query_history_by_device_and_range(device_value, start_dt, end_dt)
+        curve_payload = HealthCurveService.build_curve(
+            records,
+            device_id=device_value,
+            start_time=start_str,
+            end_time=end_str,
+            alpha=alpha,
+        )
+        return PredictionSchema.dump_health_curve(curve_payload)
 
     @staticmethod
     def _parse_ts_end(ts_end: Any) -> str:

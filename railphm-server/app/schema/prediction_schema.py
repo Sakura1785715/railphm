@@ -177,6 +177,11 @@ class PredictionSchema:
         }
 
     @classmethod
+    def dump_health_curve(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """健康度曲线第一版由 Service 计算后透传，保持响应收口层一致。"""
+        return payload
+
+    @classmethod
     def dump_infer_result(cls, record: Dict[str, Any]) -> Dict[str, Any]:
         """
         统一收口 infer 输出，避免将外部服务原始结构直接透传给前端。
