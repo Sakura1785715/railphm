@@ -5,7 +5,7 @@
         <p class="page-tag">告警中心</p>
         <h2>设备告警中心</h2>
         <p class="page-description">
-          集中展示系统生成的设备告警记录，支持按设备编号、告警等级和告警状态进行查询，并查看单条告警详情。
+          集中展示系统生成的设备告警记录，支持按设备、等级和状态筛选，并完成告警查看、复核与处理。
         </p>
       </div>
 
@@ -14,6 +14,18 @@
         <span class="monitor-topbar__summary">{{ statusDescription }}</span>
       </div>
     </div>
+
+    <section class="alert-summary-grid">
+      <article
+        v-for="card in alertSummaryCards"
+        :key="card.key"
+        :class="['alert-summary-card', `alert-summary-card--${card.tone}`]"
+      >
+        <span>{{ card.label }}</span>
+        <strong>{{ card.value }}</strong>
+        <p>{{ card.description }}</p>
+      </article>
+    </section>
 
     <form class="device-filter-card alert-filter-card" @submit.prevent="handleSearch">
       <div class="device-filter-card__header alert-filter-card__header">
@@ -72,7 +84,7 @@
             <p class="section-tag">告警列表</p>
             <h3>告警记录清单</h3>
             <p class="device-table-card__description">
-              当前展示告警摘要字段，点击“查看详情”后在下方展示完整告警信息。
+              点击任意告警记录，可在右侧查看详情并完成处理。
             </p>
           </div>
 
@@ -96,6 +108,7 @@
                 <th>设备编号</th>
                 <th>告警等级</th>
                 <th>告警状态</th>
+                <th>风险分数</th>
                 <th class="alert-table__time-col">告警时间</th>
                 <th>告警信息</th>
                 <th class="alert-table__action-col">操作</th>
@@ -104,7 +117,7 @@
 
             <tbody v-if="listLoading">
               <tr>
-                <td colspan="7" class="alert-table__placeholder">正在加载告警列表...</td>
+                <td colspan="8" class="alert-table__placeholder">正在加载告警列表...</td>
               </tr>
             </tbody>
 
@@ -127,10 +140,11 @@
                 </td>
                 <td>
                   <span :class="['alert-badge', getStatusClass(item.alert_status)]">
-                    {{ getStatusLabel(item.alert_status) }}
+                    {{ item.alert_status_text || getStatusLabel(item.alert_status) }}
                   </span>
                 </td>
-                <td class="alert-table__time">{{ formatDateTimeForList(item.alert_time) }}</td>
+                <td class="alert-table__score">{{ formatPercent(item.risk_score, 2, '--') }}</td>
+                <td class="alert-table__time">{{ formatDateTimeForList(item.alert_time || item.created_at || item.updated_at) }}</td>
                 <td class="alert-table__position" :title="displayValue(item.alert_message || item.message)">
                   {{ displayValue(item.alert_message || item.message) }}
                 </td>
@@ -148,7 +162,7 @@
 
             <tbody v-else>
               <tr>
-                <td colspan="7" class="alert-table__placeholder">{{ emptyText }}</td>
+                <td colspan="8" class="alert-table__placeholder">{{ emptyText }}</td>
               </tr>
             </tbody>
           </table>
@@ -195,7 +209,7 @@
         </div>
 
         <div v-if="!selectedAlertId" class="alert-detail-placeholder">
-          请选择一条告警记录查看详情
+          请选择一条告警记录查看详情和处理建议。
         </div>
 
         <div v-else-if="detailLoading" class="state-panel loading-state alert-detail-state">
@@ -215,19 +229,35 @@
         </div>
 
         <div v-else-if="alertDetail" class="alert-detail-content">
-          <div class="alert-detail-message">
+          <div class="alert-detail-hero">
             <div class="alert-detail-message__header">
-              <span>告警信息</span>
+              <span>{{ displayValue(alertDetail.device_code || alertDetail.device_id) }} 告警详情</span>
               <div class="alert-detail-summary">
                 <span :class="['alert-badge', getRiskLevelClass(alertDetail.alert_level)]">
                   {{ getLevelLabel(alertDetail.alert_level) }}
                 </span>
                 <span :class="['alert-badge', getStatusClass(alertDetail.alert_status)]">
-                  {{ getStatusLabel(alertDetail.alert_status) }}
+                  {{ alertDetail.alert_status_text || getStatusLabel(alertDetail.alert_status) }}
                 </span>
               </div>
             </div>
             <strong>{{ displayValue(alertDetail.alert_message || alertDetail.message) }}</strong>
+            <p>
+              设备 {{ displayValue(alertDetail.device_code || alertDetail.device_id) }} ·
+              告警时间 {{ formatDateTimeForDetail(alertDetail.alert_time || alertDetail.created_at || alertDetail.updated_at) }}
+            </p>
+          </div>
+
+          <div class="alert-detail-metrics">
+            <article v-for="item in selectedDetailMetrics" :key="item.key" class="alert-detail-metric-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
+          </div>
+
+          <div class="alert-advice-card">
+            <span>处理建议</span>
+            <p>{{ alertAdviceText }}</p>
           </div>
 
           <div class="alert-handle-panel">
@@ -250,6 +280,14 @@
 
             <form v-if="handleFormVisible" class="alert-handle-form" @submit.prevent="submitAlertHandle">
               <div class="alert-handle-form__grid">
+                <label class="filter-field">
+                  <span>处理状态</span>
+                  <select v-model="handleForm.alertStatus" :disabled="handleSubmitting">
+                    <option value="processing">处理中</option>
+                    <option value="resolved">已处理</option>
+                  </select>
+                </label>
+
                 <label class="filter-field">
                   <span>处理人ID</span>
                   <input
@@ -370,6 +408,7 @@ const handleSubmitting = ref(false)
 const handleError = ref('')
 const handleSuccess = ref('')
 const handleForm = reactive({
+  alertStatus: 'resolved',
   handlerId: '',
   handleNote: ''
 })
@@ -468,6 +507,46 @@ const rangeText = computed(() => {
   return `当前显示 ${start}-${end} 条，共 ${pagination.total} 条记录，每页 ${pagination.size} 条`
 })
 
+const alertSummaryCards = computed(() => {
+  const unhandledCount = countAlertsByStatus(['unhandled'])
+  const processingCount = countAlertsByStatus(['processing'])
+  const resolvedCount = countAlertsByStatus(['resolved'])
+  const highRiskCount = alertItems.value.filter((item) =>
+    ['high', 'critical'].includes(String(item.alert_level || '').toLowerCase())
+  ).length
+
+  return [
+    {
+      key: 'unhandled',
+      label: '当前页未处理',
+      value: unhandledCount,
+      description: '待运维复核',
+      tone: unhandledCount > 0 ? 'warning' : 'success'
+    },
+    {
+      key: 'processing',
+      label: '当前页处理中',
+      value: processingCount,
+      description: '处置跟进中',
+      tone: processingCount > 0 ? 'default' : 'muted'
+    },
+    {
+      key: 'resolved',
+      label: '当前页已处理',
+      value: resolvedCount,
+      description: '闭环完成',
+      tone: 'success'
+    },
+    {
+      key: 'high-risk',
+      label: '当前页高风险',
+      value: highRiskCount,
+      description: '优先关注',
+      tone: highRiskCount > 0 ? 'danger' : 'muted'
+    }
+  ]
+})
+
 const isAlertResolved = computed(() =>
   normalizeAlertStatusKey(alertDetail.value?.alert_status) === 'resolved'
 )
@@ -477,6 +556,26 @@ const canHandleAlert = computed(() => {
   const normalizedStatus = normalizeAlertStatusKey(status)
   return hasAnyRole(['OPS', 'ADMIN']) && (normalizedStatus === 'unhandled' || normalizedStatus === 'processing')
 })
+
+const selectedDetailMetrics = computed(() => {
+  const detail = alertDetail.value
+  if (!detail) {
+    return []
+  }
+
+  return [
+    { key: 'risk_result_id', label: '风险结果ID', value: displayValue(detail.risk_result_id) },
+    { key: 'risk_score', label: '风险分数', value: formatPercent(detail.risk_score, 2, '--') },
+    { key: 'health_score', label: '健康度', value: formatScore(detail.health_score, 2, '--') },
+    { key: 'health_level', label: '健康等级', value: displayValue(detail.health_level || detail.health_status) },
+    { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(detail.alert_time || detail.created_at || detail.updated_at) },
+    { key: 'device_code', label: '设备编号', value: displayValue(detail.device_code || detail.device_id) }
+  ]
+})
+
+const alertAdviceText = computed(() =>
+  displayText(alertDetail.value?.alert_advice, '暂无处理建议，请结合风险趋势和设备监测数据人工复核。')
+)
 
 const detailGroups = computed(() => {
   if (!alertDetail.value) {
@@ -491,23 +590,24 @@ const detailGroups = computed(() => {
         { key: 'device_code', label: '设备编号', value: displayValue(alertDetail.value.device_code || alertDetail.value.device_id) },
         { key: 'device_name', label: '设备名称', value: displayValue(alertDetail.value.device_name) },
         { key: 'alert_level', label: '告警等级', value: displayValue(getLevelLabel(alertDetail.value.alert_level)) },
-        { key: 'alert_status', label: '告警状态', value: displayValue(getStatusLabel(alertDetail.value.alert_status)) },
-        { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(alertDetail.value.alert_time) }
+        { key: 'alert_status', label: '告警状态', value: displayValue(alertDetail.value.alert_status_text || getStatusLabel(alertDetail.value.alert_status)) },
+        { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(alertDetail.value.alert_time || alertDetail.value.created_at || alertDetail.value.updated_at) }
       ]
     },
     {
       title: '告警对象',
       fields: [
-        { key: 'risk_score', label: '风险分数', value: formatPercent(alertDetail.value.risk_score, 2) },
-        { key: 'health_score', label: '健康度', value: formatScore(alertDetail.value.health_score, 2) },
+        { key: 'risk_score', label: '风险分数', value: formatPercent(alertDetail.value.risk_score, 2, '--') },
+        { key: 'health_score', label: '健康度', value: formatScore(alertDetail.value.health_score, 2, '--') },
         { key: 'health_level', label: '健康等级', value: displayValue(alertDetail.value.health_level || alertDetail.value.health_status) },
-        { key: 'alert_advice', label: '处理建议', value: displayValue(alertDetail.value.alert_advice) }
+        { key: 'target_label_value', label: '目标标签值', value: displayValue(alertDetail.value.target_label_value) }
       ]
     },
     {
       title: '关联与处理',
       fields: [
         { key: 'risk_result_id', label: '风险结果ID', value: displayValue(alertDetail.value.risk_result_id) },
+        { key: 'target_time', label: '目标时间', value: formatDateTimeForDetail(alertDetail.value.target_time) },
         { key: 'handler_id', label: '处理人ID', value: displayValue(alertDetail.value.handler_id || alertDetail.value.handler) },
         { key: 'handle_time', label: '处理时间', value: formatDateTimeForDetail(alertDetail.value.handle_time) },
         { key: 'handle_desc', label: '处理说明', value: displayValue(alertDetail.value.handle_desc || alertDetail.value.handle_remark || alertDetail.value.remark) },
@@ -661,6 +761,9 @@ function openHandleForm() {
   handleFormVisible.value = true
   handleError.value = ''
   handleSuccess.value = ''
+  handleForm.alertStatus = normalizeAlertStatusKey(alertDetail.value?.alert_status) === 'processing'
+    ? 'resolved'
+    : 'processing'
   handleForm.handlerId = alertDetail.value?.handler_id ? String(alertDetail.value.handler_id) : ''
   handleForm.handleNote = ''
 }
@@ -688,18 +791,19 @@ async function submitAlertHandle() {
   handleSubmitting.value = true
 
   try {
+    const nextStatus = normalizeAlertStatusKey(handleForm.alertStatus)
     const result = await updateAlertStatus(currentAlertId, {
-      alert_status: 'resolved',
+      alert_status: nextStatus,
       handler_id: Number(handleForm.handlerId),
       handle_note: handleForm.handleNote.trim()
     })
 
     alertDetail.value = normalizeAlertDetail(result)
     handleFormVisible.value = false
-    handleSuccess.value = '告警处理成功'
+    handleSuccess.value = nextStatus === 'resolved' ? '告警处理成功' : '告警状态已更新为处理中'
 
     await fetchAlerts()
-    handleSuccess.value = '告警处理成功'
+    handleSuccess.value = nextStatus === 'resolved' ? '告警处理成功' : '告警状态已更新为处理中'
 
     if (isSameAlert(selectedAlertId.value, currentAlertId)) {
       await fetchAlertDetail(currentAlertId)
@@ -714,7 +818,12 @@ async function submitAlertHandle() {
 function validateHandleForm() {
   const handlerIdText = String(handleForm.handlerId || '').trim()
   const handleNoteText = String(handleForm.handleNote || '').trim()
+  const nextStatus = normalizeAlertStatusKey(handleForm.alertStatus)
   const handlerId = Number(handlerIdText)
+
+  if (!['processing', 'resolved'].includes(nextStatus)) {
+    return '处理状态必须为处理中或已处理'
+  }
 
   if (!handlerIdText) {
     return '处理人ID不能为空'
@@ -736,6 +845,7 @@ function resetHandleState() {
   handleSubmitting.value = false
   handleError.value = ''
   handleSuccess.value = ''
+  handleForm.alertStatus = 'resolved'
   handleForm.handlerId = ''
   handleForm.handleNote = ''
 }
@@ -821,6 +931,8 @@ function normalizeAlertRecord(record) {
     alert_object_type: source.alert_object_type ?? '',
     alert_object_code: source.alert_object_code ?? '',
     risk_result_id: source.risk_result_id ?? '',
+    target_time: source.target_time ?? '',
+    target_label_value: source.target_label_value ?? '',
     handler_id: source.handler_id ?? '',
     handle_time: source.handle_time ?? '',
     handle_desc: source.handle_desc ?? ''
@@ -832,7 +944,7 @@ function normalizeAlertDetail(result) {
 }
 
 async function enrichAlertListItems(items, requestId) {
-  if (!items.length || items.every((item) => displayValue(item.alert_position) !== '-')) {
+  if (!items.length || items.every((item) => displayText(item.alert_position, '') !== '')) {
     return items
   }
 
@@ -859,6 +971,13 @@ async function enrichAlertListItems(items, requestId) {
       alert_source: detail.alert_source || item.alert_source,
       alert_object_type: detail.alert_object_type || item.alert_object_type,
       alert_object_code: detail.alert_object_code || item.alert_object_code,
+      alert_status_text: detail.alert_status_text || item.alert_status_text,
+      alert_message: detail.alert_message || item.alert_message,
+      alert_advice: detail.alert_advice || item.alert_advice,
+      risk_score: detail.risk_score ?? item.risk_score,
+      health_score: detail.health_score ?? item.health_score,
+      health_level: detail.health_level || item.health_level,
+      health_status: detail.health_status || item.health_status,
       risk_result_id: detail.risk_result_id || item.risk_result_id,
       handler_id: detail.handler_id || item.handler_id,
       handle_time: detail.handle_time || item.handle_time,
@@ -868,11 +987,11 @@ async function enrichAlertListItems(items, requestId) {
 }
 
 function formatDateTimeForList(value) {
-  return formatDateTime(value).slice(0, 16)
+  return formatDateTime(value, '--').slice(0, 16)
 }
 
 function formatDateTimeForDetail(value) {
-  return formatDateTime(value)
+  return formatDateTime(value, '--')
 }
 
 function getLevelLabel(level) {
@@ -881,6 +1000,10 @@ function getLevelLabel(level) {
 
 function getStatusLabel(status) {
   return formatAlertStatus(status)
+}
+
+function countAlertsByStatus(statusList) {
+  return alertItems.value.filter((item) => statusList.includes(normalizeAlertStatusKey(item.alert_status))).length
 }
 
 function getRiskLevelClass(level) {
@@ -924,7 +1047,7 @@ function getStatusClass(status) {
 }
 
 function displayValue(value) {
-  return displayText(value, '-')
+  return displayText(value, '--')
 }
 
 function normalizeAlertStatusKey(status) {
@@ -985,6 +1108,58 @@ function normalizeQueryDeviceId(value) {
   text-align: right;
 }
 
+.alert-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.alert-summary-card {
+  display: grid;
+  gap: 8px;
+  min-height: 138px;
+  padding: 18px 20px;
+  border: 1px solid #deebf3;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.045);
+}
+
+.alert-summary-card span {
+  color: #45617f;
+  font-size: 0.9rem;
+  font-weight: 760;
+}
+
+.alert-summary-card strong {
+  color: #17253a;
+  font-size: 2.35rem;
+  line-height: 1;
+}
+
+.alert-summary-card p {
+  margin: 0;
+  color: #5b6d86;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.alert-summary-card--warning {
+  border-color: #fed7aa;
+}
+
+.alert-summary-card--danger {
+  border-color: #fecdca;
+}
+
+.alert-summary-card--success {
+  border-color: #abefc6;
+}
+
+.alert-summary-card--muted {
+  border-color: #d7e1ee;
+}
+
 .alert-filter-card {
   padding-bottom: 18px;
 }
@@ -1043,6 +1218,8 @@ function normalizeQueryDeviceId(value) {
 .alert-content {
   display: grid;
   gap: 18px;
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
+  align-items: start;
 }
 
 .alert-list-card,
@@ -1064,7 +1241,7 @@ function normalizeQueryDeviceId(value) {
 
 .alert-table {
   width: 100%;
-  min-width: 900px;
+  min-width: 980px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -1129,8 +1306,16 @@ function normalizeQueryDeviceId(value) {
 .alert-table th:nth-child(3),
 .alert-table td:nth-child(3),
 .alert-table th:nth-child(4),
-.alert-table td:nth-child(4) {
+.alert-table td:nth-child(4),
+.alert-table th:nth-child(5),
+.alert-table td:nth-child(5) {
   width: 140px;
+}
+
+.alert-table__score {
+  color: #17253a;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
 }
 
 .alert-table__time-col,
@@ -1218,6 +1403,8 @@ function normalizeQueryDeviceId(value) {
 
 .alert-detail-card {
   scroll-margin-top: 20px;
+  position: sticky;
+  top: 18px;
 }
 
 .alert-detail-placeholder {
@@ -1235,7 +1422,7 @@ function normalizeQueryDeviceId(value) {
   padding-right: 2px;
 }
 
-.alert-detail-message {
+.alert-detail-hero {
   display: grid;
   gap: 12px;
   padding: 20px 24px;
@@ -1255,7 +1442,7 @@ function normalizeQueryDeviceId(value) {
   justify-content: space-between;
 }
 
-.alert-detail-message span,
+.alert-detail-hero span,
 .alert-detail-section h4 {
   margin: 0;
   color: #45617f;
@@ -1263,10 +1450,61 @@ function normalizeQueryDeviceId(value) {
   font-weight: 760;
 }
 
-.alert-detail-message strong {
+.alert-detail-hero strong {
   color: #17253a;
   line-height: 1.65;
   word-break: break-word;
+}
+
+.alert-detail-hero p {
+  margin: 0;
+  color: #5b6d86;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.alert-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.alert-detail-metric-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #deebf3;
+  border-radius: 12px;
+  background: #f8fbfd;
+}
+
+.alert-detail-metric-card span,
+.alert-advice-card span {
+  color: #5b6d86;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.alert-detail-metric-card strong {
+  color: #17253a;
+  font-weight: 780;
+  overflow-wrap: anywhere;
+}
+
+.alert-advice-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 1px solid #c7d7fe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.alert-advice-card p {
+  margin: 0;
+  color: #17253a;
+  line-height: 1.7;
 }
 
 .alert-handle-panel {
@@ -1299,7 +1537,7 @@ function normalizeQueryDeviceId(value) {
 
 .alert-handle-form__grid {
   display: grid;
-  grid-template-columns: minmax(180px, 0.45fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(160px, 0.35fr) minmax(180px, 0.45fr) minmax(280px, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -1354,7 +1592,7 @@ function normalizeQueryDeviceId(value) {
 
 .alert-detail-groups {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
@@ -1398,12 +1636,24 @@ function normalizeQueryDeviceId(value) {
 
 /* 关键修复4：中等屏幕下减少拥挤 */
 @media (max-width: 1280px) {
-  .alert-detail-groups {
+  .alert-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .alert-detail-groups {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 1180px) {
+  .alert-content {
+    grid-template-columns: 1fr;
+  }
+
+  .alert-detail-card {
+    position: static;
+  }
+
   .alert-filter-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1434,6 +1684,11 @@ function normalizeQueryDeviceId(value) {
   }
 
   .alert-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .alert-summary-grid,
+  .alert-detail-metrics {
     grid-template-columns: 1fr;
   }
 

@@ -20,8 +20,8 @@ class DashboardSchema:
     }
 
     ALERT_STATUS_TEXT = {
-        "pending": "待处理",
-        "unhandled": "待处理",
+        "pending": "未处理",
+        "unhandled": "未处理",
         "processing": "处理中",
         "resolved": "已处理",
         "ignored": "已忽略",
@@ -65,9 +65,11 @@ class DashboardSchema:
                 "max_risk_score": cls._to_float(row.get("max_risk_score") or row.get("risk_score")),
                 "health_score": cls._to_float(row.get("health_score")),
                 "health_level": cls._normalize_health_level(row.get("health_level") or row.get("health_status")),
+                "health_status": row.get("health_status"),
                 "risk_std": cls._to_float(row.get("risk_std")),
                 "condition_label": row.get("condition_label"),
                 "record_count": cls._to_int(row.get("record_count"), fallback=1),
+                "ts_end": cls._format_datetime(row.get("ts_end")),
                 "window_end_time": cls._format_datetime(row.get("window_end_time")),
                 "created_at": cls._format_datetime(row.get("created_at")),
             }
@@ -120,7 +122,7 @@ class DashboardSchema:
                 "health_score": cls._to_float(row.get("health_score")),
                 "health_level": cls._normalize_health_level(row.get("health_level") or row.get("health_status")),
                 "health_status": row.get("health_status"),
-                "alert_time": cls._format_datetime(row.get("alert_time")),
+                "alert_time": cls._format_datetime(row.get("alert_time") or row.get("created_at") or row.get("create_time")),
                 "created_at": cls._format_datetime(row.get("created_at") or row.get("create_time")),
                 "updated_at": cls._format_datetime(row.get("updated_at") or row.get("update_time")),
             }
@@ -148,8 +150,8 @@ class DashboardSchema:
                 "health_status": row.get("health_status"),
                 "alert_level": cls._normalize_alert_level(row.get("alert_level")),
                 "alert_status": cls._normalize_alert_status(row.get("alert_status")),
-                "window_end_time": cls._format_datetime(row.get("window_end_time")),
-                "updated_at": cls._format_datetime(row.get("updated_at")),
+                "window_end_time": cls._format_datetime(row.get("window_end_time") or row.get("ts_end") or row.get("updated_at")),
+                "updated_at": cls._format_datetime(row.get("updated_at") or row.get("window_end_time") or row.get("ts_end")),
             }
             for row in rows
             if isinstance(row, dict)

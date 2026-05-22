@@ -105,8 +105,8 @@ export function formatDeviceStatus(value) {
 export function formatAlertStatus(value) {
   const normalizedValue = normalizeKey(value)
   const statusMap = {
-    pending: '待处理',
-    unhandled: '待处理',
+    pending: '未处理',
+    unhandled: '未处理',
     processing: '处理中',
     resolved: '已处理',
     ignored: '已忽略'
@@ -120,10 +120,10 @@ export function formatAlertLevel(value) {
   const levelMap = {
     none: '无',
     info: '提示',
-    low: '提示',
-    medium: '预警',
+    low: '低风险',
+    medium: '中风险',
     warning: '预警',
-    high: '告警',
+    high: '高风险',
     critical: '严重'
   }
 

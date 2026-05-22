@@ -22,6 +22,18 @@ def get_history():
     return success_response(data=data)
 
 
+@prediction_bp.route('/health-curve', methods=['GET'])
+def get_health_curve():
+    """获取设备风险与健康度曲线。"""
+    device_id = request.args.get('device_id')
+    start_time = request.args.get('start_time')
+    end_time = request.args.get('end_time')
+    alpha = request.args.get('alpha')
+
+    data = PredictionService.get_health_curve(device_id, start_time, end_time, alpha)
+    return success_response(data=data)
+
+
 @prediction_bp.route('/infer', methods=['POST'])
 def infer_prediction():
     """
@@ -30,4 +42,15 @@ def infer_prediction():
     """
     payload = request.get_json(silent=True)
     data = PredictionService.infer_prediction(payload)
+    return success_response(data=data)
+
+
+@prediction_bp.route('/range-infer', methods=['POST'])
+def range_infer_prediction():
+    """
+    基于 InfluxDB 监测数据触发在线区间推理。
+    可在 persist=true 且 generate_alert=true 时按异常片段生成告警。
+    """
+    payload = request.get_json(silent=True)
+    data = PredictionService.range_infer(payload)
     return success_response(data=data)

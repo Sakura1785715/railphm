@@ -72,6 +72,55 @@ class AlertRepository:
         return cls._normalize_alert_record(record) if record else None
 
     @classmethod
+    def find_recent_active_alert(
+        cls,
+        device_code: str,
+        alert_level: str,
+        since_time: Any,
+        until_time: Any = None,
+    ) -> Optional[Dict[str, Any]]:
+        """查询同设备、同等级、指定窗口内最近一条活跃告警。"""
+        if not device_code or not since_time:
+            return None
+
+        normalized_level = cls._normalize_alert_level(alert_level)
+        if not normalized_level:
+            return None
+
+        params: list[Any] = [
+            str(device_code).strip(),
+            normalized_level,
+            cls._normalize_datetime(since_time),
+        ]
+        until_sql = ""
+        if until_time is not None and until_time != "":
+            until_sql = "AND alert_time <= %s"
+            params.append(cls._normalize_datetime(until_time))
+
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {cls._ALERT_SELECT_FIELDS}
+                    FROM phm_alert_record
+                    WHERE device_code = %s
+                      AND alert_level = %s
+                      AND LOWER(alert_status) IN ('unhandled', 'processing', 'pending')
+                      AND alert_time >= %s
+                      {until_sql}
+                    ORDER BY alert_time DESC, alert_id DESC
+                    LIMIT 1
+                    """,
+                    params,
+                )
+                record = cursor.fetchone()
+        finally:
+            connection.close()
+
+        return cls._normalize_alert_record(record) if record else None
+
+    @classmethod
     def create_from_prediction(cls, record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """根据一次真实风险预测结果创建告警记录。"""
         if not record.get("alert_generated"):
@@ -303,13 +352,23 @@ class AlertRepository:
 
         normalized_status = cls._normalize_alert_status(alert_status)
         if normalized_status:
-            where_clauses.append("alert_status = %s")
-            params.append(normalized_status)
+            if normalized_status == "unhandled":
+                where_clauses.append("LOWER(alert_status) IN ('pending', 'unhandled')")
+            else:
+                where_clauses.append("LOWER(alert_status) = %s")
+                params.append(normalized_status)
 
         normalized_level = cls._normalize_alert_level(alert_level)
         if normalized_level:
-            where_clauses.append("alert_level = %s")
-            params.append(normalized_level)
+            if normalized_level == "low":
+                where_clauses.append("LOWER(alert_level) IN ('low', 'info')")
+            elif normalized_level == "medium":
+                where_clauses.append("LOWER(alert_level) IN ('medium', 'warning', 'warn')")
+            elif normalized_level == "high":
+                where_clauses.append("LOWER(alert_level) IN ('high', 'critical')")
+            else:
+                where_clauses.append("LOWER(alert_level) = %s")
+                params.append(normalized_level)
 
         if device_id is not None and str(device_id).strip():
             device_value = str(device_id).strip()
@@ -344,9 +403,18 @@ class AlertRepository:
         if level is None or level == "":
             return None
         normalized_level = str(level).strip().lower()
-        if normalized_level not in {"low", "medium", "high"}:
+        aliases = {
+            "info": "low",
+            "low": "low",
+            "medium": "medium",
+            "warning": "medium",
+            "warn": "medium",
+            "high": "high",
+            "critical": "high",
+        }
+        if normalized_level not in aliases:
             raise ValueError("非法告警等级")
-        return normalized_level
+        return aliases[normalized_level]
 
     @staticmethod
     def _alert_status_text(status: str) -> str:

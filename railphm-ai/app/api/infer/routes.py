@@ -1,6 +1,7 @@
 from flask import Blueprint, request
 from app.core.response import success_response
 from app.service.infer_service import InferService
+from app.service.range_infer_service import RangeInferService
 from app.core.errors import BusinessException
 
 # 创建蓝图
@@ -21,4 +22,15 @@ def infer():
     SequenceModelRuntime.predict_with_uncertainty()
     """
     data = InferService.infer(payload)
+    return success_response(data=data)
+
+
+@infer_bp.route("/range", methods=["POST"])
+def infer_range():
+    """基于 server 传入 monitor_rows 的在线区间推理接口。"""
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise BusinessException(code=400, message="请求格式非法或为空，必须为 JSON")
+
+    data = RangeInferService.infer_range(payload)
     return success_response(data=data)
