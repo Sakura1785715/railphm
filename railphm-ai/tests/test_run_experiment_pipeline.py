@@ -11,7 +11,7 @@ def test_config_file_can_be_loaded():
         pipeline.load_json_config(Path("configs/experiment_pipeline.json")),
     )
 
-    assert config["experiment_name"] == "bilstm_attention_h1_full_features"
+    assert config["experiment_name"] == "bilstm_attention_h1_synthetic_v3"
     assert config["threshold"]["search_on"] == "val"
 
 

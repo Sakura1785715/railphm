@@ -28,7 +28,7 @@ from app.uncertainty import (
 )
 
 
-DEFAULT_MODEL_VERSION = "bilstm_attention_h1_full_features"
+DEFAULT_MODEL_VERSION = "bilstm_attention_h1_synthetic_v3"
 
 # 支持模型
 SUPPORTED_RUNTIME_MODELS = {
@@ -156,7 +156,7 @@ class SequenceModelRuntime:
         """
         对单个窗口样本执行确定性风险概率预测。
         输入 window 必须是 shape=[window_size, feature_dim] 的 numpy.ndarray。
-        对默认模型而言，即 shape=(30, 23)。
+        对默认模型而言，即 shape=(30, 21)。
 
         输出说明：
         - risk_raw：模型 sigmoid 后的原始概率；
@@ -178,7 +178,7 @@ class SequenceModelRuntime:
            
             """
             前向推理
-            features: [1, 30, 23]
+            features: [1, 30, 21]
             ↓ (Bi-LSTM)
             output_seq: [1, 30, 128]
             ↓ (Attention)

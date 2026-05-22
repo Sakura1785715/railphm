@@ -14,7 +14,7 @@ def _mock_runtime_result(payload):
         "risk_std": 0.0615,
         "threshold": 0.26,
         "predicted_label": 1,
-        "model_version": "bilstm_attention_h1_full_features",
+        "model_version": "bilstm_attention_h1_synthetic_v3",
         "model_name": "bilstm_attention",
         "calibration_enabled": True,
         "calibration_method": "isotonic_regression",

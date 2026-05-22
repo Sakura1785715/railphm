@@ -12,6 +12,7 @@ import json
 import math
 import random
 import shutil
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -19,6 +20,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.metrics import precision_recall_curve
 from torch.utils.data import DataLoader
 
 from app.models import build_sequence_model
@@ -60,6 +62,9 @@ class SequenceTrainConfig:
     num_workers: int = 0
     overwrite: bool = False
     best_metric: str = "val_auc"
+    save_predictions: bool = False
+    save_history: bool = False
+    evaluate_train: bool = False
 
 # 主训练函数
 def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
@@ -224,61 +229,12 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
     if not best_model_path.exists():
         raise RuntimeError("训练未能生成 best_model.pt，请检查训练集和验证集是否为空")
 
+    print("Loading best model...")
     checkpoint = torch.load(best_model_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
-    # ===== TEMP EXPERIMENT: evaluate on all samples without train/val/test split =====
-    # 仅用于临时实验：把整个数据集一起输入 best_model 计算整体指标。
-    # 实验结束后请删除本段，避免正式流程混淆 train/val/test 评价口径。
-    all_indices = np.arange(int(y.shape[0]), dtype=np.int64)
-
-    all_dataset = WindowDataset(
-        X,
-        y,
-        all_indices,
-        flatten=False,
-    )
-
-    all_loader = DataLoader(
-        all_dataset,
-        batch_size=config.batch_size,
-        shuffle=False,
-        num_workers=config.num_workers,
-    )
-
-    all_metrics = evaluate_model(
-        model=model,
-        loader=all_loader,
-        criterion=criterion,
-        device=device,
-        threshold=config.threshold,
-    )
-
-    print("[TEMP EXPERIMENT] all_metrics:")
-    print(json.dumps(_json_safe_metrics(all_metrics), ensure_ascii=False, indent=2))
-    # ===== END TEMP EXPERIMENT =====
-    train_metrics = evaluate_model(
-        model=model,
-        loader=train_loader,
-        criterion=criterion,
-        device=device,
-        threshold=config.threshold,
-    )
-    val_metrics = evaluate_model(
-        model=model,
-        loader=val_loader,
-        criterion=criterion,
-        device=device,
-        threshold=config.threshold,
-    )
-    test_metrics = evaluate_model(
-        model=model,
-        loader=test_loader,
-        criterion=criterion,
-        device=device,
-        threshold=config.threshold,
-    )
 
     # 使用 best_model 在验证集上收集原始概率，用于阈值搜索与概率校准
+    print("Collecting validation predictions for threshold search and calibration...")
     val_predictions = collect_predictions(
         model=model,
         loader=val_loader,
@@ -287,58 +243,30 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
     )
 
     # 基于验证集原始概率搜索最优二分类阈值
+    print("Searching best threshold on validation split...")
+    threshold_search_start = time.perf_counter()
     threshold_summary = search_best_threshold(
         y_true=val_predictions["y_true"].to_numpy(),
         y_prob=val_predictions["y_prob"].to_numpy(),
         metric="f1",
         search_on="val",
     )
+    threshold_search_elapsed = time.perf_counter() - threshold_search_start
     best_threshold = float(threshold_summary["best_threshold"])
-
-    # 使用验证集最佳阈值重新计算 train / val / test 指标
-    train_metrics = evaluate_model(
-        model=model,
-        loader=train_loader,
-        criterion=criterion,
-        device=device,
-        threshold=best_threshold,
+    print(
+        "Best threshold search finished: "
+        f"best_threshold={best_threshold:.6f}, "
+        f"best_f1={float(threshold_summary['best_metric_value']):.6f}, "
+        f"candidates={threshold_summary['candidate_count']}, "
+        f"elapsed={threshold_search_elapsed:.2f}s"
     )
 
-    val_metrics = evaluate_model(
-        model=model,
-        loader=val_loader,
-        criterion=criterion,
-        device=device,
-        threshold=best_threshold,
-    )
-
-    test_metrics = evaluate_model(
-        model=model,
-        loader=test_loader,
-        criterion=criterion,
-        device=device,
-        threshold=best_threshold,
-    )
-
-    # 重新生成带最佳阈值 y_pred 的验证集与测试集预测文件
-    val_predictions = collect_predictions(
-        model=model,
-        loader=val_loader,
-        device=device,
-        threshold=best_threshold,
-    )
-
-    test_predictions = collect_predictions(
-        model=model,
-        loader=test_loader,
-        device=device,
-        threshold=best_threshold,
-    )
-
-    # 基于验证集拟合保序回归校准器，并保存 calibrator.pkl
-    calibrator = IsotonicRiskCalibrator()
     val_y_true = val_predictions["y_true"].to_numpy()
     val_y_prob = val_predictions["y_prob"].to_numpy()
+
+    # 基于验证集拟合保序回归校准器，并保存 calibrator.pkl
+    print("Fitting isotonic calibrator...")
+    calibrator = IsotonicRiskCalibrator()
     calibrated_val_prob = calibrator.fit_transform(
         y_true=val_y_true,
         y_prob=val_y_prob,
@@ -351,19 +279,81 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
         threshold=best_threshold,
     )
 
+    train_metrics = None
+    if config.evaluate_train:
+        print("Evaluating train split with best threshold...")
+        train_metrics = evaluate_model(
+            model=model,
+            loader=train_loader,
+            criterion=criterion,
+            device=device,
+            threshold=best_threshold,
+        )
+
+    print("Evaluating validation split with best threshold...")
+    val_metrics = evaluate_model(
+        model=model,
+        loader=val_loader,
+        criterion=criterion,
+        device=device,
+        threshold=best_threshold,
+    )
+
+    print("Evaluating test split with best threshold...")
+    test_metrics = evaluate_model(
+        model=model,
+        loader=test_loader,
+        criterion=criterion,
+        device=device,
+        threshold=best_threshold,
+    )
+
     evaluation_summary = build_evaluation_summary(
         train_metrics=train_metrics,
         val_metrics=val_metrics,
         test_metrics=test_metrics,
         threshold_summary=threshold_summary,
         calibration_summary=calibration_summary,
+        save_predictions=config.save_predictions,
     )
-    save_metrics_history(output_dir / "metrics_history.csv", history)
-    val_predictions.to_csv(output_dir / "val_predictions.csv", index=False)
-    test_predictions.to_csv(output_dir / "test_predictions.csv", index=False)
+
+    print("Saving training artifacts...")
+    if config.save_history:
+        save_metrics_history(output_dir / "metrics_history.csv", history)
+
+    if config.save_predictions:
+        val_predictions = val_predictions.copy()
+        val_predictions["y_pred"] = (
+            val_predictions["y_prob"].to_numpy() >= best_threshold
+        ).astype(np.int64)
+        val_predictions.to_csv(output_dir / "val_predictions.csv", index=False)
+
+        test_predictions = collect_predictions(
+            model=model,
+            loader=test_loader,
+            device=device,
+            threshold=best_threshold,
+        )
+        test_predictions.to_csv(output_dir / "test_predictions.csv", index=False)
+
     save_json(output_dir / "threshold_summary.json", threshold_summary)
     save_json(output_dir / "calibration_summary.json", calibration_summary)
     save_json(output_dir / "evaluation_summary.json", evaluation_summary)
+
+    artifacts = {
+        "best_model": "best_model.pt",
+        "training_config": "training_config.json",
+        "feature_columns": "feature_columns.json",
+        "threshold_summary": "threshold_summary.json",
+        "evaluation_summary": "evaluation_summary.json",
+        "calibrator": "calibrator.pkl",
+        "calibration_summary": "calibration_summary.json",
+    }
+    if config.save_history:
+        artifacts["metrics_history"] = "metrics_history.csv"
+    if config.save_predictions:
+        artifacts["val_predictions"] = "val_predictions.csv"
+        artifacts["test_predictions"] = "test_predictions.csv"
 
     report = {
         "task": "sequence_model_training",
@@ -390,21 +380,10 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
             "best_metric": str(config.best_metric),
             "best_metric_value": _to_optional_float(best_metric_value),
         },
-        "train_metrics": _json_safe_metrics(train_metrics),
+        "train_metrics": _json_safe_metrics(train_metrics) if train_metrics else None,
         "val_metrics": _json_safe_metrics(val_metrics),
         "test_metrics": _json_safe_metrics(test_metrics),
-        "artifacts": {
-            "best_model": "best_model.pt",
-            "metrics_history": "metrics_history.csv",
-            "val_predictions": "val_predictions.csv",
-            "test_predictions": "test_predictions.csv",
-            "training_config": "training_config.json",
-            "feature_columns": "feature_columns.json",
-            "threshold_summary": "threshold_summary.json",
-            "evaluation_summary": "evaluation_summary.json",
-            "calibrator": "calibrator.pkl",
-            "calibration_summary": "calibration_summary.json",
-        },
+        "artifacts": artifacts,
         "notes": [ "Isotonic regression calibrator is fitted on validation predictions.",
                     "Best decision threshold is selected on validation split by F1.",
                     "MC-Dropout is configured at runtime through model_artifact_manifest.json.",
@@ -413,6 +392,7 @@ def train_sequence_model(config: SequenceTrainConfig) -> Dict[str, Any]:
 
     save_json(output_dir / "sequence_model_report.json", report)
 
+    print("Sequence model training finished.")
     return report
 
 
@@ -557,7 +537,7 @@ def collect_predictions(
     threshold: float = 0.5,
 ) -> pd.DataFrame:
     """
-    收集测试集预测结果，用于保存 test_predictions.csv。
+    收集指定 split 的预测结果，用于阈值搜索、校准或按需保存预测明细。
 
     当前 DataLoader 不返回 sample_id，因此使用 sample_order 表示测试集内部顺序。
     """
@@ -663,6 +643,15 @@ def _validate_config(config: SequenceTrainConfig) -> None:
 
     if str(config.device).lower() not in {"auto", "cpu", "cuda", "mps"}:
         raise ValueError("device 仅支持 auto、cpu、cuda、mps")
+
+    if not isinstance(config.save_predictions, bool):
+        raise ValueError("save_predictions 必须为 bool")
+
+    if not isinstance(config.save_history, bool):
+        raise ValueError("save_history 必须为 bool")
+
+    if not isinstance(config.evaluate_train, bool):
+        raise ValueError("evaluate_train 必须为 bool")
 
 
 def _prepare_output_dir(output_dir: Path, overwrite: bool) -> None:
@@ -788,34 +777,43 @@ def search_best_threshold(
     if metric != "f1":
         raise ValueError("当前阈值搜索仅支持 metric='f1'")
 
-    candidate_thresholds = np.unique(
-        np.concatenate(
-            [
-                np.linspace(0.01, 0.99, 99, dtype=np.float64),
-                y_prob_array,
-            ]
-        )
-    )
-
     best_threshold = 0.5
-    best_metric_value = -1.0
-    best_metrics: Dict[str, Any] | None = None
+    warnings: list[str] = []
 
-    for threshold in candidate_thresholds:
-        metrics = compute_binary_metrics(
+    if np.unique(y_true_array).shape[0] < 2:
+        warnings.append("validation labels contain a single class; fallback to threshold=0.5")
+        thresholds = np.asarray([], dtype=np.float64)
+        best_metrics = compute_binary_metrics(
             y_true=y_true_array,
             y_prob=y_prob_array,
-            threshold=float(threshold),
+            threshold=best_threshold,
         )
-        current_value = float(metrics["f1"])
+        best_metric_value = float(best_metrics["f1"])
+    else:
+        precision, recall, thresholds = precision_recall_curve(
+            y_true_array,
+            y_prob_array,
+        )
 
-        if current_value > best_metric_value:
-            best_metric_value = current_value
-            best_threshold = float(threshold)
-            best_metrics = metrics
-
-    if best_metrics is None:
-        raise RuntimeError("failed to search best threshold")
+        if thresholds.size == 0:
+            warnings.append("precision_recall_curve returned no thresholds; fallback to threshold=0.5")
+            best_metrics = compute_binary_metrics(
+                y_true=y_true_array,
+                y_prob=y_prob_array,
+                threshold=best_threshold,
+            )
+            best_metric_value = float(best_metrics["f1"])
+        else:
+            f1_values = 2 * precision * recall / (precision + recall + 1e-12)
+            f1_for_thresholds = f1_values[:-1]
+            best_index = int(np.argmax(f1_for_thresholds))
+            best_threshold = float(thresholds[best_index])
+            best_metric_value = float(f1_for_thresholds[best_index])
+            best_metrics = compute_binary_metrics(
+                y_true=y_true_array,
+                y_prob=y_prob_array,
+                threshold=best_threshold,
+            )
 
     return {
         "best_threshold": float(best_threshold),
@@ -823,11 +821,13 @@ def search_best_threshold(
         "search_on": str(search_on),
         "metric": str(metric),
         "best_metric_value": float(best_metric_value),
-        "candidate_count": int(candidate_thresholds.shape[0]),
+        "candidate_count": int(thresholds.shape[0]),
+        "warnings": warnings,
         "metrics_at_best_threshold": _json_safe_metrics(best_metrics),
         "notes": [
             "Threshold is selected on validation predictions.",
-            "The selected threshold is used for final train/val/test binary metrics and runtime predicted_label.",
+            "F1 threshold search uses sklearn.metrics.precision_recall_curve for vectorized large-validation performance.",
+            "The selected threshold is used for final validation/test binary metrics and runtime predicted_label.",
         ],
     }
 
@@ -882,15 +882,25 @@ def build_calibration_summary(
 
 
 def build_evaluation_summary(
-    train_metrics: Dict[str, Any],
+    train_metrics: Dict[str, Any] | None,
     val_metrics: Dict[str, Any],
     test_metrics: Dict[str, Any],
     threshold_summary: Dict[str, Any],
     calibration_summary: Dict[str, Any],
+    save_predictions: bool = False,
 ) -> Dict[str, Any]:
     """
     构建模型最终评估摘要。
     """
+    artifacts = {
+        "threshold_summary": "threshold_summary.json",
+        "calibration_summary": "calibration_summary.json",
+        "calibrator": "calibrator.pkl",
+    }
+    if save_predictions:
+        artifacts["val_predictions"] = "val_predictions.csv"
+        artifacts["test_predictions"] = "test_predictions.csv"
+
     return {
         "task": "sequence_model_evaluation",
         "threshold": {
@@ -900,7 +910,7 @@ def build_evaluation_summary(
             "best_metric_value": threshold_summary.get("best_metric_value"),
         },
         "metrics": {
-            "train": _json_safe_metrics(train_metrics),
+            "train": _json_safe_metrics(train_metrics) if train_metrics else None,
             "val": _json_safe_metrics(val_metrics),
             "test": _json_safe_metrics(test_metrics),
         },
@@ -912,13 +922,7 @@ def build_evaluation_summary(
             "brier_score_before": calibration_summary.get("brier_score_before"),
             "brier_score_after": calibration_summary.get("brier_score_after"),
         },
-        "artifacts": {
-            "threshold_summary": "threshold_summary.json",
-            "calibration_summary": "calibration_summary.json",
-            "calibrator": "calibrator.pkl",
-            "val_predictions": "val_predictions.csv",
-            "test_predictions": "test_predictions.csv",
-        },
+        "artifacts": artifacts,
     }
 
 def _to_optional_float(value: Any) -> float | None:

@@ -24,13 +24,13 @@ def touch(path: Path) -> None:
 
 
 def make_model_dir(tmp_path: Path) -> Path:
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     write_json(
         model_dir / "model_artifact_manifest.json",
         {
-            "model_version": "bilstm_attention_h1_full_features",
+            "model_version": "bilstm_attention_h1_synthetic_v3",
             "model_name": "bilstm_attention",
             "artifacts": {
                 "model_weight": "best_model.pt",
@@ -63,7 +63,7 @@ def test_update_manifest_calibration_success(tmp_path: Path) -> None:
         (model_dir / "model_artifact_manifest.json").read_text(encoding="utf-8")
     )
 
-    assert manifest["model_version"] == "bilstm_attention_h1_full_features"
+    assert manifest["model_version"] == "bilstm_attention_h1_synthetic_v3"
     assert manifest["model_name"] == "bilstm_attention"
     assert manifest["artifacts"]["model_weight"] == "best_model.pt"
 
@@ -78,7 +78,7 @@ def test_update_manifest_calibration_success(tmp_path: Path) -> None:
 
 
 def test_update_manifest_calibration_fails_when_manifest_missing(tmp_path: Path) -> None:
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     touch(model_dir / "calibrator.pkl")

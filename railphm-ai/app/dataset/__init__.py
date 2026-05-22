@@ -2,6 +2,7 @@
 
 from app.dataset.dataset_builder import WindowDatasetBuilder
 from app.dataset.dataset_inspector import DatasetInspectionResult, DatasetInspector
+from app.dataset.derived_feature_builder import DerivedFeatureBuilder
 from app.dataset.feature_processor import FeatureProcessResult, FeatureProcessor
 from app.dataset.segment_loader import SegmentData, SegmentLoader
 from app.dataset.split_builder import DatasetSplitBuilder, DatasetSplitResult
@@ -12,6 +13,7 @@ __all__ = [
     "DatasetInspector",
     "DatasetSplitBuilder",
     "DatasetSplitResult",
+    "DerivedFeatureBuilder",
     "FeatureProcessResult",
     "FeatureProcessor",
     "SegmentData",

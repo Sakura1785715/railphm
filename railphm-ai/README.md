@@ -118,15 +118,21 @@ model = bilstm_attention：最终风险预测模型采用 Bi-LSTM + Attention。
 当前推荐使用统一数据集目录：
 
 ```text
-data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1
+data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1
 ```
 
 该目录在完成标准化、工况划分和工况 one-hot 增强后，作为最终训练数据集使用。
 
+原始窗口数据集目录：
+
+```text
+data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1
+```
+
 推荐模型输出目录：
 
 ```text
-outputs/sequence_models/bilstm_attention_h1_full_features
+outputs/sequence_models/bilstm_attention_h1_synthetic_v3
 ```
 
 该目录保存最终模型权重、训练配置、校准器、评估摘要和运行时 manifest。
@@ -158,7 +164,15 @@ source /Users/hannn/Desktop/railphm/railphm-server/.venv/bin/activate
 ### 6.1 构建滑动窗口数据集
 
 ```bash
-python scripts/build_window_dataset.py   --segments-dir /path/to/atp_segments_v1   --output-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1   --window-size 30   --stride 1   --horizon 1   --feature-profile full_features   --overwrite   --verbose
+python scripts/build_window_dataset.py \
+  --segments-dir "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/数据治理/数据-终" \
+  --output-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --window-size 30 \
+  --stride 1 \
+  --horizon 1 \
+  --feature-profile full_features \
+  --overwrite \
+  --verbose
 ```
 
 输出文件包括：
@@ -176,7 +190,15 @@ dataset_summary.json
 ### 6.2 划分训练集、验证集和测试集
 
 ```bash
-python scripts/split_dataset.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1   --train-ratio 0.7   --val-ratio 0.15   --test-ratio 0.15   --seed 42   --overwrite
+python scripts/split_dataset.py \
+  --dataset-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --scenario-summary-file "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/数据治理/数据-终/synthetic_generation_summary_v3.csv" \
+  --stratify-by-scenario \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --overwrite
 ```
 
 输出文件位于：
@@ -188,17 +210,23 @@ splits/test_indices.npy
 splits/split_summary.json
 ```
 
-划分方式以 `segment_id` 为单位，避免同一连续片段中的高度相似窗口同时进入训练集和测试集。
+默认划分方式以 `segment_id` 为单位；传入 `--stratify-by-scenario` 后，会先按 `scenario` 分层，再在每个场景内按 `segment_id` 划分，避免同一连续片段中的高度相似窗口同时进入训练集和测试集。
 
 ---
 
 ### 6.3 标准化窗口数据集
 
 ```bash
-python scripts/scale_window_dataset.py   --input-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1   --output-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --method standard   --overwrite
+python scripts/scale_window_dataset.py \
+  --input-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --output-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --method standard \
+  --overwrite \
+  --delete-input-after-success
 ```
 
 标准化参数只基于训练集样本拟合，验证集和测试集只执行 transform，避免数据泄露。
+`raw_window_w30_s1_h1` 是中间数据集；标准化成功后可以删除其中的大体积 raw `X.npy` 所在目录。最终训练和推理只使用 `scaled_window_w30_s1_h1`，不要删除该目录，也不要删除其中的 `window_manifest.csv`、`feature_columns.json`、`dataset_summary.json`、`splits/` 等训练与追溯必需文件。
 
 输出目录会保留原有数据集文件和 `splits/`，并新增：
 
@@ -211,7 +239,12 @@ scaler_summary.json
 ### 6.4 执行 K-means 工况划分
 
 ```bash
-python scripts/cluster_conditions.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --n-clusters 3   --seed 42   --overwrite   --verbose
+python scripts/cluster_conditions.py \
+  --dataset-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --n-clusters 3 \
+  --seed 42 \
+  --overwrite \
+  --verbose
 ```
 
 输出文件包括：
@@ -232,7 +265,9 @@ condition_model.pkl
 当前项目采用原地增强方式，直接在标准化数据集目录中更新 `X.npy` 和相关元信息：
 
 ```bash
-python scripts/build_condition_augmented_dataset.py   --input-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --verbose
+python scripts/build_condition_augmented_dataset.py \
+  --input-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --verbose
 ```
 
 执行后，原始特征后会追加：
@@ -243,11 +278,13 @@ condition_1
 condition_2
 ```
 
-如果原始特征维度为 20，工况数为 3，则增强后：
+当前原始窗口特征维度为 18，工况数为 3，则增强后：
 
 ```text
-X.shape: [num_samples, 30, 23]
+X.shape: [num_samples, 30, 21]
 ```
+
+模型输入字段口径为：工况增强前 18 维基础与派生特征，增强后追加 `condition_0`、`condition_1`、`condition_2`，最终训练产物 `feature_columns.json` 和 `model_artifact_manifest.json` 中的 `feature_dim` 应为 21。
 
 该步骤会生成或更新：
 
@@ -265,49 +302,62 @@ condition_augmented_summary.json
 先用较小 epoch 跑通流程：
 
 ```bash
-python scripts/train_sequence_model.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --output-dir outputs/sequence_models/bilstm_attention_h1_full_features   --model bilstm_attention   --epochs 3   --batch-size 256   --lr 0.001   --seed 42   --device auto   --threshold 0.5   --hidden-dim 64   --num-layers 1   --dropout 0.2   --best-metric val_auc   --overwrite
+python scripts/train_sequence_model.py \
+  --dataset-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --output-dir outputs/sequence_models/bilstm_attention_h1_synthetic_v3 \
+  --model bilstm_attention \
+  --epochs 3 \
+  --batch-size 256 \
+  --lr 0.001 \
+  --seed 42 \
+  --device auto \
+  --threshold 0.5 \
+  --hidden-dim 64 \
+  --num-layers 1 \
+  --dropout 0.2 \
+  --best-metric val_auc \
+  --overwrite
 ```
 
-正式训练可将 `--epochs` 改为 30：
+默认系统模式不保存 `val_predictions.csv`、`test_predictions.csv`、`metrics_history.csv`，训练结束后也不额外评估 train split。若需要算法实验分析，可额外添加：
 
 ```bash
-python scripts/train_sequence_model.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --output-dir outputs/sequence_models/bilstm_attention_h1_full_features   --model bilstm_attention   --epochs 30   --batch-size 256   --lr 0.001   --seed 42   --device auto   --threshold 0.5   --hidden-dim 64   --num-layers 1   --dropout 0.2   --best-metric val_auc   --overwrite
+--save-predictions --save-history --evaluate-train
 ```
 
-训练完成后，输出目录应包含：
+默认训练完成后，输出目录主要包含：
 
 ```text
 best_model.pt
 training_config.json
-metrics_history.csv
-val_predictions.csv
-test_predictions.csv
-sequence_model_report.json
 feature_columns.json
 threshold_summary.json
 evaluation_summary.json
-calibrator.pkl
 calibration_summary.json
+calibrator.pkl
+sequence_model_report.json
 ```
 
 其中：
 
 ```text
 best_model.pt：验证集指标最优模型权重；
-val_predictions.csv：验证集预测结果，用于阈值搜索和保序回归拟合；
-test_predictions.csv：测试集预测结果；
 threshold_summary.json：验证集最佳阈值；
 calibrator.pkl：保序回归概率校准器；
 calibration_summary.json：概率校准摘要；
 evaluation_summary.json：最终评估摘要。
 ```
 
+正式系统运行只依赖 `best_model.pt`、`threshold_summary.json`、`calibrator.pkl`、`feature_columns.json`、`model_artifact_manifest.json` 等必要产物。
+
 ---
 
 ### 6.7 生成运行时模型产物清单
 
 ```bash
-python scripts/build_model_artifact_manifest.py   --model-dir outputs/sequence_models/bilstm_attention_h1_full_features   --overwrite
+python scripts/build_model_artifact_manifest.py \
+  --model-dir outputs/sequence_models/bilstm_attention_h1_synthetic_v3 \
+  --overwrite
 ```
 
 生成：
@@ -334,8 +384,8 @@ uncertainty 配置
 启动前建议确认默认配置：
 
 ```text
-AI_MODEL_DIR = outputs/sequence_models/bilstm_attention_h1_full_features
-AI_DATASET_DIR = data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1
+AI_MODEL_DIR = outputs/sequence_models/bilstm_attention_h1_synthetic_v3
+AI_DATASET_DIR = data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1
 AI_DEFAULT_MC_SAMPLES = 30
 ```
 
@@ -345,10 +395,10 @@ AI_DEFAULT_MC_SAMPLES = 30
 python run.py
 ```
 
-如果需要临时指定模型目录和数据集目录，可以使用环境变量：
+`app/core/config.py` 默认已经指向 synthetic_v3 模型和数据集。正常情况下不再需要每次手动设置 `RAILPHM_AI_MODEL_DIR` 和 `RAILPHM_AI_DATASET_DIR`；只有临时切换模型或数据集时才需要使用环境变量覆盖：
 
 ```bash
-RAILPHM_AI_MODEL_DIR=outputs/sequence_models/bilstm_attention_h1_full_features RAILPHM_AI_DATASET_DIR=data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1 RAILPHM_AI_ENABLE_MOCK_FALLBACK=false python run.py
+RAILPHM_AI_MODEL_DIR=outputs/sequence_models/bilstm_attention_h1_synthetic_v3 RAILPHM_AI_DATASET_DIR=data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 RAILPHM_AI_ENABLE_MOCK_FALLBACK=false python run.py
 ```
 
 ---
@@ -373,7 +423,7 @@ curl -X POST http://127.0.0.1:5001/infer   -H "Content-Type: application/json"  
 {
   "data_source": "local_window_dataset",
   "model_name": "bilstm_attention",
-  "model_version": "bilstm_attention_h1_full_features",
+  "model_version": "bilstm_attention_h1_synthetic_v3",
   "calibration_enabled": true,
   "calibration_method": "isotonic_regression",
   "uncertainty_enabled": true,
@@ -415,7 +465,46 @@ feature_columns.json
 
 ---
 
-## 9. 当前保留链路说明
+## 9. 配置自检
+
+建议在仓库根目录运行：
+
+```bash
+grep -R "bilstm_attention_h1_full_features" railphm-ai/app railphm-ai/scripts railphm-ai/README.md
+```
+
+预期：
+
+```text
+app/core/config.py 不应再出现旧默认路径。
+README 默认命令不应再出现旧路径。
+如果旧路径只出现在历史说明或 deprecated 说明中，它不是默认流程。
+```
+
+进入 `railphm-ai` 目录后，也可以直接确认默认配置：
+
+```bash
+python - <<'PY'
+from app.core.config import BaseConfig
+print(BaseConfig.AI_MODEL_DIR)
+print(BaseConfig.AI_DATASET_DIR)
+PY
+```
+
+预期输出：
+
+```text
+outputs/sequence_models/bilstm_attention_h1_synthetic_v3
+data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1
+```
+
+默认 `/infer` 验收以 `local_window_dataset` 的 `sample_index` 推理为准：运行时从 `AI_MODEL_DIR` 读取 `model_artifact_manifest.json`，再从 `AI_DATASET_DIR` 读取 `X.npy`、`y.npy` 和 `window_manifest.csv`。
+
+`/infer/range` 已补充 `monitor_rows` 中英文基础字段映射，并会在字段足够时复用 `DerivedFeatureBuilder` 生成 18 维派生特征；但 21 维工况增强输入还依赖 server 侧 `monitor_rows` 提供可联调的工况字段，后续仍需要结合 server 实际字段继续验证。
+
+---
+
+## 10. 当前保留链路说明
 
 当前项目不再维护以下脚本类型：
 
@@ -434,48 +523,92 @@ prediction_horizon 汇总脚本
 
 ---
 
-## 10. 常见问题
+## 11. 常见问题
 
-### 10.1 为什么没有 configs 目录？
+### 11.1 为什么没有 configs 目录？
 
 `configs/` 原本用于统一实验 pipeline 的 JSON 配置管理。当前项目已经移除统一实验 pipeline，改为保留清晰的 7 步主链路脚本，因此不再需要 `configs/`。
 
-### 10.2 为什么没有 baseline 脚本？
+### 11.2 为什么没有 baseline 脚本？
 
 当前最终模型已经确定为 Bi-LSTM+Attention，baseline 训练和分析脚本不再参与业务链路。项目只保留最终模型训练入口 `train_sequence_model.py`。
 
-### 10.3 为什么工况增强直接写回标准化数据集目录？
+### 11.3 为什么工况增强直接写回标准化数据集目录？
 
 当前项目已经确定后续训练和推理都使用工况增强后的数据集，不再保留未增强版本作为主流程输入。因此 `build_condition_augmented_dataset.py` 默认支持原地增强，减少数据冗余。
 
-### 10.4 为什么 `risk_raw` 和 `risk_score` 可能不同？
+### 11.4 为什么 `risk_raw` 和 `risk_score` 可能不同？
 
 `risk_raw` 是模型 sigmoid 后的原始概率均值；`risk_score` 是经过保序回归校准后的概率均值。启用校准后，二者可能不同。
 
-### 10.5 为什么 `risk_std` 可能为 0？
+### 11.5 为什么 `risk_std` 可能为 0？
 
 如果 MC-Dropout 多次采样得到的原始概率经过保序回归后都被映射到同一个校准概率，例如全部映射到 1.0，则 `risk_std` 可能为 0。这不一定表示 MC-Dropout 没有执行，应同时查看 `risk_raw_std` 和 `mc_samples`。
 
 ---
 
-## 11. 最小可用命令链路
+## 12. 最小可用命令链路
 
 从数据构建到运行时推理的最小链路如下：
 
 ```bash
-python scripts/build_window_dataset.py   --segments-dir /path/to/atp_segments_v1   --output-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1   --window-size 30   --stride 1   --horizon 1   --feature-profile full_features   --overwrite   --verbose
+python scripts/build_window_dataset.py \
+  --segments-dir "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/数据治理/数据-终" \
+  --output-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --window-size 30 \
+  --stride 1 \
+  --horizon 1 \
+  --feature-profile full_features \
+  --overwrite \
+  --verbose
 
-python scripts/split_dataset.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1   --train-ratio 0.7   --val-ratio 0.15   --test-ratio 0.15   --seed 42   --overwrite
+python scripts/split_dataset.py \
+  --dataset-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --scenario-summary-file "/Users/hannn/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_4wgkj7va6emi12_5d45/msg/file/2026-03/数据/数据治理/数据-终/synthetic_generation_summary_v3.csv" \
+  --stratify-by-scenario \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --overwrite
 
-python scripts/scale_window_dataset.py   --input-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1   --output-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --method standard   --overwrite
+python scripts/scale_window_dataset.py \
+  --input-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --output-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --method standard \
+  --overwrite \
+  --delete-input-after-success
 
-python scripts/cluster_conditions.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --n-clusters 3   --seed 42   --overwrite   --verbose
+python scripts/cluster_conditions.py \
+  --dataset-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --n-clusters 3 \
+  --seed 42 \
+  --overwrite \
+  --verbose
 
-python scripts/build_condition_augmented_dataset.py   --input-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --verbose
+python scripts/build_condition_augmented_dataset.py \
+  --input-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --verbose
 
-python scripts/train_sequence_model.py   --dataset-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1   --output-dir outputs/sequence_models/bilstm_attention_h1_full_features   --model bilstm_attention   --epochs 30   --batch-size 256   --lr 0.001   --seed 42   --device auto   --threshold 0.5   --hidden-dim 64   --num-layers 1   --dropout 0.2   --best-metric val_auc   --overwrite
+python scripts/train_sequence_model.py \
+  --dataset-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
+  --output-dir outputs/sequence_models/bilstm_attention_h1_synthetic_v3 \
+  --model bilstm_attention \
+  --epochs 3 \
+  --batch-size 256 \
+  --lr 0.001 \
+  --seed 42 \
+  --device auto \
+  --threshold 0.5 \
+  --hidden-dim 64 \
+  --num-layers 1 \
+  --dropout 0.2 \
+  --best-metric val_auc \
+  --overwrite
 
-python scripts/build_model_artifact_manifest.py   --model-dir outputs/sequence_models/bilstm_attention_h1_full_features   --overwrite
+python scripts/build_model_artifact_manifest.py \
+  --model-dir outputs/sequence_models/bilstm_attention_h1_synthetic_v3 \
+  --overwrite
 
 python run.py
 ```

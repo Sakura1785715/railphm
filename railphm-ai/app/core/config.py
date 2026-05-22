@@ -19,14 +19,14 @@ class BaseConfig:
     APP_PORT: int = int(os.getenv("APP_PORT", "5001"))
     SECRET_KEY: str = os.getenv("SECRET_KEY", "railphm-ai-dev-secret")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    MODEL_VERSION: str = os.getenv("MODEL_VERSION", "mock-bilstm-attention-v1")
+    MODEL_VERSION: str = os.getenv("MODEL_VERSION", "bilstm_attention_h1_synthetic_v3")
     AI_MODEL_DIR: str = os.getenv(
         "RAILPHM_AI_MODEL_DIR",
-        "outputs/sequence_models/bilstm_attention_h1_full_features",
+        "outputs/sequence_models/bilstm_attention_h1_synthetic_v3",
     )
     AI_DATASET_DIR: str = os.getenv(
         "RAILPHM_AI_DATASET_DIR",
-        "data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1",
+        "data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1",
     )
     AI_RUNTIME_DEVICE: str = os.getenv("RAILPHM_AI_RUNTIME_DEVICE", "auto")
     AI_DEFAULT_MC_SAMPLES: int = int(os.getenv("RAILPHM_AI_DEFAULT_MC_SAMPLES", "30"))

@@ -4,8 +4,8 @@
 再用这组训练集统计量对完整 X.npy 做 z-score 标准化，
 最后生成一个新的标准化数据集目录。
 python scripts/scale_window_dataset.py \
-  --input-dir data/datasets/bilstm_attention_h1_full_features/raw_window_w30_s1_h1 \
-  --output-dir data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1 \
+  --input-dir data/datasets/bilstm_attention_h1_synthetic_v3/raw_window_w30_s1_h1 \
+  --output-dir data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1 \
   --overwrite \
   --delete-input-after-success
 """

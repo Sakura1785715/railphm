@@ -188,9 +188,21 @@ class WindowBuilder:
             "target_是否是跨天车次": self._safe_value(target_row.get("是否是跨天车次")),
             "target_司机号": self._safe_value(target_row.get("司机号")),
             "target_唯一标识": self._safe_value(target_row.get("唯一标识")),
+            "target_里程": self._safe_value(target_row.get("里程")),
+            "target_运行距离": self._safe_value(target_row.get("运行距离")),
+            "target_制动信息": self._safe_value(target_row.get("制动信息")),
+            "target_天气信息": self._safe_value(target_row.get("天气信息")),
+            "target_室外温度": self._safe_value(target_row.get("室外温度")),
+            "target_湿度": self._safe_value(target_row.get("湿度")),
             "window_start_车号": self._safe_value(window_start_row.get("车号")),
             "window_start_车次": self._safe_value(window_start_row.get("车次")),
             "window_start_唯一标识": self._safe_value(window_start_row.get("唯一标识")),
+            "window_start_里程": self._safe_value(window_start_row.get("里程")),
+            "window_start_运行距离": self._safe_value(window_start_row.get("运行距离")),
+            "window_start_制动信息": self._safe_value(window_start_row.get("制动信息")),
+            "window_start_天气信息": self._safe_value(window_start_row.get("天气信息")),
+            "window_start_室外温度": self._safe_value(window_start_row.get("室外温度")),
+            "window_start_湿度": self._safe_value(window_start_row.get("湿度")),
         }
 
         return record

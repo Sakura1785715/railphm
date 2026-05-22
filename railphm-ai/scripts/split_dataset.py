@@ -74,6 +74,19 @@ def parse_args() -> argparse.Namespace:
         help="如果输出目录已存在，则覆盖其中旧划分文件",
     )
 
+    parser.add_argument(
+        "--scenario-summary-file",
+        type=Path,
+        default=None,
+        help="scenario 汇总 CSV，例如 synthetic_generation_summary_v3.csv",
+    )
+
+    parser.add_argument(
+        "--stratify-by-scenario",
+        action="store_true",
+        help="按 scenario 分层后再基于 segment_id 划分 train/val/test",
+    )
+
     return parser.parse_args()
 
 
@@ -85,6 +98,8 @@ def print_split_summary(summary: dict) -> None:
     print(f"dataset_dir     : {summary.get('dataset_dir')}")
     print(f"output_dir      : {summary.get('output_dir')}")
     print(f"split_strategy  : {summary.get('split_strategy')}")
+    if summary.get("scenario_summary_file"):
+        print(f"scenario_summary: {summary.get('scenario_summary_file')}")
     print(f"train_ratio     : {summary.get('train_ratio')}")
     print(f"val_ratio       : {summary.get('val_ratio')}")
     print(f"test_ratio      : {summary.get('test_ratio')}")
@@ -110,6 +125,18 @@ def print_split_summary(summary: dict) -> None:
         print(f"  positive_ratio : {positive_ratio_text}")
         print(f"  indices_file   : {part.get('indices_file')}")
         print()
+
+    scenario_distribution = summary.get("scenario_distribution")
+    if scenario_distribution:
+        print("scenario_distribution:")
+        for part_name in ["train", "val", "test"]:
+            part_distribution = scenario_distribution.get(part_name, {})
+            print(f"  {part_name}:")
+            for scenario, item in part_distribution.items():
+                scenario_cn = item.get("scenario_cn", "")
+                segment_count = item.get("segment_count", 0)
+                print(f"    {scenario} ({scenario_cn}): {segment_count}")
+        print()
     # 检查是否发生 segment 泄漏
     leakage_check = summary.get("leakage_check", {})
     print("leakage_check:")
@@ -133,6 +160,8 @@ def main() -> int:
             test_ratio=args.test_ratio,
             seed=args.seed,
             overwrite=args.overwrite,
+            scenario_summary_file=args.scenario_summary_file,
+            stratify_by_scenario=args.stratify_by_scenario,
         )
     except Exception as exc:
         print(f"[ERROR] 数据集划分失败: {exc}", file=sys.stderr)

@@ -14,19 +14,19 @@ def write_json(path: Path, data: object) -> None:
 
 def make_manifest_data(**overrides):
     data = {
-        "model_version": "bilstm_attention_h1_full_features",
+        "model_version": "bilstm_attention_h1_synthetic_v3",
         "model_name": "bilstm_attention",
         "model_class": "BiLSTMAttentionClassifier",
         "window_size": 30,
-        "feature_dim": 23,
-        "input_dim": 23,
+        "feature_dim": 21,
+        "input_dim": 21,
         "hidden_dim": 64,
         "num_layers": 1,
         "dropout": 0.3,
         "threshold": 0.26,
-        "dataset_dir": "data/datasets/bilstm_attention_h1_full_features/train_scaled_condition_k3",
-        "output_dir": "outputs/sequence_models/bilstm_attention_h1_full_features",
-        "feature_columns_count": 23,
+        "dataset_dir": "data/datasets/bilstm_attention_h1_synthetic_v3/train_scaled_condition_k3",
+        "output_dir": "outputs/sequence_models/bilstm_attention_h1_synthetic_v3",
+        "feature_columns_count": 21,
         "artifacts": {
             "model_weight": "best_model.pt",
             "training_config": "training_config.json",
@@ -57,7 +57,7 @@ def make_model_dir(
     missing_files: set[str] | None = None,
 ) -> Path:
     missing_files = missing_files or set()
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     files = [
@@ -92,17 +92,17 @@ def test_load_manifest_success(tmp_path: Path) -> None:
 
     manifest = ArtifactManifest.load(model_dir)
 
-    assert manifest.model_version == "bilstm_attention_h1_full_features"
+    assert manifest.model_version == "bilstm_attention_h1_synthetic_v3"
     assert manifest.model_name == "bilstm_attention"
     assert manifest.model_class == "BiLSTMAttentionClassifier"
     assert manifest.window_size == 30
-    assert manifest.feature_dim == 23
-    assert manifest.input_dim == 23
+    assert manifest.feature_dim == 21
+    assert manifest.input_dim == 21
     assert manifest.hidden_dim == 64
     assert manifest.num_layers == 1
     assert manifest.dropout == 0.3
     assert manifest.threshold == 0.26
-    assert manifest.feature_columns_count == 23
+    assert manifest.feature_columns_count == 21
 
 
 def test_get_path_success(tmp_path: Path) -> None:
@@ -119,11 +119,11 @@ def test_summary_contains_key_paths(tmp_path: Path) -> None:
 
     summary = manifest.summary()
 
-    assert summary["model_version"] == "bilstm_attention_h1_full_features"
+    assert summary["model_version"] == "bilstm_attention_h1_synthetic_v3"
     assert summary["model_name"] == "bilstm_attention"
     assert summary["model_class"] == "BiLSTMAttentionClassifier"
     assert summary["window_size"] == 30
-    assert summary["feature_dim"] == 23
+    assert summary["feature_dim"] == 21
     assert summary["threshold"] == 0.26
     assert summary["model_weight_path"].endswith("best_model.pt")
     assert summary["feature_columns_path"].endswith("feature_columns.json")

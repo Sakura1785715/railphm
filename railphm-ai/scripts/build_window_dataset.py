@@ -40,6 +40,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from app.dataset.dataset_builder import WindowDatasetBuilder # 导入核心对象
+from app.dataset.derived_feature_builder import DerivedFeatureBuilder
 # 导入默认窗口配置参数
 from app.dataset.feature_config import (
     DEFAULT_PREDICTION_HORIZON,
@@ -73,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="full_features",
         choices=list_feature_profiles(),
-        help="特征消融配置：full_features / remove_id_like_features / continuous_only_features",
+        help="特征配置：full_features / base_dynamic_features / derived_only_features",
     )
 
     # --segments-dir：输入目录，存放切分后的segment.csv
@@ -162,12 +163,14 @@ def resolve_existing_feature_columns(segments_dir: Path, requested_columns: list
         raise FileNotFoundError(f"segments_dir 下未找到 segment_*.csv: {segments_dir}")
 
     loader = SegmentLoader()
+    derived_feature_builder = DerivedFeatureBuilder()
     last_error = None
 
     for file_path in segment_files:
         try:
             segment_data = loader.load_segment(file_path)
-            available_columns = set(segment_data.df.columns)
+            enriched_df = derived_feature_builder.transform(segment_data.df)
+            available_columns = set(enriched_df.columns)
             actual_columns = [column for column in requested_columns if column in available_columns]
             missing_columns = [column for column in requested_columns if column not in available_columns]
 

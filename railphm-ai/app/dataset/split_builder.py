@@ -41,9 +41,14 @@ class DatasetSplitBuilder:
         test_ratio: float = 0.15, # 测试集 segment 比例，默认 0.15。
         seed: int = 42, # 随机种子，默认 42。用于保证每次划分结果可复现。
         overwrite: bool = False, # 如果输出目录已经存在，是否覆盖。
+        scenario_summary_file: Path | None = None,
+        stratify_by_scenario: bool = False,
     ) -> DatasetSplitResult:
         dataset_dir = Path(dataset_dir)
         output_dir = Path(output_dir) if output_dir is not None else dataset_dir / "splits"
+        scenario_summary_file = (
+            Path(scenario_summary_file) if scenario_summary_file is not None else None
+        )
 
         self._validate_ratios(train_ratio, val_ratio, test_ratio)
         self._validate_dataset_dir(dataset_dir)
@@ -66,13 +71,28 @@ class DatasetSplitBuilder:
         if not segment_ids:
             raise ValueError("manifest 中没有有效 segment_id")
         
-        # 调用 _split_segments()，把所有 segment_id 分成三组：
-        train_segments, val_segments, test_segments = self._split_segments(
-            segment_ids=segment_ids,
-            train_ratio=train_ratio,
-            val_ratio=val_ratio,
-            seed=seed,
-        )
+        scenario_distribution: dict[str, Any] | None = None
+
+        if stratify_by_scenario:
+            train_segments, val_segments, test_segments, scenario_distribution = (
+                self._split_segments_by_scenario(
+                    segment_ids=segment_ids,
+                    scenario_summary_file=scenario_summary_file,
+                    train_ratio=train_ratio,
+                    val_ratio=val_ratio,
+                    seed=seed,
+                )
+            )
+            split_strategy = "scenario_stratified_segment_id"
+        else:
+            # 调用 _split_segments()，把所有 segment_id 分成三组：
+            train_segments, val_segments, test_segments = self._split_segments(
+                segment_ids=segment_ids,
+                train_ratio=train_ratio,
+                val_ratio=val_ratio,
+                seed=seed,
+            )
+            split_strategy = "segment_id"
 
         train_indices = self._indices_for_segments(manifest, train_segments)
         val_indices = self._indices_for_segments(manifest, val_segments)
@@ -102,6 +122,9 @@ class DatasetSplitBuilder:
             val_ratio=val_ratio,
             test_ratio=test_ratio,
             seed=seed,
+            split_strategy=split_strategy,
+            scenario_summary_file=scenario_summary_file,
+            scenario_distribution=scenario_distribution,
         )
         # 保存索引
         np.save(output_dir / "train_indices.npy", train_indices)
@@ -197,6 +220,153 @@ class DatasetSplitBuilder:
 
         return train_segments, val_segments, test_segments
 
+    def _split_segments_by_scenario(
+        self,
+        *,
+        segment_ids: list[str],
+        scenario_summary_file: Path | None,
+        train_ratio: float,
+        val_ratio: float,
+        seed: int,
+    ) -> tuple[set[str], set[str], set[str], dict[str, Any]]:
+        if scenario_summary_file is None:
+            raise ValueError("启用 scenario 分层划分时必须传入 scenario_summary_file")
+
+        if not scenario_summary_file.exists():
+            raise FileNotFoundError(f"scenario_summary_file 不存在: {scenario_summary_file}")
+
+        scenario_summary = pd.read_csv(scenario_summary_file, encoding="utf-8-sig")
+        required_columns = {"file_name", "scenario", "scenario_cn", "status"}
+        missing_columns = sorted(required_columns - set(scenario_summary.columns))
+        if missing_columns:
+            raise ValueError(
+                "scenario_summary_file 缺少必要列: "
+                f"{missing_columns}，需要列: {sorted(required_columns)}"
+            )
+
+        pass_summary = scenario_summary[scenario_summary["status"] == "PASS"].copy()
+        if pass_summary.empty:
+            raise ValueError("scenario_summary_file 中没有 status == PASS 的记录")
+
+        pass_summary["segment_id"] = pass_summary["file_name"].astype(str).str.replace(
+            r"\.csv$",
+            "",
+            regex=True,
+        )
+
+        segment_id_set = set(segment_ids)
+        summary_segment_ids = set(pass_summary["segment_id"].dropna().astype(str).tolist())
+        missing_in_summary = sorted(segment_id_set - summary_segment_ids)
+        if missing_in_summary:
+            preview = missing_in_summary[:20]
+            raise ValueError(
+                "window_manifest.csv 中存在未出现在 PASS scenario_summary_file 中的 segment_id: "
+                f"{preview}"
+            )
+
+        pass_summary = pass_summary[pass_summary["segment_id"].isin(segment_id_set)]
+        if pass_summary.empty:
+            raise ValueError("PASS scenario_summary_file 与 window_manifest.csv 没有可对齐的 segment_id")
+
+        rng = np.random.default_rng(seed)
+        train_segments: set[str] = set()
+        val_segments: set[str] = set()
+        test_segments: set[str] = set()
+
+        for _, scenario_rows in pass_summary.groupby("scenario", sort=True):
+            scenario_segment_ids = sorted(scenario_rows["segment_id"].dropna().unique().tolist())
+            shuffled = np.array(scenario_segment_ids, dtype=object)
+            rng.shuffle(shuffled)
+
+            group_train, group_val, group_test = self._split_shuffled_segments(
+                shuffled=shuffled,
+                train_ratio=train_ratio,
+                val_ratio=val_ratio,
+            )
+            train_segments.update(group_train)
+            val_segments.update(group_val)
+            test_segments.update(group_test)
+
+        scenario_distribution = self._build_scenario_distribution(
+            scenario_summary=pass_summary,
+            train_segments=train_segments,
+            val_segments=val_segments,
+            test_segments=test_segments,
+        )
+
+        return train_segments, val_segments, test_segments, scenario_distribution
+
+    def _split_shuffled_segments(
+        self,
+        *,
+        shuffled: np.ndarray,
+        train_ratio: float,
+        val_ratio: float,
+    ) -> tuple[set[str], set[str], set[str]]:
+        total_segments = len(shuffled)
+
+        if total_segments == 0:
+            return set(), set(), set()
+
+        if total_segments == 1:
+            return set(shuffled.tolist()), set(), set()
+
+        if total_segments == 2:
+            return {str(shuffled[0])}, set(), {str(shuffled[1])}
+
+        train_count = int(total_segments * train_ratio)
+        val_count = int(total_segments * val_ratio)
+
+        train_count = max(train_count, 1)
+        val_count = max(val_count, 1)
+
+        if train_count + val_count >= total_segments:
+            val_count = max(1, total_segments - train_count - 1)
+
+        test_count = total_segments - train_count - val_count
+        if test_count <= 0:
+            raise ValueError("segment 数量过少，无法划分 train/val/test")
+
+        train_segments = set(str(item) for item in shuffled[:train_count].tolist())
+        val_segments = set(
+            str(item) for item in shuffled[train_count : train_count + val_count].tolist()
+        )
+        test_segments = set(str(item) for item in shuffled[train_count + val_count :].tolist())
+
+        return train_segments, val_segments, test_segments
+
+    def _build_scenario_distribution(
+        self,
+        *,
+        scenario_summary: pd.DataFrame,
+        train_segments: set[str],
+        val_segments: set[str],
+        test_segments: set[str],
+    ) -> dict[str, Any]:
+        return {
+            "train": self._scenario_counts_for_segments(scenario_summary, train_segments),
+            "val": self._scenario_counts_for_segments(scenario_summary, val_segments),
+            "test": self._scenario_counts_for_segments(scenario_summary, test_segments),
+        }
+
+    def _scenario_counts_for_segments(
+        self,
+        scenario_summary: pd.DataFrame,
+        segment_ids: set[str],
+    ) -> dict[str, Any]:
+        rows = scenario_summary[scenario_summary["segment_id"].isin(segment_ids)]
+        distribution: dict[str, Any] = {}
+
+        for scenario, scenario_rows in rows.groupby("scenario", sort=True):
+            scenario_cn_values = scenario_rows["scenario_cn"].dropna().astype(str).unique()
+            scenario_cn = scenario_cn_values[0] if len(scenario_cn_values) > 0 else ""
+            distribution[str(scenario)] = {
+                "scenario_cn": scenario_cn,
+                "segment_count": int(scenario_rows["segment_id"].nunique()),
+            }
+
+        return distribution
+
 
     def _indices_for_segments(
         self,
@@ -249,11 +419,14 @@ class DatasetSplitBuilder:
         val_ratio: float,
         test_ratio: float,
         seed: int,
+        split_strategy: str,
+        scenario_summary_file: Path | None,
+        scenario_distribution: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        return {
+        summary = {
             "dataset_dir": str(dataset_dir), # 数据集路径
             "output_dir": str(output_dir), # 数据集路径
-            "split_strategy": "segment_id", # 划分策略
+            "split_strategy": split_strategy, # 划分策略
             "train_ratio": train_ratio, # 划分比例
             "val_ratio": val_ratio, 
             "test_ratio": test_ratio, 
@@ -284,6 +457,14 @@ class DatasetSplitBuilder:
                 test_segments=test_segments,
             ),
         }
+
+        if scenario_summary_file is not None:
+            summary["scenario_summary_file"] = str(scenario_summary_file)
+
+        if scenario_distribution is not None:
+            summary["scenario_distribution"] = scenario_distribution
+
+        return summary
 
     def _split_part_summary(
         self,
