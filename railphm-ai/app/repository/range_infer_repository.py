@@ -11,6 +11,7 @@ from app.core.errors import BusinessException
 from app.dataset.feature_processor import FeatureProcessor
 from app.repository.infer_repository import InferRepository
 from app.runtime.monitor_feature_adapter import MonitorFeatureAdapter
+from app.runtime.online_condition_encoder import OnlineConditionEncoder
 from app.runtime.online_scaler import OnlineScalerLoader
 
 
@@ -22,7 +23,20 @@ class RangeInferRepository:
     @classmethod
     def infer_range(cls, payload: dict[str, Any]) -> dict[str, Any]:
         runtime = InferRepository._get_runtime()
-        scaler = OnlineScalerLoader.load_for_runtime(runtime)
+        condition_columns = [
+            column for column in runtime.feature_columns if column.startswith("condition_")
+        ]
+        base_feature_columns = [
+            column for column in runtime.feature_columns if not column.startswith("condition_")
+        ]
+        cls._validate_runtime_feature_layout(
+            runtime=runtime,
+            base_feature_columns=base_feature_columns,
+            condition_columns=condition_columns,
+        )
+
+        scaler = OnlineScalerLoader.load_for_runtime(runtime, feature_columns=base_feature_columns)
+        condition_encoder = OnlineConditionEncoder.load_for_runtime(runtime)
 
         monitor_rows = cls._normalize_monitor_rows(payload["monitor_rows"])
         candidate_times = cls._build_candidate_times(
@@ -32,7 +46,7 @@ class RangeInferRepository:
         )
 
         adapter = MonitorFeatureAdapter()
-        feature_processor = FeatureProcessor(feature_columns=runtime.feature_columns)
+        feature_processor = FeatureProcessor(feature_columns=base_feature_columns)
         results: list[dict[str, Any]] = []
         skipped_windows: list[dict[str, Any]] = []
 
@@ -71,20 +85,44 @@ class RangeInferRepository:
             feature_result = feature_processor.transform(feature_df)
             feature_matrix = feature_result.feature_matrix
 
-            if feature_matrix.shape != (runtime.window_size, runtime.feature_dim):
+            expected_base_shape = (runtime.window_size, len(base_feature_columns))
+            if feature_matrix.shape != expected_base_shape:
                 raise BusinessException(
                     code=500,
                     message=(
-                        "在线窗口特征矩阵 shape 与模型运行时不一致: "
+                        "在线基础特征矩阵 shape 与模型运行时不一致: "
                         f"actual={feature_matrix.shape}, "
-                        f"expected={(runtime.window_size, runtime.feature_dim)}"
+                        f"expected={expected_base_shape}"
                     ),
                     status_code=500,
                 )
 
-            window = scaler.transform(feature_matrix)
+            scaled_base_window = scaler.transform(feature_matrix)
+            condition_info = condition_encoder.encode(
+                scaled_base_window,
+                base_feature_columns=base_feature_columns,
+                condition_columns=condition_columns,
+            )
+            condition_one_hot = condition_info["condition_one_hot"]
+            condition_matrix = np.repeat(
+                condition_one_hot.reshape(1, -1),
+                runtime.window_size,
+                axis=0,
+            ).astype(np.float32, copy=False)
+            window = np.concatenate([scaled_base_window, condition_matrix], axis=1)
+
+            if window.shape != (runtime.window_size, runtime.feature_dim):
+                raise BusinessException(
+                    code=500,
+                    message=(
+                        "在线最终窗口 shape 与模型运行时不一致: "
+                        f"actual={window.shape}, "
+                        f"expected={(runtime.window_size, runtime.feature_dim)}"
+                    ),
+                    status_code=500,
+                )
             if not np.isfinite(window).all():
-                raise BusinessException(code=500, message="在线窗口标准化后存在非法数值", status_code=500)
+                raise BusinessException(code=500, message="在线最终窗口存在非法数值", status_code=500)
 
             prediction = runtime.predict_with_uncertainty(
                 window,
@@ -99,13 +137,26 @@ class RangeInferRepository:
                 "source": "monitor_rows",
                 "runtime_window_size": runtime.window_size,
                 "runtime_feature_dim": runtime.feature_dim,
+                "base_feature_dim": len(base_feature_columns),
+                "condition_feature_dim": len(condition_columns),
                 "inference_stride_seconds": payload["inference_stride_seconds"],
                 "raw_window_points": len(window_rows),
                 "window_selection_method": "latest_n_points_before_prediction_time",
-                "feature_adapter": "monitor_rows_to_feature_processor",
+                "feature_adapter": "monitor_rows_to_base_feature_processor",
+                "base_feature_columns": base_feature_columns,
+                "condition_columns": condition_columns,
                 "missing_feature_columns": feature_result.missing_feature_columns,
                 "all_nan_feature_columns": feature_result.all_nan_feature_columns,
-                "condition_label_method": "last_non_empty_condition_label_in_window",
+                "condition_label_method": "online_condition_encoder",
+                "raw_condition_label": cls._pick_condition_label(window_rows),
+                "condition_one_hot_applied": True,
+                "condition_id": int(condition_info["condition_id"]),
+                "condition_label": condition_info["condition_label"],
+                "condition_one_hot": [
+                    float(value) for value in condition_one_hot.astype(float).tolist()
+                ],
+                "final_window_shape": [int(value) for value in window.shape],
+                **condition_info["trace"],
                 **scaler.trace(),
             }
 
@@ -127,7 +178,7 @@ class RangeInferRepository:
                     "uncertainty_enabled": prediction.get("uncertainty_enabled", False),
                     "uncertainty_method": prediction.get("uncertainty_method"),
                     "mc_samples": prediction["mc_samples"],
-                    "condition_label": cls._pick_condition_label(window_rows),
+                    "condition_label": condition_info["condition_label"],
                     "data_source": "influxdb_online_range",
                     "trace": trace,
                 }
@@ -152,6 +203,35 @@ class RangeInferRepository:
             "results": results,
             "skipped_windows": skipped_windows,
         }
+
+    @staticmethod
+    def _validate_runtime_feature_layout(
+        *,
+        runtime: Any,
+        base_feature_columns: list[str],
+        condition_columns: list[str],
+    ) -> None:
+        if len(runtime.feature_columns) != runtime.feature_dim:
+            raise BusinessException(
+                code=500,
+                message=(
+                    "模型 manifest 特征维度异常: "
+                    f"feature_columns={len(runtime.feature_columns)}, feature_dim={runtime.feature_dim}"
+                ),
+                status_code=500,
+            )
+        if len(base_feature_columns) != 18 or len(condition_columns) != 3 or runtime.feature_dim != 21:
+            raise BusinessException(
+                code=500,
+                message=(
+                    "模型 manifest 特征维度异常，P0 在线链路要求 18 个基础/派生字段 "
+                    "和 3 个 condition one-hot 字段: "
+                    f"base={len(base_feature_columns)}, "
+                    f"condition={len(condition_columns)}, "
+                    f"feature_dim={runtime.feature_dim}"
+                ),
+                status_code=500,
+            )
 
     @classmethod
     def _normalize_monitor_rows(cls, monitor_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

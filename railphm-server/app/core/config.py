@@ -36,7 +36,7 @@ class BaseConfig:
     INFLUXDB_URL: str = os.getenv("INFLUXDB_URL", "http://127.0.0.1:8086")
     INFLUXDB_TOKEN: str = os.getenv("INFLUXDB_TOKEN", "")
     INFLUXDB_ORG: str = os.getenv("INFLUXDB_ORG", "railphm_org")
-    INFLUXDB_BUCKET: str = os.getenv("INFLUXDB_BUCKET", "railphm_test_bucket_v2")
+    INFLUXDB_BUCKET: str = os.getenv("INFLUXDB_BUCKET", "railphm")
     INFLUXDB_TIMEOUT: int = int(os.getenv("INFLUXDB_TIMEOUT", "10000"))
     MONITOR_MEASUREMENT: str = os.getenv("MONITOR_MEASUREMENT", "atp_monitor_data")
     MONITOR_QUERY_LIMIT: int = int(os.getenv("MONITOR_QUERY_LIMIT", "5000"))

@@ -14,7 +14,12 @@ class MonitorRepository:
 
     FIELD_COLUMNS = (
         "speed",
+        "brake_info",
+        "service_brake_speed",
+        "emergency_brake_speed",
+        "weather_info",
         "mileage",
+        "run_distance",
         "source_time",
         "source_train_no",
         "source_car_no",
@@ -38,13 +43,19 @@ class MonitorRepository:
 
     DEFAULT_QUERY_FIELDS = (
         "speed",
+        "brake_info",
+        "service_brake_speed",
+        "emergency_brake_speed",
+        "weather_info",
+        "outdoor_temperature",
+        "humidity",
         "mileage",
+        "run_distance",
+        "alarm_part",
         "source_time",
         "station_name",
         "longitude",
         "latitude",
-        "outdoor_temperature",
-        "humidity",
         "weather",
     )
 
