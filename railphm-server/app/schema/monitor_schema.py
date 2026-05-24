@@ -17,6 +17,7 @@ class MonitorSchema:
         "weather_info",
         "mileage",
         "run_distance",
+        "source_segment",
         "condition_label",
         "atp_type",
         "source_car_no",

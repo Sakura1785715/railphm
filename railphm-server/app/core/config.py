@@ -55,9 +55,9 @@ class BaseConfig:
         "on",
     }
     AI_DEFAULT_THRESHOLD: float = float(os.getenv("AI_DEFAULT_THRESHOLD", "0.5"))
-    RISK_THRESHOLD_NORMAL: float = float(os.getenv("RISK_THRESHOLD_NORMAL", "0.3"))
-    RISK_THRESHOLD_WARNING: float = float(os.getenv("RISK_THRESHOLD_WARNING", "0.58"))
-    RISK_THRESHOLD_CRITICAL: float = float(os.getenv("RISK_THRESHOLD_CRITICAL", "0.8"))
+    RISK_THRESHOLD_NORMAL: float = float(os.getenv("RISK_THRESHOLD_NORMAL", "0.40"))
+    RISK_THRESHOLD_WARNING: float = float(os.getenv("RISK_THRESHOLD_WARNING", "0.65"))
+    RISK_THRESHOLD_CRITICAL: float = float(os.getenv("RISK_THRESHOLD_CRITICAL", "0.85"))
     HEALTH_SCORE_DECIMALS: int = int(os.getenv("HEALTH_SCORE_DECIMALS", "2"))
 
     RANGE_INFER_DEFAULT_LOOKBACK_MINUTES: int = int(
@@ -73,6 +73,15 @@ class BaseConfig:
         os.getenv("RANGE_INFER_MIN_STRIDE_SECONDS", "10")
     )
     RANGE_INFER_MAX_POINTS: int = int(os.getenv("RANGE_INFER_MAX_POINTS", "200"))
+    RUN_RECORD_INFER_DEFAULT_STRIDE_SECONDS: int = int(
+        os.getenv("RUN_RECORD_INFER_DEFAULT_STRIDE_SECONDS", "1")
+    )
+    RUN_RECORD_INFER_MIN_STRIDE_SECONDS: int = int(
+        os.getenv("RUN_RECORD_INFER_MIN_STRIDE_SECONDS", "1")
+    )
+    RUN_RECORD_INFER_MAX_POINTS: int = int(
+        os.getenv("RUN_RECORD_INFER_MAX_POINTS", "5000")
+    )
     RANGE_INFER_CONTEXT_SECONDS: int = int(os.getenv("RANGE_INFER_CONTEXT_SECONDS", "30"))
     ALERT_SUPPRESS_MIN_WINDOW_MINUTES: int = int(
         os.getenv("ALERT_SUPPRESS_MIN_WINDOW_MINUTES", "15")

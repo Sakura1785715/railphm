@@ -57,7 +57,9 @@ class PredictionSchema:
     )
 
     RANGE_INFER_FIELDS = (
+        "run_record_id",
         "device_code",
+        "source_segment",
         "start_time",
         "end_time",
         "lookback_minutes",

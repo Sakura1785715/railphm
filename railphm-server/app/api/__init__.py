@@ -8,6 +8,7 @@ from app.api.alert import alert_bp
 from app.api.auth import auth_bp
 from app.api.realtime import realtime_bp
 from app.api.dashboard import dashboard_bp
+from app.api.run_record import run_record_bp
 
 def register_blueprints(app: Flask) -> None:
     """
@@ -23,3 +24,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp, url_prefix='/api/v1/auth')
     app.register_blueprint(realtime_bp, url_prefix='/api/v1/realtime')
     app.register_blueprint(dashboard_bp, url_prefix='/api/v1/dashboard')
+    app.register_blueprint(run_record_bp, url_prefix='/api/v1/run-records')

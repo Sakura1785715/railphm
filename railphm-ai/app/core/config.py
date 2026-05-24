@@ -38,7 +38,7 @@ class BaseConfig:
     AI_DEFAULT_RANGE_MC_SAMPLES: int = int(
         os.getenv("RAILPHM_AI_DEFAULT_RANGE_MC_SAMPLES", "20")
     )
-    AI_MAX_RANGE_POINTS: int = int(os.getenv("RAILPHM_AI_MAX_RANGE_POINTS", "200"))
+    AI_MAX_RANGE_POINTS: int = int(os.getenv("RAILPHM_AI_MAX_RANGE_POINTS", "5000"))
     AI_MAX_MONITOR_ROWS: int = int(os.getenv("RAILPHM_AI_MAX_MONITOR_ROWS", "20000"))
     AI_REQUIRE_CONTINUOUS_WINDOW: bool = _env_bool("RAILPHM_AI_REQUIRE_CONTINUOUS_WINDOW", True)
     AI_MAX_SAMPLE_GAP_SECONDS: int = int(os.getenv("RAILPHM_AI_MAX_SAMPLE_GAP_SECONDS", "2"))

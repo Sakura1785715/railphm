@@ -8,6 +8,8 @@ import LoginView from '../views/LoginView.vue'
 import MonitorView from '../views/MonitorView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import PredictionView from '../views/PredictionView.vue'
+import RunRecordDetailView from '../views/RunRecordDetailView.vue'
+import RunRecordView from '../views/RunRecordView.vue'
 import { isLoggedIn } from '../utils/auth'
 
 const routes = [
@@ -60,6 +62,23 @@ const routes = [
     meta: {
       title: '运行监测',
       description: '查询并展示 ATP 车载监测数据的时序变化。'
+    }
+  },
+  {
+    path: '/run-records',
+    name: 'run-records',
+    component: RunRecordView,
+    meta: {
+      title: '运行记录',
+      description: '从测试片段池中选择连续运行记录，进行监测回放、风险预测与告警分析。'
+    }
+  },
+  {
+    path: '/run-records/:id',
+    name: 'run-record-detail',
+    component: RunRecordDetailView,
+    meta: {
+      title: '运行记录详情'
     }
   },
   {

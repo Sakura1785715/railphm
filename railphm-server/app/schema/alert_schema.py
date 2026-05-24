@@ -12,6 +12,7 @@ class AlertSchema:
         """列表摘要字段"""
         return {
             "alert_id": record.get("alert_id"),
+            "run_record_id": record.get("run_record_id"),
             "risk_result_id": record.get("risk_result_id"),
             "device_id": record.get("device_id"),
             "device_code": record.get("device_code"),

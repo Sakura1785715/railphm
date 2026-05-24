@@ -140,6 +140,13 @@ const primaryNavItems = [
     match: ['/monitor']
   },
   {
+    path: '/run-records',
+    label: '运行记录',
+    description: '片段池与仿真运行分析',
+    icon: 'monitor',
+    match: ['/run-records']
+  },
+  {
     path: '/predictions',
     label: '风险预测',
     description: '模型结果与趋势分析',
