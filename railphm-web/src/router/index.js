@@ -5,9 +5,7 @@ import DeviceDetailView from '../views/DeviceDetailView.vue'
 import DeviceLedgerView from '../views/DeviceLedgerView.vue'
 import HealthCheckView from '../views/HealthCheckView.vue'
 import LoginView from '../views/LoginView.vue'
-import MonitorView from '../views/MonitorView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
-import PredictionView from '../views/PredictionView.vue'
 import RunRecordDetailView from '../views/RunRecordDetailView.vue'
 import RunRecordView from '../views/RunRecordView.vue'
 import { isLoggedIn } from '../utils/auth'
@@ -58,11 +56,7 @@ const routes = [
   {
     path: '/monitor',
     name: 'monitor',
-    component: MonitorView,
-    meta: {
-      title: '运行监测',
-      description: '查询并展示 ATP 车载监测数据的时序变化。'
-    }
+    redirect: { name: 'run-records' }
   },
   {
     path: '/run-records',
@@ -84,11 +78,7 @@ const routes = [
   {
     path: '/predictions',
     name: 'predictions',
-    component: PredictionView,
-    meta: {
-      title: '风险预测',
-      description: '展示设备最新风险结果、历史趋势和模型推理页面。'
-    }
+    redirect: { name: 'run-records' }
   },
   {
     path: '/alerts',

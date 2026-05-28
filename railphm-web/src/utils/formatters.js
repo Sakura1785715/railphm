@@ -40,6 +40,11 @@ export function formatScore(value, digits = 2, fallback = EMPTY_TEXT) {
   return numericValue <= 1 ? `${(numericValue * 100).toFixed(digits)}%` : numericValue.toFixed(digits)
 }
 
+export function formatHealthScore(value, digits = 2, fallback = EMPTY_TEXT) {
+  const numericValue = toFiniteNumber(value)
+  return numericValue === null ? fallback : `${numericValue.toFixed(digits)}%`
+}
+
 export function formatBoolean(value, fallback = EMPTY_TEXT) {
   if (value === true) {
     return '是'

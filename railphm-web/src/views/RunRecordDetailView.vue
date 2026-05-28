@@ -112,6 +112,7 @@
           title="健康度趋势"
           description="展示 health_score 随推理时间变化。"
           metric-name="健康度"
+          unit="%"
           :points="healthTrendPoints"
           :tooltip-details="healthTooltipDetails"
           :loading="inferLoading"
@@ -177,7 +178,7 @@
             </div>
             <div>
               <dt>健康度</dt>
-              <dd>{{ formatScore(alertResult.health_score, 2, '--') }}</dd>
+              <dd>{{ formatHealthScore(alertResult.health_score, 2, '--') }}</dd>
             </div>
             <div>
               <dt>创建状态</dt>
@@ -218,7 +219,7 @@
               <td>{{ formatDateTime(row.time || row.window_end_time, '--') }}</td>
               <td>{{ formatPercent(row.risk_score, 2, '--') }}</td>
               <td>{{ formatPercent(row.risk_std, 2, '--') }}</td>
-              <td>{{ formatScore(row.health_score, 2, '--') }}</td>
+              <td>{{ formatHealthScore(row.health_score, 2, '--') }}</td>
               <td>{{ displayText(row.health_status || row.health_level, '--') }}</td>
               <td>{{ displayText(row.condition_label, '--') }}</td>
               <td>{{ formatPersistStatus(row.persist_status) }}</td>
@@ -247,8 +248,8 @@ import {
 import {
   displayText,
   formatDateTime,
+  formatHealthScore,
   formatPercent,
-  formatScore,
   toFiniteNumber
 } from '../utils/formatters'
 

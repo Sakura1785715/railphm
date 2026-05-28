@@ -361,8 +361,8 @@ import {
   formatAlertLevel,
   formatAlertStatus,
   formatDateTime,
-  formatPercent,
-  formatScore
+  formatHealthScore,
+  formatPercent
 } from '../utils/formatters'
 
 const route = useRoute()
@@ -566,7 +566,7 @@ const selectedDetailMetrics = computed(() => {
   return [
     { key: 'risk_result_id', label: '风险结果ID', value: displayValue(detail.risk_result_id) },
     { key: 'risk_score', label: '风险分数', value: formatPercent(detail.risk_score, 2, '--') },
-    { key: 'health_score', label: '健康度', value: formatScore(detail.health_score, 2, '--') },
+    { key: 'health_score', label: '健康度', value: formatHealthScore(detail.health_score, 2, '--') },
     { key: 'health_level', label: '健康等级', value: displayValue(detail.health_level || detail.health_status) },
     { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(detail.alert_time || detail.created_at || detail.updated_at) },
     { key: 'device_code', label: '设备编号', value: displayValue(detail.device_code || detail.device_id) }
@@ -598,7 +598,7 @@ const detailGroups = computed(() => {
       title: '告警对象',
       fields: [
         { key: 'risk_score', label: '风险分数', value: formatPercent(alertDetail.value.risk_score, 2, '--') },
-        { key: 'health_score', label: '健康度', value: formatScore(alertDetail.value.health_score, 2, '--') },
+        { key: 'health_score', label: '健康度', value: formatHealthScore(alertDetail.value.health_score, 2, '--') },
         { key: 'health_level', label: '健康等级', value: displayValue(alertDetail.value.health_level || alertDetail.value.health_status) },
         { key: 'target_label_value', label: '目标标签值', value: displayValue(alertDetail.value.target_label_value) }
       ]

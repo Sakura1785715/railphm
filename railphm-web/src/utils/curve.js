@@ -74,7 +74,7 @@ export function roundNumber(value, decimals) {
 function resolveHealthScore(value, riskScoreRaw) {
   const healthScore = toFiniteNumber(value)
   if (healthScore !== null) {
-    return roundNumber(healthScore <= 1 ? healthScore * 100 : healthScore, 2)
+    return roundNumber(healthScore, 2)
   }
 
   return roundNumber(100 * (1 - riskScoreRaw), 2)
