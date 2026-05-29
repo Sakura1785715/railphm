@@ -162,7 +162,7 @@
               <strong>{{ formatPercent(rangeMaxRiskPoint?.risk_score, 2) }}</strong>
               <p>
                 发生于 {{ formatDateTime(getRangePointTime(rangeMaxRiskPoint)) }}，
-                最新健康度 {{ formatScore(rangeLatestRiskPoint?.health_score, 2) }}。
+                最新健康度 {{ formatHealthScore(rangeLatestRiskPoint?.health_score, 2) }}。
               </p>
             </div>
             <span :class="['status-pill', `status-pill--${rangeHeroMeta.tone}`]">{{ rangeHeroMeta.label }}</span>
@@ -218,7 +218,7 @@
           title="本次健康度趋势"
           description="展示风险结果 EMA 平滑映射后的设备健康度变化。"
           metric-name="健康度"
-          unit=""
+          unit="%"
           :points="rangeHealthTrendPoints"
           :tooltip-details="rangeHealthTooltipDetails"
           :loading="rangeInferLoading"
@@ -278,7 +278,7 @@
                   <td>{{ formatAlertLevel(row.alert_level) }}</td>
                   <td>{{ formatAlertStatus(row.alert_status_text || row.alert_status) }}</td>
                   <td>{{ formatPercent(row.risk_score, 2) }}</td>
-                  <td>{{ formatScore(row.health_score, 2) }}</td>
+                  <td>{{ formatHealthScore(row.health_score, 2) }}</td>
                   <td>{{ formatDateTime(row.alert_time) }}</td>
                   <td class="range-table-message">{{ displayText(row.alert_message) }}</td>
                 </tr>
@@ -375,7 +375,7 @@
                   <td>{{ formatDateTime(row.time) }}</td>
                   <td>{{ formatPercent(row.risk_score, 2) }}</td>
                   <td>{{ formatPercent(row.risk_std, 2) }}</td>
-                  <td>{{ formatScore(row.health_score, 2) }}</td>
+                  <td>{{ formatHealthScore(row.health_score, 2) }}</td>
                   <td>{{ displayText(row.health_level || row.health_status) }}</td>
                   <td>{{ displayText(row.predicted_label) }}</td>
                   <td>{{ displayText(row.condition_label) }}</td>
@@ -475,7 +475,7 @@
         <span :class="['status-pill', `status-pill--${latestRiskMeta.tone}`]">{{ latestRiskMeta.label }}</span>
         <span v-if="latestRecord" class="latest-compact-text">
           最新风险 {{ formatPercent(latestRecord.risk_score, 2) }}，
-          健康度 {{ formatScore(latestRecord.health_score, 2) }}，
+          健康度 {{ formatHealthScore(latestRecord.health_score, 2) }}，
           窗口结束 {{ formatDateTime(latestRecord.window_end_time || latestRecord.ts_end) }}
         </span>
         <button
@@ -509,7 +509,7 @@
         </article>
         <article class="monitor-overview-card">
           <span>健康度</span>
-          <strong>{{ formatScore(latestRecord.health_score, 2) }}</strong>
+          <strong>{{ formatHealthScore(latestRecord.health_score, 2) }}</strong>
         </article>
         <article class="monitor-overview-card">
           <span>健康等级</span>
@@ -549,7 +549,7 @@
           title="历史健康度趋势"
           description="展示指定设备在查询时间范围内的 EMA 平滑健康度变化。"
           metric-name="健康度"
-          unit=""
+          unit="%"
           :points="healthTrendPoints"
           :tooltip-details="historyTooltipDetails"
           :loading="queryLoading"
@@ -627,7 +627,7 @@
             </article>
             <article class="monitor-overview-card">
               <span>健康度</span>
-              <strong>{{ formatScore(inferResult.health_score, 2) }}</strong>
+              <strong>{{ formatHealthScore(inferResult.health_score, 2) }}</strong>
             </article>
             <article class="monitor-overview-card">
               <span>健康等级</span>
@@ -676,8 +676,8 @@ import {
   formatCalibrationMethod,
   formatDataSource,
   formatDateTime,
+  formatHealthScore,
   formatPercent,
-  formatScore,
   formatUncertaintyMethod,
   toFiniteNumber
 } from '../utils/formatters'
@@ -791,8 +791,8 @@ const historyTooltipDetails = computed(() =>
   healthCurveRecords.value.map((item) => [
     { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
     { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
-    { label: '健康度原始值', value: formatScore(item.health_score_raw, 2) },
-    { label: '健康度平滑值', value: formatScore(item.health_score_smoothed, 2) },
+    { label: '健康度原始值', value: formatHealthScore(item.health_score_raw, 2) },
+    { label: '健康度平滑值', value: formatHealthScore(item.health_score_smoothed, 2) },
     { label: '风险波动', value: formatPercent(item.risk_std, 2) },
     { label: '健康等级', value: displayText(item.health_level || item.health_status) },
     { label: '工况标签', value: displayText(item.condition_label) },
@@ -843,8 +843,8 @@ const rangeRiskTooltipDetails = computed(() =>
   smoothedRangeRiskSeries.value.map((item) => [
     { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
     { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
-    { label: '健康度原始值', value: formatScore(item.health_score_raw, 2) },
-    { label: '健康度平滑值', value: formatScore(item.health_score_smoothed, 2) },
+    { label: '健康度原始值', value: formatHealthScore(item.health_score_raw, 2) },
+    { label: '健康度平滑值', value: formatHealthScore(item.health_score_smoothed, 2) },
     { label: '风险标准差', value: formatPercent(item.risk_std, 2) },
     { label: '阈值', value: formatPercent(item.threshold, 2) },
     { label: '工况标签', value: displayText(item.condition_label) }
@@ -860,8 +860,8 @@ const rangeHealthTooltipDetails = computed(() => {
       { label: '健康等级', value: displayText(riskItem?.health_level || riskItem?.health_status) },
       { label: '风险原始值', value: formatPercent(riskItem?.risk_score_raw, 2) },
       { label: '风险平滑值', value: formatPercent(riskItem?.risk_score_smoothed, 2) },
-      { label: '健康度原始值', value: formatScore(riskItem?.health_score_raw, 2) },
-      { label: '健康度平滑值', value: formatScore(riskItem?.health_score_smoothed, 2) },
+      { label: '健康度原始值', value: formatHealthScore(riskItem?.health_score_raw, 2) },
+      { label: '健康度平滑值', value: formatHealthScore(riskItem?.health_score_smoothed, 2) },
       { label: '窗口结束', value: formatDateTime(riskItem?.window_end_time || point.time) }
     ]
   })
@@ -935,8 +935,8 @@ const rangeHeroCards = computed(() => {
   }
 
   return [
-    { key: 'latest-health', label: '最新健康度', value: formatScore(rangeLatestRiskPoint.value?.health_score, 2) },
-    { key: 'avg-health', label: '平均健康度', value: formatScore(rangeAverageHealthScore.value, 2) },
+    { key: 'latest-health', label: '最新健康度', value: formatHealthScore(rangeLatestRiskPoint.value?.health_score, 2) },
+    { key: 'avg-health', label: '平均健康度', value: formatHealthScore(rangeAverageHealthScore.value, 2) },
     { key: 'result-count', label: '生成风险点', value: formatInteger(result.result_count) },
     { key: 'alert-count', label: '生成告警', value: formatInteger(result.alert_count) }
   ]

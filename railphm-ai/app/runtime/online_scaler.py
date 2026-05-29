@@ -50,12 +50,17 @@ class OnlineScalerLoader:
     _cache: dict[tuple[str, tuple[str, ...]], OnlineScaler] = {}
 
     @classmethod
-    def load_for_runtime(cls, runtime: "SequenceModelRuntime") -> OnlineScaler:
+    def load_for_runtime(
+        cls,
+        runtime: "SequenceModelRuntime",
+        feature_columns: list[str] | None = None,
+    ) -> OnlineScaler:
         dataset_dir = cls._resolve_dataset_dir(runtime)
-        cache_key = (str(dataset_dir), tuple(runtime.feature_columns))
+        target_feature_columns = feature_columns or runtime.feature_columns
+        cache_key = (str(dataset_dir), tuple(target_feature_columns))
 
         if cache_key not in cls._cache:
-            cls._cache[cache_key] = cls._load(dataset_dir, runtime.feature_columns)
+            cls._cache[cache_key] = cls._load(dataset_dir, target_feature_columns)
 
         return cls._cache[cache_key]
 
@@ -64,7 +69,12 @@ class OnlineScalerLoader:
         dataset_dir = Path(runtime.manifest.dataset_dir)
         if dataset_dir.is_absolute():
             return dataset_dir
-        return (runtime.manifest.model_dir / dataset_dir).resolve()
+        candidates = [(runtime.manifest.model_dir / dataset_dir).resolve()]
+        candidates.extend((parent / dataset_dir).resolve() for parent in runtime.manifest.model_dir.parents)
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
 
     @classmethod
     def _load(cls, dataset_dir: Path, feature_columns: list[str]) -> OnlineScaler:

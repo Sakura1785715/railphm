@@ -314,6 +314,16 @@ class PredictionService:
         if not isinstance(request_data, dict):
             raise BusinessException(code=400, message="请求体必须为 JSON 对象", status_code=400)
 
+        run_record_id = request_data.get("run_record_id")
+        if run_record_id is not None and run_record_id != "":
+            run_record_id = PredictionService._parse_optional_positive_int(
+                run_record_id,
+                "run_record_id",
+                0,
+            )
+        else:
+            run_record_id = None
+
         device_code = request_data.get("device_code")
         if not isinstance(device_code, str) or not device_code.strip():
             raise BusinessException(code=400, message="device_code 必须为非空字符串", status_code=400)
@@ -343,12 +353,32 @@ class PredictionService:
                 status_code=400,
             )
 
+        source_segment = request_data.get("source_segment")
+        if source_segment is not None and source_segment != "":
+            if not isinstance(source_segment, str):
+                raise BusinessException(code=400, message="source_segment 必须为字符串", status_code=400)
+            source_segment = source_segment.strip() or None
+        else:
+            source_segment = None
+
+        is_run_record_infer = run_record_id is not None and source_segment is not None
+        default_stride_seconds = current_app.config.get(
+            "RUN_RECORD_INFER_DEFAULT_STRIDE_SECONDS"
+            if is_run_record_infer
+            else "RANGE_INFER_DEFAULT_STRIDE_SECONDS",
+            1 if is_run_record_infer else 60,
+        )
         inference_stride_seconds = PredictionService._parse_optional_positive_int(
             request_data.get("inference_stride_seconds"),
             "inference_stride_seconds",
-            current_app.config.get("RANGE_INFER_DEFAULT_STRIDE_SECONDS", 60),
+            default_stride_seconds,
         )
-        min_stride_seconds = current_app.config.get("RANGE_INFER_MIN_STRIDE_SECONDS", 10)
+        min_stride_seconds = current_app.config.get(
+            "RUN_RECORD_INFER_MIN_STRIDE_SECONDS"
+            if is_run_record_infer
+            else "RANGE_INFER_MIN_STRIDE_SECONDS",
+            1 if is_run_record_infer else 10,
+        )
         if inference_stride_seconds < min_stride_seconds:
             raise BusinessException(
                 code=400,
@@ -357,7 +387,10 @@ class PredictionService:
             )
 
         total_candidate_points = int((end_dt - start_dt).total_seconds()) // inference_stride_seconds + 1
-        max_points = current_app.config.get("RANGE_INFER_MAX_POINTS", 200)
+        max_points = current_app.config.get(
+            "RUN_RECORD_INFER_MAX_POINTS" if is_run_record_infer else "RANGE_INFER_MAX_POINTS",
+            5000 if is_run_record_infer else 200,
+        )
         if total_candidate_points > max_points:
             raise BusinessException(
                 code=400,
@@ -374,7 +407,9 @@ class PredictionService:
             condition_label = None
 
         return {
+            "run_record_id": run_record_id,
             "device_code": device_code,
+            "source_segment": source_segment,
             "start_dt": start_dt,
             "end_dt": end_dt,
             "start_time": PredictionService._format_datetime_value(start_dt),
@@ -674,8 +709,14 @@ class PredictionService:
             "model_version": model_version,
             "range_infer_persisted_by": "railphm-server",
         }
+        if validated_data.get("run_record_id") is not None:
+            trace["run_record_id"] = validated_data["run_record_id"]
+        if validated_data.get("source_segment"):
+            trace["source_segment"] = validated_data["source_segment"]
 
         return {
+            "run_record_id": validated_data.get("run_record_id"),
+            "source_segment": validated_data.get("source_segment"),
             "device_id": None,
             "device_code": validated_data["device_code"],
             "sample_index": None,
@@ -718,6 +759,67 @@ class PredictionService:
         }
 
     @staticmethod
+    def _merge_existing_range_record(
+        existing_record: Dict[str, Any],
+        transient_record: Dict[str, Any],
+        persist_status: str,
+    ) -> Dict[str, Any]:
+        """用已落库风险结果覆盖本次临时 AI 推理值，保证告警与风险结果一致。"""
+        existing_trace = existing_record.get("trace")
+        if not isinstance(existing_trace, dict):
+            existing_trace = {}
+
+        risk_result_id = existing_record.get("risk_result_id")
+        risk_score = existing_record.get("risk_score")
+        if risk_score is None:
+            risk_score = existing_record.get("calibrated_risk_score")
+
+        window_end_time = (
+            existing_record.get("window_end_time")
+            or existing_record.get("ts_end")
+            or transient_record.get("window_end_time")
+        )
+        window_start_time = existing_record.get("window_start_time") or transient_record.get("window_start_time")
+        ts_end = existing_record.get("ts_end") or window_end_time
+
+        trace = {
+            **existing_trace,
+            "persist_status": persist_status,
+            "risk_result_id": risk_result_id,
+            "range_infer_existing_record_reused": True,
+        }
+
+        return {
+            **transient_record,
+            "risk_result_id": risk_result_id,
+            "run_record_id": existing_record.get("run_record_id") or transient_record.get("run_record_id"),
+            "source_segment": transient_record.get("source_segment"),
+            "device_id": existing_record.get("device_id"),
+            "device_code": existing_record.get("device_code") or transient_record.get("device_code"),
+            "risk_raw": existing_record.get("risk_raw"),
+            "risk_score": risk_score,
+            "risk_raw_std": existing_record.get(
+                "risk_raw_std",
+                transient_record.get("risk_raw_std"),
+            ),
+            "risk_std": existing_record.get("risk_std"),
+            "threshold": existing_record.get("threshold"),
+            "predicted_label": existing_record.get("predicted_label"),
+            "health_score": existing_record.get("health_score"),
+            "health_level": existing_record.get("health_level"),
+            "health_status": existing_record.get("health_status"),
+            "health_description": existing_record.get("health_description"),
+            "condition_label": existing_record.get("condition_label"),
+            "window_start_time": window_start_time,
+            "window_end_time": window_end_time,
+            "ts_end": ts_end,
+            "time": window_end_time or ts_end or transient_record.get("time"),
+            "window_minutes": existing_record.get("window_minutes") or transient_record.get("window_minutes"),
+            "trace": trace,
+            "persist_status": persist_status,
+        }
+
+    @staticmethod
     def range_infer(request_data: Any) -> Dict[str, Any]:
         validated_data = PredictionService._parse_range_request(request_data)
 
@@ -735,6 +837,7 @@ class PredictionService:
                 monitor_query_end_dt,
             ),
             condition_label=validated_data["condition_label"],
+            source_segment=validated_data["source_segment"],
         )
 
         if not monitor_rows:
@@ -772,31 +875,42 @@ class PredictionService:
                     validated_data["device_code"],
                     record.get("window_start_time"),
                     record.get("window_end_time"),
+                    run_record_id=validated_data["run_record_id"],
                 )
                 if existing_record:
                     skipped_existing_count += 1
-                    risk_result_id = existing_record.get("risk_result_id")
-                    record["device_id"] = existing_record.get("device_id")
-                    record["device_code"] = existing_record.get("device_code") or record["device_code"]
                     persist_status = "skipped_existing"
+                    record = PredictionService._merge_existing_range_record(
+                        existing_record=existing_record,
+                        transient_record=record,
+                        persist_status=persist_status,
+                    )
+                    risk_result_id = record.get("risk_result_id")
                 else:
                     saved_record = PredictionRepository.save_infer_result(record)
                     saved_count += 1
                     risk_result_id = saved_record.get("risk_result_id")
+                    record["run_record_id"] = saved_record.get("run_record_id")
                     record["device_id"] = saved_record.get("device_id")
                     record["device_code"] = saved_record.get("device_code") or record["device_code"]
                     persist_status = "saved"
 
             record["risk_result_id"] = risk_result_id
+            record["run_record_id"] = validated_data["run_record_id"]
+            record["source_segment"] = validated_data["source_segment"]
             record["persist_status"] = persist_status
             record["trace"] = {
                 **(record.get("trace") or {}),
                 "persist_status": persist_status,
                 "risk_result_id": risk_result_id,
+                "run_record_id": validated_data["run_record_id"],
+                "source_segment": validated_data["source_segment"],
             }
 
             risk_point = {
                 "risk_result_id": record.get("risk_result_id"),
+                "run_record_id": record.get("run_record_id"),
+                "source_segment": record.get("source_segment"),
                 "time": record.get("time"),
                 "window_start_time": record.get("window_start_time"),
                 "window_end_time": record.get("window_end_time"),
@@ -817,6 +931,8 @@ class PredictionService:
             prediction_records.append(record)
             health_series.append(
                 {
+                    "run_record_id": record.get("run_record_id"),
+                    "source_segment": record.get("source_segment"),
                     "time": record.get("time"),
                     "health_score": record.get("health_score"),
                     "health_level": record.get("health_level"),
@@ -856,7 +972,9 @@ class PredictionService:
             )
 
         response = {
+            "run_record_id": validated_data["run_record_id"],
             "device_code": validated_data["device_code"],
+            "source_segment": validated_data["source_segment"],
             "start_time": validated_data["start_time"],
             "end_time": validated_data["end_time"],
             "lookback_minutes": validated_data["lookback_minutes"],
@@ -882,7 +1000,16 @@ class PredictionService:
             "uncertainty_method": ai_data.get("uncertainty_method"),
             "risk_series": risk_series,
             "health_series": health_series,
-            "skipped_windows": ai_data.get("skipped_windows", []),
+            "skipped_windows": [
+                {
+                    **window,
+                    "run_record_id": validated_data["run_record_id"],
+                    "source_segment": validated_data["source_segment"],
+                }
+                if isinstance(window, dict)
+                else window
+                for window in ai_data.get("skipped_windows", [])
+            ],
             **alert_summary,
         }
         return PredictionSchema.dump_range_infer_result(response)

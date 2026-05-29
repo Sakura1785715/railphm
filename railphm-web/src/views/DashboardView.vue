@@ -121,7 +121,7 @@
             <p>{{ displayText(item.alert_message) }}</p>
             <div class="dashboard-alert-item__metrics">
               <small>风险 {{ formatPercent(item.risk_score, 2) }}</small>
-              <small>健康度 {{ formatScore(item.health_score, 2) }}</small>
+              <small>健康度 {{ formatHealthScore(item.health_score, 2) }}</small>
             </div>
           </li>
         </ul>
@@ -168,7 +168,7 @@
                   />
                 </td>
                 <td class="dashboard-number-cell">{{ formatPercent(item.risk_score, 2) }}</td>
-                <td class="dashboard-number-cell">{{ formatScore(item.health_score, 2) }}</td>
+                <td class="dashboard-number-cell">{{ formatHealthScore(item.health_score, 2) }}</td>
                 <td>{{ formatNullableAlertLevel(item.alert_level) }}</td>
                 <td>{{ formatDateTime(getDeviceWindowTime(item)) }}</td>
                 <td>
@@ -226,8 +226,8 @@ import {
   formatAlertStatus,
   formatDateTime,
   formatDeviceStatus,
+  formatHealthScore,
   formatPercent,
-  formatScore,
   toFiniteNumber
 } from '../utils/formatters'
 
@@ -332,8 +332,8 @@ const riskTrendTooltipDetails = computed(() =>
     { label: '设备编号', value: displayText(getDeviceCode(item)) },
     { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
     { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
-    { label: '健康度原始值', value: formatScore(item.health_score_raw, 2) },
-    { label: '健康度平滑值', value: formatScore(item.health_score_smoothed, 2) },
+    { label: '健康度原始值', value: formatHealthScore(item.health_score_raw, 2) },
+    { label: '健康度平滑值', value: formatHealthScore(item.health_score_smoothed, 2) },
     { label: '风险波动', value: formatPercent(item.risk_std, 2) },
     { label: '窗口结束', value: formatDateTime(item.window_end_time || item.time || item.created_at) }
   ])

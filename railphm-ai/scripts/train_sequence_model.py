@@ -73,6 +73,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="最优模型选择指标",
     )
     parser.add_argument("--overwrite", action="store_true", help="覆盖已存在的输出目录")
+    parser.add_argument(
+        "--save-predictions",
+        action="store_true",
+        help="保存 val_predictions.csv 和 test_predictions.csv，默认不保存",
+    )
+    parser.add_argument(
+        "--save-history",
+        action="store_true",
+        help="保存 metrics_history.csv，默认不保存",
+    )
+    parser.add_argument(
+        "--evaluate-train",
+        action="store_true",
+        help="训练后额外评估 train split，默认不评估",
+    )
 
     return parser
 
@@ -98,6 +113,9 @@ def main() -> int:
             num_workers=args.num_workers,
             overwrite=args.overwrite,
             best_metric=args.best_metric,
+            save_predictions=args.save_predictions,
+            save_history=args.save_history,
+            evaluate_train=args.evaluate_train,
         )
 
         report = train_sequence_model(config)
@@ -139,4 +157,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

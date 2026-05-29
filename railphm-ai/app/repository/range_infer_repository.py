@@ -11,6 +11,7 @@ from app.core.errors import BusinessException
 from app.dataset.feature_processor import FeatureProcessor
 from app.repository.infer_repository import InferRepository
 from app.runtime.monitor_feature_adapter import MonitorFeatureAdapter
+from app.runtime.online_condition_encoder import OnlineConditionEncoder
 from app.runtime.online_scaler import OnlineScalerLoader
 
 
@@ -18,11 +19,35 @@ class RangeInferRepository:
     """基于 monitor_rows 的在线区间推理访问层。"""
 
     DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+    MOCK_WINDOW_SIZE = 30
 
     @classmethod
     def infer_range(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return cls._infer_range_with_runtime(payload)
+        except Exception as exc:
+            if current_app.config.get("AI_ENABLE_MOCK_FALLBACK", True):
+                current_app.logger.warning("AI range runtime failed, using mock fallback: %s", exc)
+                return cls._infer_range_mock(payload, error=exc)
+            raise
+
+    @classmethod
+    def _infer_range_with_runtime(cls, payload: dict[str, Any]) -> dict[str, Any]:
         runtime = InferRepository._get_runtime()
-        scaler = OnlineScalerLoader.load_for_runtime(runtime)
+        condition_columns = [
+            column for column in runtime.feature_columns if column.startswith("condition_")
+        ]
+        base_feature_columns = [
+            column for column in runtime.feature_columns if not column.startswith("condition_")
+        ]
+        cls._validate_runtime_feature_layout(
+            runtime=runtime,
+            base_feature_columns=base_feature_columns,
+            condition_columns=condition_columns,
+        )
+
+        scaler = OnlineScalerLoader.load_for_runtime(runtime, feature_columns=base_feature_columns)
+        condition_encoder = OnlineConditionEncoder.load_for_runtime(runtime)
 
         monitor_rows = cls._normalize_monitor_rows(payload["monitor_rows"])
         candidate_times = cls._build_candidate_times(
@@ -32,7 +57,7 @@ class RangeInferRepository:
         )
 
         adapter = MonitorFeatureAdapter()
-        feature_processor = FeatureProcessor(feature_columns=runtime.feature_columns)
+        feature_processor = FeatureProcessor(feature_columns=base_feature_columns)
         results: list[dict[str, Any]] = []
         skipped_windows: list[dict[str, Any]] = []
 
@@ -71,20 +96,44 @@ class RangeInferRepository:
             feature_result = feature_processor.transform(feature_df)
             feature_matrix = feature_result.feature_matrix
 
-            if feature_matrix.shape != (runtime.window_size, runtime.feature_dim):
+            expected_base_shape = (runtime.window_size, len(base_feature_columns))
+            if feature_matrix.shape != expected_base_shape:
                 raise BusinessException(
                     code=500,
                     message=(
-                        "在线窗口特征矩阵 shape 与模型运行时不一致: "
+                        "在线基础特征矩阵 shape 与模型运行时不一致: "
                         f"actual={feature_matrix.shape}, "
-                        f"expected={(runtime.window_size, runtime.feature_dim)}"
+                        f"expected={expected_base_shape}"
                     ),
                     status_code=500,
                 )
 
-            window = scaler.transform(feature_matrix)
+            scaled_base_window = scaler.transform(feature_matrix)
+            condition_info = condition_encoder.encode(
+                scaled_base_window,
+                base_feature_columns=base_feature_columns,
+                condition_columns=condition_columns,
+            )
+            condition_one_hot = condition_info["condition_one_hot"]
+            condition_matrix = np.repeat(
+                condition_one_hot.reshape(1, -1),
+                runtime.window_size,
+                axis=0,
+            ).astype(np.float32, copy=False)
+            window = np.concatenate([scaled_base_window, condition_matrix], axis=1)
+
+            if window.shape != (runtime.window_size, runtime.feature_dim):
+                raise BusinessException(
+                    code=500,
+                    message=(
+                        "在线最终窗口 shape 与模型运行时不一致: "
+                        f"actual={window.shape}, "
+                        f"expected={(runtime.window_size, runtime.feature_dim)}"
+                    ),
+                    status_code=500,
+                )
             if not np.isfinite(window).all():
-                raise BusinessException(code=500, message="在线窗口标准化后存在非法数值", status_code=500)
+                raise BusinessException(code=500, message="在线最终窗口存在非法数值", status_code=500)
 
             prediction = runtime.predict_with_uncertainty(
                 window,
@@ -99,13 +148,26 @@ class RangeInferRepository:
                 "source": "monitor_rows",
                 "runtime_window_size": runtime.window_size,
                 "runtime_feature_dim": runtime.feature_dim,
+                "base_feature_dim": len(base_feature_columns),
+                "condition_feature_dim": len(condition_columns),
                 "inference_stride_seconds": payload["inference_stride_seconds"],
                 "raw_window_points": len(window_rows),
                 "window_selection_method": "latest_n_points_before_prediction_time",
-                "feature_adapter": "monitor_rows_to_feature_processor",
+                "feature_adapter": "monitor_rows_to_base_feature_processor",
+                "base_feature_columns": base_feature_columns,
+                "condition_columns": condition_columns,
                 "missing_feature_columns": feature_result.missing_feature_columns,
                 "all_nan_feature_columns": feature_result.all_nan_feature_columns,
-                "condition_label_method": "last_non_empty_condition_label_in_window",
+                "condition_label_method": "online_condition_encoder",
+                "raw_condition_label": cls._pick_condition_label(window_rows),
+                "condition_one_hot_applied": True,
+                "condition_id": int(condition_info["condition_id"]),
+                "condition_label": condition_info["condition_label"],
+                "condition_one_hot": [
+                    float(value) for value in condition_one_hot.astype(float).tolist()
+                ],
+                "final_window_shape": [int(value) for value in window.shape],
+                **condition_info["trace"],
                 **scaler.trace(),
             }
 
@@ -127,7 +189,7 @@ class RangeInferRepository:
                     "uncertainty_enabled": prediction.get("uncertainty_enabled", False),
                     "uncertainty_method": prediction.get("uncertainty_method"),
                     "mc_samples": prediction["mc_samples"],
-                    "condition_label": cls._pick_condition_label(window_rows),
+                    "condition_label": condition_info["condition_label"],
                     "data_source": "influxdb_online_range",
                     "trace": trace,
                 }
@@ -152,6 +214,172 @@ class RangeInferRepository:
             "results": results,
             "skipped_windows": skipped_windows,
         }
+
+    @classmethod
+    def _infer_range_mock(
+        cls,
+        payload: dict[str, Any],
+        error: Exception | None = None,
+    ) -> dict[str, Any]:
+        monitor_rows = cls._normalize_monitor_rows(payload["monitor_rows"])
+        candidate_times = cls._build_candidate_times(
+            start_dt=payload["start_dt"],
+            end_dt=payload["end_dt"],
+            stride_seconds=payload["inference_stride_seconds"],
+        )
+
+        results: list[dict[str, Any]] = []
+        skipped_windows: list[dict[str, Any]] = []
+        device_bias = (int(payload["device_id"]) % 3) * 0.08
+
+        for prediction_dt in candidate_times:
+            window_rows = cls._select_window_rows(
+                monitor_rows=monitor_rows,
+                prediction_dt=prediction_dt,
+                window_size=cls.MOCK_WINDOW_SIZE,
+            )
+
+            if len(window_rows) < cls.MOCK_WINDOW_SIZE:
+                skipped_windows.append(
+                    cls._build_skip_record(
+                        prediction_dt=prediction_dt,
+                        reason="insufficient_monitor_points",
+                        raw_window_points=len(window_rows),
+                        required_window_size=cls.MOCK_WINDOW_SIZE,
+                    )
+                )
+                continue
+
+            continuity_error = cls._validate_window_continuity(window_rows, prediction_dt)
+            if continuity_error is not None:
+                skipped_windows.append(
+                    cls._build_skip_record(
+                        prediction_dt=prediction_dt,
+                        reason=continuity_error["reason"],
+                        raw_window_points=len(window_rows),
+                        required_window_size=cls.MOCK_WINDOW_SIZE,
+                        detail=continuity_error,
+                    )
+                )
+                continue
+
+            risk_score = cls._estimate_mock_risk(window_rows, device_bias=device_bias)
+            first_sample_dt = window_rows[0]["_sample_dt"]
+            last_sample_dt = window_rows[-1]["_sample_dt"]
+            condition_label = cls._pick_condition_label(window_rows) or "mock_range"
+            trace = {
+                "source": "monitor_rows",
+                "runtime_window_size": cls.MOCK_WINDOW_SIZE,
+                "runtime_feature_dim": 0,
+                "inference_stride_seconds": payload["inference_stride_seconds"],
+                "raw_window_points": len(window_rows),
+                "window_selection_method": "latest_n_points_before_prediction_time",
+                "data_source": "mock_fallback",
+                "runtime_error": str(error).splitlines()[0][:300] if error is not None else None,
+            }
+
+            results.append(
+                {
+                    "time": cls._format_datetime(prediction_dt),
+                    "window_start_time": cls._format_datetime(first_sample_dt),
+                    "window_end_time": cls._format_datetime(last_sample_dt),
+                    "risk_raw": risk_score,
+                    "risk_score": risk_score,
+                    "risk_raw_std": 0.0,
+                    "risk_std": 0.0,
+                    "threshold": 0.65,
+                    "predicted_label": int(risk_score >= 0.65),
+                    "model_name": "mock_range",
+                    "model_version": "mock_range_fallback",
+                    "calibration_enabled": False,
+                    "calibration_method": None,
+                    "uncertainty_enabled": False,
+                    "uncertainty_method": None,
+                    "mc_samples": 0 if error is not None else payload["mc_samples"],
+                    "condition_label": condition_label,
+                    "data_source": "mock_fallback",
+                    "trace": trace,
+                }
+            )
+
+        return {
+            "device_id": payload["device_id"],
+            "device_code": payload["device_code"],
+            "start_time": payload["start_time"],
+            "end_time": payload["end_time"],
+            "inference_stride_seconds": payload["inference_stride_seconds"],
+            "monitor_point_count": len(monitor_rows),
+            "total_candidate_points": payload["total_candidate_points"],
+            "result_count": len(results),
+            "skipped_window_count": len(skipped_windows),
+            "model_name": "mock_range",
+            "model_version": "mock_range_fallback",
+            "calibration_enabled": False,
+            "calibration_method": None,
+            "uncertainty_enabled": False,
+            "uncertainty_method": None,
+            "results": results,
+            "skipped_windows": skipped_windows,
+        }
+
+    @staticmethod
+    def _estimate_mock_risk(window_rows: list[dict[str, Any]], *, device_bias: float) -> float:
+        speeds = np.array(
+            [float(row.get("speed") or 0.0) for row in window_rows],
+            dtype=np.float32,
+        )
+        service_brake = np.array(
+            [float(row.get("service_brake_speed") or row.get("常用制动速度") or 0.0) for row in window_rows],
+            dtype=np.float32,
+        )
+        emergency_brake = np.array(
+            [float(row.get("emergency_brake_speed") or row.get("紧急制动速度") or 0.0) for row in window_rows],
+            dtype=np.float32,
+        )
+
+        speed_mean = float(np.mean(speeds)) if speeds.size else 0.0
+        speed_delta = float(abs(speeds[-1] - speeds[0])) if speeds.size >= 2 else 0.0
+        service_margin = float(np.mean(np.maximum(service_brake - speeds, 0.0))) if service_brake.size else 0.0
+        emergency_margin = float(np.mean(np.maximum(emergency_brake - speeds, 0.0))) if emergency_brake.size else 0.0
+        brake_tension = 0.0
+        if service_margin < 18.0:
+            brake_tension += (18.0 - service_margin) / 60.0
+        if emergency_margin < 35.0:
+            brake_tension += (35.0 - emergency_margin) / 90.0
+
+        speed_factor = min(speed_mean / 420.0, 1.0) * 0.25
+        delta_factor = min(speed_delta / 120.0, 1.0) * 0.18
+        risk_score = 0.18 + device_bias + speed_factor + delta_factor + brake_tension
+        return float(min(max(risk_score, 0.02), 0.98))
+
+    @staticmethod
+    def _validate_runtime_feature_layout(
+        *,
+        runtime: Any,
+        base_feature_columns: list[str],
+        condition_columns: list[str],
+    ) -> None:
+        if len(runtime.feature_columns) != runtime.feature_dim:
+            raise BusinessException(
+                code=500,
+                message=(
+                    "模型 manifest 特征维度异常: "
+                    f"feature_columns={len(runtime.feature_columns)}, feature_dim={runtime.feature_dim}"
+                ),
+                status_code=500,
+            )
+        if len(base_feature_columns) != 18 or len(condition_columns) != 3 or runtime.feature_dim != 21:
+            raise BusinessException(
+                code=500,
+                message=(
+                    "模型 manifest 特征维度异常，P0 在线链路要求 18 个基础/派生字段 "
+                    "和 3 个 condition one-hot 字段: "
+                    f"base={len(base_feature_columns)}, "
+                    f"condition={len(condition_columns)}, "
+                    f"feature_dim={runtime.feature_dim}"
+                ),
+                status_code=500,
+            )
 
     @classmethod
     def _normalize_monitor_rows(cls, monitor_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

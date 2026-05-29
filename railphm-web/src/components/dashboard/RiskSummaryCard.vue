@@ -70,7 +70,7 @@
           <div class="score-block">
             <div class="score-block__head">
               <span>健康度</span>
-              <strong>{{ formatDecimal(prediction.health_score, 1) }}</strong>
+              <strong>{{ formatHealthScore(prediction.health_score, 1, '--') }}</strong>
             </div>
             <div class="score-block__bar">
               <span class="score-block__fill score-block__fill--health" :style="{ width: `${healthProgress}%` }"></span>
@@ -127,6 +127,7 @@ import {
   toHealthProgress,
   toRiskProgress
 } from '../../utils/dashboard'
+import { formatHealthScore } from '../../utils/formatters'
 
 defineEmits(['retry'])
 

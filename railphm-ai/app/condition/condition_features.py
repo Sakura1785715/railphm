@@ -5,7 +5,7 @@
 转换成二维工况统计特征矩阵
 [num_samples, condition_feature_dim]
 
-选取速度作为输入特征，根据速度计算统计了七个特征：
+选取速度和加速度作为输入特征，根据窗口内运动学变化计算统计特征：
 speed_mean：窗口内所有速度值的平均值
 speed_std：窗口内速度值的标准差
 speed_min：窗口内最低速度
@@ -13,6 +13,11 @@ speed_max：窗口内最高速度
 speed_delta：窗口首尾速度差
 speed_diff_mean：相邻速度变化均值
 speed_diff_std：相邻速度变化标准差
+accel_mean：窗口内加速度均值
+accel_std：窗口内加速度标准差
+accel_min：窗口内加速度最小值
+accel_max：窗口内加速度最大值
+accel_delta：窗口首尾加速度差
 进行工况划分
 """
 from __future__ import annotations
@@ -43,8 +48,8 @@ class ConditionFeatureExtractor:
     """
     # 核心工况字段: 速度
     SPEED_COLUMN = "速度"   
-    # 可选工况辅助字段（原始特征名，输出特征名，计算方式）
-    OPTIONAL_FEATURES = ()
+    # 核心工况辅助字段: 加速度
+    ACCEL_COLUMN = "加速度"
     # 禁止进入工况特征的字段
     FORBIDDEN_EXACT_COLUMNS = {
         "报警部位",
@@ -87,6 +92,9 @@ class ConditionFeatureExtractor:
         if self.SPEED_COLUMN not in column_index:
             raise ValueError("缺少核心工况字段：速度，无法提取工况特征")
 
+        if self.ACCEL_COLUMN not in column_index:
+            raise ValueError("缺少核心工况字段：加速度，无法提取工况特征")
+
         num_samples, window_size, _ = X.shape
         feature_parts: list[np.ndarray] = []
         feature_names: list[str] = []
@@ -126,23 +134,17 @@ class ConditionFeatureExtractor:
                 np.std(speed_diff, axis=1),
             )
 
-        for column_name, output_name, method in self.OPTIONAL_FEATURES:
-            if column_name not in column_index:
-                warnings.append(f"缺少可选工况字段：{column_name}，已跳过 {output_name}")
-                continue
-
-            if self._is_forbidden_column(column_name):
-                warnings.append(f"检测到标签字段或泄露字段：{column_name}，已跳过 {output_name}")
-                continue
-            # values.shape = [num_samples, window_size]，取出窗口对应特征字段的值
-            values = X[:, :, column_index[column_name]].astype(np.float32, copy=False)
-
-            if method == "delta":
-                feature_values = values[:, -1] - values[:, 0]
-            else:
-                feature_values = np.mean(values, axis=1)
-
-            self._append_feature(feature_parts, feature_names, output_name, feature_values)
+        accel_values = X[:, :, column_index[self.ACCEL_COLUMN]].astype(np.float32, copy=False)
+        self._append_feature(feature_parts, feature_names, "accel_mean", np.mean(accel_values, axis=1))
+        self._append_feature(feature_parts, feature_names, "accel_std", np.std(accel_values, axis=1))
+        self._append_feature(feature_parts, feature_names, "accel_min", np.min(accel_values, axis=1))
+        self._append_feature(feature_parts, feature_names, "accel_max", np.max(accel_values, axis=1))
+        self._append_feature(
+            feature_parts,
+            feature_names,
+            "accel_delta",
+            accel_values[:, -1] - accel_values[:, 0],
+        )
 
         if not feature_parts:
             raise ValueError("未生成任何工况特征，请检查输入字段")

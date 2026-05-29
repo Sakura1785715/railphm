@@ -68,6 +68,19 @@ class AIClient:
     def range_infer_url(self) -> str:
         return urljoin(f"{self.base_url}/", self.range_infer_path.lstrip("/"))
 
+    @staticmethod
+    def _extract_error_message(response: requests.Response, fallback: str) -> str:
+        try:
+            response_body = response.json()
+        except ValueError:
+            return fallback
+
+        if not isinstance(response_body, dict):
+            return fallback
+
+        message = response_body.get("message")
+        return message if isinstance(message, str) and message.strip() else fallback
+
     def infer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(payload, dict):
             raise AIResponseFormatError("AI 推理请求参数格式非法")
@@ -177,15 +190,16 @@ class AIClient:
             raise AIServiceError("AI 区间推理服务返回异常状态")
 
         if response.status_code < 200 or response.status_code >= 300:
+            error_message = self._extract_error_message(response, "AI range infer response status error")
             self.logger.warning(
-                "AI range infer response status error",
+                error_message,
                 extra={
                     "url": url,
                     "status_code": response.status_code,
                     "payload_keys": list(payload.keys()),
                 },
             )
-            raise AIServiceError("AI 区间推理服务返回异常状态")
+            raise AIServiceError(error_message)
 
         try:
             response_body = response.json()

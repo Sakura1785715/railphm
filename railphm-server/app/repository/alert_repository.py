@@ -22,6 +22,7 @@ class AlertRepository:
 
     _ALERT_SELECT_FIELDS = """
         alert_id,
+        run_record_id,
         risk_result_id,
         device_id,
         device_code,
@@ -64,6 +65,28 @@ class AlertRepository:
                     LIMIT 1
                     """,
                     (risk_result_id,),
+                )
+                record = cursor.fetchone()
+        finally:
+            connection.close()
+
+        return cls._normalize_alert_record(record) if record else None
+
+    @classmethod
+    def get_by_run_record_id(cls, run_record_id: int) -> Optional[Dict[str, Any]]:
+        """查询运行记录级主告警，同一 run_record_id 最多一条。"""
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {cls._ALERT_SELECT_FIELDS}
+                    FROM phm_alert_record
+                    WHERE run_record_id = %s
+                    ORDER BY alert_id DESC
+                    LIMIT 1
+                    """,
+                    (run_record_id,),
                 )
                 record = cursor.fetchone()
         finally:
@@ -189,6 +212,119 @@ class AlertRepository:
                         handle_time,
                         handle_desc
                     ) VALUES (
+                        %(risk_result_id)s,
+                        %(device_id)s,
+                        %(device_code)s,
+                        %(alert_level)s,
+                        %(alert_status)s,
+                        %(alert_status_text)s,
+                        %(alert_time)s,
+                        %(alert_message)s,
+                        %(alert_advice)s,
+                        %(risk_score)s,
+                        %(health_score)s,
+                        %(health_level)s,
+                        %(health_status)s,
+                        %(target_label_value)s,
+                        %(target_time)s,
+                        NULL,
+                        NULL,
+                        NULL
+                    )
+                    """,
+                    params,
+                )
+                alert_id = cursor.lastrowid
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+        return cls.get_alert_by_id(alert_id)
+
+    @classmethod
+    def create_from_run_record(
+        cls,
+        run_record: Dict[str, Any],
+        risk_record: Dict[str, Any],
+        alert_payload: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """根据运行记录最高风险点创建一条运行记录级主告警。"""
+        run_record_id = run_record.get("run_record_id")
+        risk_result_id = risk_record.get("risk_result_id")
+        device_code = run_record.get("device_code") or risk_record.get("device_code")
+        if not run_record_id or not risk_result_id or not device_code:
+            return None
+
+        existing_alert = cls.get_by_run_record_id(int(run_record_id))
+        if existing_alert:
+            return existing_alert
+
+        trace = risk_record.get("trace") if isinstance(risk_record.get("trace"), dict) else {}
+        target_label_value = (
+            risk_record.get("target_label_value")
+            or trace.get("target_label_value")
+            or trace.get("target_alarm_value")
+        )
+        target_time = (
+            risk_record.get("target_time")
+            or trace.get("target_time")
+            or risk_record.get("window_end_time")
+            or risk_record.get("ts_end")
+        )
+        risk_score = risk_record.get("risk_score")
+        if risk_score is None:
+            risk_score = risk_record.get("calibrated_risk_score")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        params = {
+            "run_record_id": run_record_id,
+            "risk_result_id": risk_result_id,
+            "device_id": risk_record.get("device_id") or run_record.get("device_id"),
+            "device_code": device_code,
+            "alert_level": cls._normalize_alert_level(alert_payload.get("alert_level")),
+            "alert_status": "unhandled",
+            "alert_status_text": cls._alert_status_text("unhandled"),
+            "alert_time": now,
+            "alert_message": alert_payload.get("alert_message"),
+            "alert_advice": alert_payload.get("alert_advice"),
+            "risk_score": risk_score,
+            "health_score": risk_record.get("health_score"),
+            "health_level": risk_record.get("health_level"),
+            "health_status": risk_record.get("health_status"),
+            "target_label_value": target_label_value,
+            "target_time": cls._normalize_datetime(target_time),
+        }
+
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO phm_alert_record (
+                        run_record_id,
+                        risk_result_id,
+                        device_id,
+                        device_code,
+                        alert_level,
+                        alert_status,
+                        alert_status_text,
+                        alert_time,
+                        alert_message,
+                        alert_advice,
+                        risk_score,
+                        health_score,
+                        health_level,
+                        health_status,
+                        target_label_value,
+                        target_time,
+                        handler_id,
+                        handle_time,
+                        handle_desc
+                    ) VALUES (
+                        %(run_record_id)s,
                         %(risk_result_id)s,
                         %(device_id)s,
                         %(device_code)s,

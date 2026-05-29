@@ -133,18 +133,11 @@ const primaryNavItems = [
     match: ['/devices']
   },
   {
-    path: '/monitor',
-    label: '运行监测',
-    description: 'ATP 监测序列查询',
+    path: '/run-records',
+    label: '运行记录',
+    description: '片段池与仿真运行分析',
     icon: 'monitor',
-    match: ['/monitor']
-  },
-  {
-    path: '/predictions',
-    label: '风险预测',
-    description: '模型结果与趋势分析',
-    icon: 'prediction',
-    match: ['/predictions']
+    match: ['/run-records']
   },
   {
     path: '/alerts',

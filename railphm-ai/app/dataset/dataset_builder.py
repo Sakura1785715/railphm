@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from app.dataset.dataset_summary import build_dataset_summary
+from app.dataset.derived_feature_builder import DerivedFeatureBuilder
 from app.dataset.feature_config import (
     DEFAULT_PREDICTION_HORIZON,
     DEFAULT_STRIDE,
@@ -48,9 +49,11 @@ class WindowDatasetBuilder:
         self,
         segment_loader: SegmentLoader | None = None,
         feature_processor: FeatureProcessor | None = None,
+        derived_feature_builder: DerivedFeatureBuilder | None = None,
     ):
         self.segment_loader = segment_loader or SegmentLoader()
         self.feature_processor = feature_processor or FeatureProcessor()
+        self.derived_feature_builder = derived_feature_builder or DerivedFeatureBuilder()
 
     # Core！！把一个目录里的 CSV segment 构建成完整窗口数据集
     def build(
@@ -119,8 +122,9 @@ class WindowDatasetBuilder:
 
                 raise ValueError(f"segment 时间不连续: {segment_data.file_name}")
             
-            # 调用 FeatureProcessor 处理当前 segment 的完整 DataFrame。 
-            feature_result = self.feature_processor.transform(segment_data.df)
+            # 在单个 segment 内动态生成派生特征，再交给 FeatureProcessor 构造模型输入矩阵。
+            enriched_df = self.derived_feature_builder.transform(segment_data.df)
+            feature_result = self.feature_processor.transform(enriched_df)
 
             missing_feature_columns.update(feature_result.missing_feature_columns)
             all_nan_feature_columns.update(feature_result.all_nan_feature_columns)

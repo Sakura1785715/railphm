@@ -17,27 +17,25 @@ from scripts.build_model_artifact_manifest import (  # noqa: E402
 )
 
 
-FEATURE_COLUMNS_23 = [
+FEATURE_COLUMNS_21 = [
     "速度",
-    "里程",
-    "运行距离",
-    "行别",
-    "线路编号",
-    "应答器编号",
-    "应答器里程",
-    "行别.1",
-    "线路编号.1",
-    "信号机ID",
-    "信号机里程",
-    "行别.2",
-    "线路编号.2",
-    "信号机ID.1",
-    "信号机里程.1",
-    "行别.3",
-    "线路编号.3",
-    "运行方向",
+    "制动信息",
+    "常用制动速度",
+    "紧急制动速度",
+    "天气信息",
     "室外温度",
     "湿度",
+    "加速度",
+    "加速度变化率",
+    "速度滚动标准差",
+    "速度滚动最大跳变",
+    "常用制动裕度",
+    "紧急制动裕度",
+    "常用制动裕度变化",
+    "紧急制动裕度变化",
+    "温度变化率",
+    "湿度变化率",
+    "恶劣天气标志",
     "condition_0",
     "condition_1",
     "condition_2",
@@ -55,7 +53,7 @@ def make_model_dir(
     threshold: float = 0.26,
     include_feature_columns: bool = True,
 ) -> Path:
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     (model_dir / "best_model.pt").write_bytes(b"")
@@ -63,12 +61,12 @@ def make_model_dir(
     write_json(
         model_dir / "training_config.json",
         {
-            "dataset_dir": "data/datasets/bilstm_attention_h1_full_features/train_scaled_condition_k3",
-            "output_dir": "outputs/sequence_models/bilstm_attention_h1_full_features",
+            "dataset_dir": "data/datasets/bilstm_attention_h1_synthetic_v3/train_scaled_condition_k3",
+            "output_dir": "outputs/sequence_models/bilstm_attention_h1_synthetic_v3",
             "model": "bilstm_attention",
             "window_size": 30,
-            "feature_dim": 23,
-            "input_dim": 23,
+            "feature_dim": 21,
+            "input_dim": 21,
             "hidden_dim": 64,
             "num_layers": 1,
             "dropout": 0.3,
@@ -102,11 +100,18 @@ def make_model_dir(
             "task": "test_evaluation",
         },
     )
+    write_json(
+        model_dir / "calibration_summary.json",
+        {
+            "method": "isotonic_regression",
+        },
+    )
+    (model_dir / "calibrator.pkl").write_bytes(b"")
 
     if include_feature_columns:
         write_json(
             model_dir / "feature_columns.json",
-            feature_columns if feature_columns is not None else FEATURE_COLUMNS_23,
+            feature_columns if feature_columns is not None else FEATURE_COLUMNS_21,
         )
 
     return model_dir
@@ -117,18 +122,18 @@ def test_build_manifest_success(tmp_path: Path) -> None:
 
     manifest = build_manifest(model_dir)
 
-    assert manifest["model_version"] == "bilstm_attention_h1_full_features"
+    assert manifest["model_version"] == "bilstm_attention_h1_synthetic_v3"
     assert manifest["model_name"] == "bilstm_attention"
     assert manifest["model_class"] == "BiLSTMAttentionClassifier"
     assert manifest["window_size"] == 30
-    assert manifest["feature_dim"] == 23
-    assert manifest["input_dim"] == 23
+    assert manifest["feature_dim"] == 21
+    assert manifest["input_dim"] == 21
     assert manifest["hidden_dim"] == 64
     assert manifest["num_layers"] == 1
     assert manifest["dropout"] == 0.3
     assert manifest["threshold"] == 0.26
     assert manifest["threshold_source"] == "validation_best_f1"
-    assert manifest["feature_columns_count"] == 23
+    assert manifest["feature_columns_count"] == 21
     assert manifest["condition_feature_columns"] == [
         "condition_0",
         "condition_1",
@@ -147,7 +152,7 @@ def test_build_manifest_fails_when_feature_columns_missing(tmp_path: Path) -> No
 
 
 def test_build_manifest_fails_when_feature_count_mismatch(tmp_path: Path) -> None:
-    model_dir = make_model_dir(tmp_path, feature_columns=FEATURE_COLUMNS_23[:-1])
+    model_dir = make_model_dir(tmp_path, feature_columns=FEATURE_COLUMNS_21[:-1])
 
     with pytest.raises(ManifestBuildError, match="feature_columns 数量"):
         build_manifest(model_dir)

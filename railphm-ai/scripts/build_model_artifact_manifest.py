@@ -1,7 +1,7 @@
 """
 为默认 Bi-LSTM+Attention 模型输出目录生成一个统一的模型产物清单 model_artifact_manifest.json
 生成路径：
-outputs/sequence_models/bilstm_attention_h1_full_features/model_artifact_manifest.json
+outputs/sequence_models/bilstm_attention_h1_synthetic_v3/model_artifact_manifest.json
 后续根据 model_artifact_manifest.json 加载模型、特征列、阈值、权重
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-dir",
         required=True,
         type=Path,
-        help="模型输出目录，例如 outputs/sequence_models/bilstm_attention_h1_full_features",
+        help="模型输出目录，例如 outputs/sequence_models/bilstm_attention_h1_synthetic_v3",
     )
     parser.add_argument(
         "--overwrite",

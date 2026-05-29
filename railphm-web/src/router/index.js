@@ -5,9 +5,9 @@ import DeviceDetailView from '../views/DeviceDetailView.vue'
 import DeviceLedgerView from '../views/DeviceLedgerView.vue'
 import HealthCheckView from '../views/HealthCheckView.vue'
 import LoginView from '../views/LoginView.vue'
-import MonitorView from '../views/MonitorView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
-import PredictionView from '../views/PredictionView.vue'
+import RunRecordDetailView from '../views/RunRecordDetailView.vue'
+import RunRecordView from '../views/RunRecordView.vue'
 import { isLoggedIn } from '../utils/auth'
 
 const routes = [
@@ -56,20 +56,29 @@ const routes = [
   {
     path: '/monitor',
     name: 'monitor',
-    component: MonitorView,
+    redirect: { name: 'run-records' }
+  },
+  {
+    path: '/run-records',
+    name: 'run-records',
+    component: RunRecordView,
     meta: {
-      title: '运行监测',
-      description: '查询并展示 ATP 车载监测数据的时序变化。'
+      title: '运行记录',
+      description: '从测试片段池中选择连续运行记录，进行监测回放、风险预测与告警分析。'
+    }
+  },
+  {
+    path: '/run-records/:id',
+    name: 'run-record-detail',
+    component: RunRecordDetailView,
+    meta: {
+      title: '运行记录详情'
     }
   },
   {
     path: '/predictions',
     name: 'predictions',
-    component: PredictionView,
-    meta: {
-      title: '风险预测',
-      description: '展示设备最新风险结果、历史趋势和模型推理页面。'
-    }
+    redirect: { name: 'run-records' }
   },
   {
     path: '/alerts',

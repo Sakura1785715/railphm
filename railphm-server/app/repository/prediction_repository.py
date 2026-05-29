@@ -13,6 +13,7 @@ class PredictionRepository:
 
     _RISK_RESULT_SELECT_FIELDS = """
         risk_result_id,
+        run_record_id,
         device_id,
         device_code,
         sample_index,
@@ -67,6 +68,7 @@ class PredictionRepository:
         trace_fields = cls._extract_trace_fields(record.get("trace"))
 
         params = {
+            "run_record_id": cls._normalize_optional_int(record.get("run_record_id")),
             "device_id": device_info["device_id"],
             "device_code": device_info["device_code"],
             "sample_index": cls._normalize_optional_int(record.get("sample_index")),
@@ -95,6 +97,7 @@ class PredictionRepository:
                 cursor.execute(
                     """
                     INSERT INTO phm_risk_result (
+                        run_record_id,
                         device_id,
                         device_code,
                         sample_index,
@@ -128,6 +131,7 @@ class PredictionRepository:
                         target_row,
                         trace_json
                     ) VALUES (
+                        %(run_record_id)s,
                         %(device_id)s,
                         %(device_code)s,
                         %(sample_index)s,
@@ -203,18 +207,46 @@ class PredictionRepository:
         return cls._normalize_risk_record(record) if record else None
 
     @classmethod
+    def get_max_risk_by_run_record_id(cls, run_record_id: int) -> Optional[Dict[str, Any]]:
+        """查询某条运行记录下最高风险点，作为运行记录级告警代表点。"""
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {cls._RISK_RESULT_SELECT_FIELDS}
+                    FROM phm_risk_result
+                    WHERE run_record_id = %s
+                    ORDER BY calibrated_risk_score DESC, risk_result_id DESC
+                    LIMIT 1
+                    """,
+                    (run_record_id,),
+                )
+                record = cursor.fetchone()
+        finally:
+            connection.close()
+
+        return cls._normalize_risk_record(record) if record else None
+
+    @classmethod
     def get_existing_by_device_window(
         cls,
         device_value: Any,
         window_start_time: Any,
         window_end_time: Any,
+        run_record_id: Any = None,
     ) -> Optional[Dict[str, Any]]:
         """按设备编号和在线窗口起止时间做轻量幂等检查。"""
         if not window_start_time or not window_end_time:
             return None
 
-        resolved_device = cls._resolve_device(device_value)
-        device_filter_sql, device_params = cls._build_device_filter(resolved_device)
+        normalized_run_record_id = cls._normalize_optional_int(run_record_id)
+        if normalized_run_record_id is not None:
+            filter_sql = "run_record_id = %s"
+            filter_params = [normalized_run_record_id]
+        else:
+            resolved_device = cls._resolve_device(device_value)
+            filter_sql, filter_params = cls._build_device_filter(resolved_device)
 
         connection = get_connection()
         try:
@@ -223,14 +255,14 @@ class PredictionRepository:
                     f"""
                     SELECT {cls._RISK_RESULT_SELECT_FIELDS}
                     FROM phm_risk_result
-                    WHERE {device_filter_sql}
+                    WHERE {filter_sql}
                       AND window_start_time = %s
                       AND window_end_time = %s
                     ORDER BY risk_result_id DESC
                     LIMIT 1
                     """,
                     [
-                        *device_params,
+                        *filter_params,
                         cls._normalize_datetime(window_start_time),
                         cls._normalize_datetime(window_end_time),
                     ],

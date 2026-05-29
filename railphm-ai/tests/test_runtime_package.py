@@ -27,5 +27,5 @@ def test_model_loader_constants():
         SUPPORTED_RUNTIME_MODELS,
     )
 
-    assert DEFAULT_MODEL_VERSION == "bilstm_attention_h1_full_features"
+    assert DEFAULT_MODEL_VERSION == "bilstm_attention_h1_synthetic_v3"
     assert SUPPORTED_RUNTIME_MODELS["bilstm_attention"] == "BiLSTMAttentionClassifier"

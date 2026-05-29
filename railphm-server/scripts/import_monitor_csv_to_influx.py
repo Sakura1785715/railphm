@@ -26,8 +26,16 @@ from app.core.config import BaseConfig
 FIELD_ALIASES = {
     "source_time": ("数据时间", "DataTime", "data_time", "source_time"),
     "speed": ("速度", "Speed", "speed"),
+    "brake_info": ("制动信息", "brake_info"),
+    "service_brake_speed": ("常用制动速度", "service_brake_speed"),
+    "emergency_brake_speed": ("紧急制动速度", "emergency_brake_speed"),
+    "weather_info": ("天气信息", "weather_info", "weather"),
+    "outdoor_temperature": ("室外温度", "outdoor_temperature"),
+    "humidity": ("湿度", "humidity"),
     "mileage": ("里程", "Mileage", "mileage"),
-    # "condition_label": ("工况标签", "condition_label", "condition_name", "工况", "condition"),
+    "run_distance": ("运行距离", "RunDistance", "run_distance"),
+    "alarm_part": ("报警部位", "alarm_part"),
+    "condition_label": ("工况标签", "condition_label", "condition_name", "工况", "condition"),
     "atp_type": ("ATP类型", "atp_type"),
     "source_car_no": ("车号", "TrainID", "source_car_no"),
     "source_train_no": ("车次", "source_train_no"),
@@ -44,19 +52,30 @@ FIELD_ALIASES = {
     "signal_mileage": ("信号机里程", "signal_mileage"),
     "longitude": ("经度", "longitude"),
     "latitude": ("纬度", "latitude"),
-    "outdoor_temperature": ("室外温度", "outdoor_temperature"),
-    "weather": ("天气信息", "weather"),
+    "weather": ("weather",),
     "road_condition": ("路况信息", "road_condition"),
-    "humidity": ("湿度", "humidity"),
-    "alarm_part": ("报警部位", "alarm_part"),
 }
 # CSV必须存在的字段
-REQUIRED_FIELDS = ("source_time", "speed", "mileage")
+REQUIRED_FIELDS = (
+    "source_time",
+    "speed",
+    "brake_info",
+    "service_brake_speed",
+    "emergency_brake_speed",
+    "weather_info",
+    "outdoor_temperature",
+    "humidity",
+)
 
 # 要转成数字的字段
 NUMERIC_FIELDS = {
     "speed",
+    "brake_info",
+    "service_brake_speed",
+    "emergency_brake_speed",
+    "weather_info",
     "mileage",
+    "run_distance",
     "balise_mileage",
     "signal_mileage",
     "longitude",
@@ -66,13 +85,13 @@ NUMERIC_FIELDS = {
 }
 
 # 标签字段（tag):InfluxDB查询时可以根据这些条件过滤
-TAG_FIELDS = ("device_code", "source_segment", "atp_type", "line_id", "direction")
+TAG_FIELDS = ("device_code", "source_segment", "condition_label", "atp_type", "line_id", "direction")
 
 # 数值字段（field): 用于展示数据
 FIELD_FIELDS = tuple(
     field
     for field in FIELD_ALIASES
-    if field not in {"source_time", "atp_type", "line_id", "direction"}
+    if field not in {"source_time", *TAG_FIELDS}
 )
 
 

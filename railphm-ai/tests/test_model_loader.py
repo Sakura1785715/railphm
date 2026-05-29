@@ -103,7 +103,7 @@ def make_model_dir(
     checkpoint: dict | None = None,
 ) -> Path:
     """构造测试用模型目录，包含 manifest、feature_columns 和 checkpoint。"""
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     feature_columns = (

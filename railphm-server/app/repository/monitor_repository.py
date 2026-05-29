@@ -14,7 +14,12 @@ class MonitorRepository:
 
     FIELD_COLUMNS = (
         "speed",
+        "brake_info",
+        "service_brake_speed",
+        "emergency_brake_speed",
+        "weather_info",
         "mileage",
+        "run_distance",
         "source_time",
         "source_train_no",
         "source_car_no",
@@ -38,13 +43,19 @@ class MonitorRepository:
 
     DEFAULT_QUERY_FIELDS = (
         "speed",
+        "brake_info",
+        "service_brake_speed",
+        "emergency_brake_speed",
+        "weather_info",
+        "outdoor_temperature",
+        "humidity",
         "mileage",
+        "run_distance",
+        "alarm_part",
         "source_time",
         "station_name",
         "longitude",
         "latitude",
-        "outdoor_temperature",
-        "humidity",
         "weather",
     )
 
@@ -66,6 +77,7 @@ class MonitorRepository:
         fields: Optional[List[str]] = None,
         limit: Optional[int] = None,
         condition_label: Optional[str] = None,
+        source_segment: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """从 InfluxDB 查询指定设备、时间范围内的监测点。"""
         bucket = current_app.config["INFLUXDB_BUCKET"]
@@ -82,6 +94,7 @@ class MonitorRepository:
             fields=selected_fields,
             limit=query_limit,
             condition_label=condition_label,
+            source_segment=source_segment,
         )
 
         tables = get_query_api().query(flux, org=current_app.config["INFLUXDB_ORG"])
@@ -94,6 +107,31 @@ class MonitorRepository:
         return rows
 
     @classmethod
+    def query_history_by_device_and_segment(
+        cls,
+        device_code: str,
+        source_segment: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: Optional[int] = None,
+        fields: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """查询单个 source_segment 内的监测点，禁止跨片段拼接。"""
+        if not source_segment:
+            return []
+        if start_time is None or end_time is None:
+            raise ValueError("start_time 和 end_time 不能为空")
+
+        return cls.query_history_by_device_and_range(
+            device_code=device_code,
+            start_dt=start_time,
+            end_dt=end_time,
+            fields=fields,
+            limit=limit,
+            source_segment=source_segment,
+        )
+
+    @classmethod
     def _build_flux_query(
         cls,
         bucket: str,
@@ -104,6 +142,7 @@ class MonitorRepository:
         fields: List[str],
         limit: int,
         condition_label: Optional[str] = None,
+        source_segment: Optional[str] = None,
     ) -> str:
         field_set = {field for field in fields if field in cls.FIELD_COLUMNS}
         if not field_set:
@@ -121,6 +160,10 @@ class MonitorRepository:
         if condition_label:
             filters.append(
                 f'r.condition_label == "{cls._escape_flux_string(condition_label)}"'
+            )
+        if source_segment:
+            filters.append(
+                f'r.source_segment == "{cls._escape_flux_string(source_segment)}"'
             )
 
         filter_body = " and ".join(filters)

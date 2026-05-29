@@ -34,11 +34,11 @@ def _build_monitor_rows(count=90):
 
 def _patch_fake_runtime(monkeypatch):
     runtime_feature_columns = json.loads(
-        Path("outputs/sequence_models/bilstm_attention_h1_full_features/feature_columns.json")
+        Path("outputs/sequence_models/bilstm_attention_h1_synthetic_v3/feature_columns.json")
         .read_text(encoding="utf-8")
     )
     dataset_dir = str(
-        Path("data/datasets/bilstm_attention_h1_full_features/scaled_window_w30_s1_h1")
+        Path("data/datasets/bilstm_attention_h1_synthetic_v3/scaled_window_w30_s1_h1")
         .resolve()
     )
 

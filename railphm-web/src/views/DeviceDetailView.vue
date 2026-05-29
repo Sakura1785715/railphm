@@ -81,7 +81,7 @@
               </article>
               <article class="device-kpi">
                 <span>当前健康度</span>
-                <strong>{{ formatScore(latestPrediction.health_score, 2) }}</strong>
+                <strong>{{ formatHealthScore(latestPrediction.health_score, 2) }}</strong>
               </article>
               <article class="device-kpi">
                 <span>风险波动</span>
@@ -191,7 +191,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { getAlertList } from '../api/alert'
 import { getDeviceDetail } from '../api/device'
 import { getLatestPrediction } from '../api/prediction'
-import { formatAlertLevel, formatAlertStatus, formatDeviceStatus, formatPercent, formatScore } from '../utils/formatters'
+import { formatAlertLevel, formatAlertStatus, formatDeviceStatus, formatHealthScore, formatPercent } from '../utils/formatters'
 
 const route = useRoute()
 const router = useRouter()

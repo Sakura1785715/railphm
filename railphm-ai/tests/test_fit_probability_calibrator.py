@@ -44,7 +44,7 @@ def make_args(model_dir: Path, *, update_manifest: bool = False) -> argparse.Nam
 
 
 def test_fit_probability_calibrator_generates_outputs(tmp_path: Path) -> None:
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     write_prediction_csv(model_dir / "val_predictions.csv")
@@ -79,7 +79,7 @@ def test_fit_probability_calibrator_generates_outputs(tmp_path: Path) -> None:
 
 
 def test_fit_probability_calibrator_updates_manifest(tmp_path: Path) -> None:
-    model_dir = tmp_path / "bilstm_attention_h1_full_features"
+    model_dir = tmp_path / "bilstm_attention_h1_synthetic_v3"
     model_dir.mkdir()
 
     write_prediction_csv(model_dir / "val_predictions.csv")
@@ -89,7 +89,7 @@ def test_fit_probability_calibrator_updates_manifest(tmp_path: Path) -> None:
     write_json(
         model_dir / "model_artifact_manifest.json",
         {
-            "model_version": "bilstm_attention_h1_full_features",
+            "model_version": "bilstm_attention_h1_synthetic_v3",
             "artifacts": {
                 "model_weight": "best_model.pt",
             },
