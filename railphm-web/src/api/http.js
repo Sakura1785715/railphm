@@ -3,7 +3,7 @@ import { getToken } from '../utils/auth'
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 8000
+  timeout: 80000
 })
 
 http.interceptors.request.use((config) => {

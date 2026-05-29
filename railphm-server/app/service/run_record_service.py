@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 from flask import current_app
 
+# 导入告警文案和建议
 from app.core.risk_rules import (
     ALERT_ADVICE_HIGH,
     ALERT_ADVICE_MEDIUM,
@@ -10,10 +11,12 @@ from app.core.risk_rules import (
     ALERT_MESSAGE_MEDIUM,
 )
 from app.core.errors import BusinessException
-from app.repository.alert_repository import AlertRepository
-from app.repository.monitor_repository import MonitorRepository
-from app.repository.prediction_repository import PredictionRepository
-from app.repository.run_record_repository import RunRecordRepository
+# Repository 层
+from app.repository.alert_repository import AlertRepository # 查/写告警表
+from app.repository.monitor_repository import MonitorRepository # 查 InfluxDB 监测数据
+from app.repository.prediction_repository import PredictionRepository # 查/写 phm_risk_result 风险结果表
+from app.repository.run_record_repository import RunRecordRepository # 查/更新 phm_run_record 运行记录表
+# 整理返回格式
 from app.schema.alert_schema import AlertSchema
 from app.schema.run_record_schema import RunRecordSchema
 from app.service.prediction_service import PredictionService
@@ -26,6 +29,7 @@ class RunRecordService:
     MAX_MONITOR_LIMIT = 20000
 
     @classmethod
+    # 前端运行记录池列表页
     def list_records(
         cls,
         page: Any = 1,
@@ -40,13 +44,14 @@ class RunRecordService:
             cls._parse_positive_int(page_size, "page_size"),
             cls.MAX_PAGE_SIZE,
         )
+        # 整理筛选条件
         filters = {
             "device_code": cls._clean_text(device_code),
             "status": cls._clean_text(status),
             "has_alarm_label": cls._parse_optional_bool(has_alarm_label, "has_alarm_label"),
             "min_risk_score": cls._parse_optional_float(min_risk_score, "min_risk_score"),
         }
-
+        # 去 MySQL 查 phm_run_record 表
         result = RunRecordRepository.list_records(
             filters=filters,
             page=normalized_page,
@@ -60,6 +65,7 @@ class RunRecordService:
         }
 
     @classmethod
+    # 查单条运行记录详情
     def get_detail(cls, run_record_id: Any) -> Dict[str, Any]:
         record_id = cls._parse_positive_int(run_record_id, "run_record_id")
         record = RunRecordRepository.get_by_id(record_id)
@@ -79,6 +85,7 @@ class RunRecordService:
         return RunRecordSchema.dump(record)
 
     @classmethod
+    # 查某条运行记录的监测数据
     def get_monitor_history(
         cls,
         run_record_id: Any,
@@ -92,9 +99,9 @@ class RunRecordService:
                 message=f"未找到运行记录ID为 {record_id} 的记录",
                 status_code=404,
             )
-
-        device_code = cls._clean_text(record.get("device_code"))
-        source_segment = cls._clean_text(record.get("source_segment"))
+        # 从运行记录里取字段
+        device_code = cls._clean_text(record.get("device_code")) # 设备编号
+        source_segment = cls._clean_text(record.get("source_segment")) # 数据片段编号
         if not device_code:
             raise BusinessException(code=400, message="运行记录缺少 device_code", status_code=400)
         if not source_segment:
@@ -102,8 +109,9 @@ class RunRecordService:
 
         start_dt = cls._parse_time(record.get("record_start_time"), "record_start_time")
         end_dt = cls._parse_time(record.get("record_end_time"), "record_end_time")
+        # 防止一次查太多监测点，最大 20000 条
         limit = min(cls._parse_optional_limit(limit_value), cls.MAX_MONITOR_LIMIT)
-
+        # 查 InfluxDB
         rows = MonitorRepository.query_history_by_device_and_segment(
             device_code=device_code,
             source_segment=source_segment,
@@ -111,24 +119,29 @@ class RunRecordService:
             end_time=end_dt + timedelta(seconds=1),
             limit=limit,
         )
+        # 整理返回
         return RunRecordSchema.dump_monitor_history(record, rows)
 
     @classmethod
+    # 执行运行记录风险预测
     def infer_record(
         cls,
         run_record_id: Any,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """
+        把 run_record_id 翻译成 PredictionService.range_infer() 需要的完整参数
+        """
         record_id = cls._parse_positive_int(run_record_id, "run_record_id")
         if payload is None:
             payload = {}
         if not isinstance(payload, dict):
             raise BusinessException(code=400, message="请求体必须为 JSON 对象", status_code=400)
-
+        # 根据id查运行记录
         record = RunRecordRepository.get_by_id(record_id)
         if not record:
             raise BusinessException(code=404, message="运行记录不存在", status_code=404)
-
+        # 从运行记录中取核心字段
         device_code = cls._clean_text(record.get("device_code"))
         source_segment = cls._clean_text(record.get("source_segment"))
         record_start_time = cls._clean_text(record.get("record_start_time"))
@@ -141,7 +154,7 @@ class RunRecordService:
             raise BusinessException(code=400, message="运行记录缺少 record_start_time", status_code=400)
         if not record_end_time:
             raise BusinessException(code=400, message="运行记录缺少 record_end_time", status_code=400)
-
+        # 根据运行记录构建区间推理请求
         range_payload = {
             "run_record_id": record_id,
             "device_code": device_code,
@@ -156,9 +169,11 @@ class RunRecordService:
             "persist": payload.get("persist", True),
             "generate_alert": False,
         }
-
+        # 进行推理
         result = PredictionService.range_infer(range_payload)
+        # 统计本次推理的最高风险
         summary = cls._build_infer_summary(result.get("risk_series") or [])
+        # 更新 phm_run_record 中对应的运行记录状态
         updated_record = RunRecordRepository.update_after_infer(
             run_record_id=record_id,
             summary={
@@ -186,26 +201,30 @@ class RunRecordService:
         }
 
     @classmethod
+    # 生成运行记录告警
     def generate_record_alert(
         cls,
         run_record_id: Any,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """
+        根据已经保存的预测结果，找到这条运行记录的最高风险点，然后决定是否生成告警。
+        """
         record_id = cls._parse_positive_int(run_record_id, "run_record_id")
         if payload is None:
             payload = {}
         if not isinstance(payload, dict):
             raise BusinessException(code=400, message="请求体必须为 JSON 对象", status_code=400)
-
+        # 查运行记录
         run_record = RunRecordRepository.get_by_id(record_id)
         if not run_record:
             raise BusinessException(code=404, message="运行记录不存在", status_code=404)
-
+        # 检查是否已经有告警
         existing_alert = cls._get_existing_run_record_alert(run_record)
         if existing_alert:
             cls._sync_run_record_alert_summary(run_record, existing_alert)
             return cls._build_existing_alert_response(run_record, existing_alert)
-
+        # 查最高风险点
         max_risk_record = PredictionRepository.get_max_risk_by_run_record_id(record_id)
         if not max_risk_record:
             raise BusinessException(
@@ -213,15 +232,17 @@ class RunRecordService:
                 message="运行记录尚未完成风险推理，请先执行推理",
                 status_code=400,
             )
-
+        
+        # 取最高风险分数
         max_risk_score = cls._get_risk_score(max_risk_record)
         if max_risk_score is None:
             raise BusinessException(
                 code=400,
                 message="运行记录最高风险分数为空或非法",
                 status_code=400,
-            )
+            )   
 
+        # 根据风险分数计算告警等级
         max_alert_level = cls._resolve_max_alert_level(max_risk_score)
         summary = {
             "status": "inferred",
@@ -230,6 +251,7 @@ class RunRecordService:
             "max_alert_level": max_alert_level,
         }
 
+        # 如果风险低于 warning，不生成告警
         warning_threshold = float(current_app.config.get("RISK_THRESHOLD_WARNING", 0.65))
         if max_risk_score < warning_threshold:
             RunRecordRepository.update_after_infer(record_id, summary)
@@ -251,6 +273,7 @@ class RunRecordService:
                 "health_status": max_risk_record.get("health_status"),
             }
 
+        # 风险足够高，生成告警
         alert_payload = cls._build_run_record_alert_payload(max_alert_level)
         alert_record = AlertRepository.create_from_run_record(
             run_record=run_record,
@@ -289,6 +312,7 @@ class RunRecordService:
         }
 
     @classmethod
+    # 检查这条运行记录是否已经有告警。
     def _get_existing_run_record_alert(
         cls,
         run_record: Dict[str, Any],
@@ -304,6 +328,7 @@ class RunRecordService:
         return AlertRepository.get_by_run_record_id(int(run_record["run_record_id"]))
 
     @classmethod
+    # 如果已有告警，就把运行记录表里的 alert_id、alert_level 同步一下
     def _sync_run_record_alert_summary(
         cls,
         run_record: Dict[str, Any],
@@ -316,6 +341,7 @@ class RunRecordService:
         )
 
     @staticmethod
+    # 把已有告警整理成前端能直接用的返回格式。
     def _build_existing_alert_response(
         run_record: Dict[str, Any],
         alert_record: Dict[str, Any],
@@ -342,6 +368,7 @@ class RunRecordService:
         }
 
     @staticmethod
+    # 根据告警等级选择告警文案和处置建议。
     def _build_run_record_alert_payload(alert_level: str) -> Dict[str, Any]:
         if alert_level == "high":
             return {

@@ -26,6 +26,12 @@ class RunRecordSyncService:
         measurement: Optional[str] = None,
         limit_segments: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """
+        在指定时间范围内，从 InfluxDB 扫描监测数据，
+        按 device_code + source_segment 聚合，
+        生成运行记录，
+        再写入 MySQL 的 phm_run_record 表。
+        """
         start_dt = cls._parse_time(start_time, "start_time")
         end_dt = cls._parse_time(end_time, "end_time")
         if start_dt >= end_dt:

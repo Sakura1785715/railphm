@@ -22,6 +22,7 @@ class PredictionService:
     """
 
     @staticmethod
+    # 健康度计算服务
     def _build_health_service() -> HealthService:
         return HealthService(
             risk_threshold_normal=current_app.config.get("RISK_THRESHOLD_NORMAL", 0.26),
@@ -32,6 +33,7 @@ class PredictionService:
         )
 
     @staticmethod
+    # 告警服务
     def _build_alert_service() -> AlertService:
         return AlertService(
             risk_threshold_normal=current_app.config.get("RISK_THRESHOLD_NORMAL", 0.26),
@@ -53,6 +55,7 @@ class PredictionService:
         )
 
     @staticmethod
+    # 给预测结果补健康度字段
     def _attach_health_fields(result: Dict[str, Any]) -> Dict[str, Any]:
         try:
             health_result = PredictionService._build_health_service().evaluate(
@@ -68,6 +71,7 @@ class PredictionService:
         }
 
     @staticmethod
+    # 给预测结果补告警字段
     def _attach_alert_fields(result: Dict[str, Any]) -> Dict[str, Any]:
         try:
             alert_result = PredictionService._build_alert_service().evaluate(
@@ -310,6 +314,7 @@ class PredictionService:
         return value.strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
+    # 区间推理的参数校验和标准化函数
     def _parse_range_request(request_data: Any) -> Dict[str, Any]:
         if not isinstance(request_data, dict):
             raise BusinessException(code=400, message="请求体必须为 JSON 对象", status_code=400)
@@ -343,7 +348,7 @@ class PredictionService:
 
         if start_dt >= end_dt:
             raise BusinessException(code=400, message="start_time 必须早于 end_time", status_code=400)
-
+        # 限制最大查询范围
         max_lookback_minutes = current_app.config.get("RANGE_INFER_MAX_LOOKBACK_MINUTES", 180)
         actual_lookback_minutes = int((end_dt - start_dt).total_seconds() // 60)
         if actual_lookback_minutes > max_lookback_minutes:
@@ -663,6 +668,7 @@ class PredictionService:
         return max(configured_limit, expected_seconds * 2)
 
     @staticmethod
+    # 把后端内部数据整理成 railphm-ai 接口需要的格式
     def _build_range_ai_payload(
         validated_data: Dict[str, Any],
         monitor_rows: list[dict[str, Any]],
@@ -678,18 +684,21 @@ class PredictionService:
         }
 
     @staticmethod
+    # 处理 AI 返回的每一个预测点
     def _normalize_range_ai_point(
         ai_point: Dict[str, Any],
         validated_data: Dict[str, Any],
     ) -> Dict[str, Any]:
+        # 校验 AI 返回点必须是字典
         if not isinstance(ai_point, dict):
             raise AIResponseFormatError("AI 区间推理结果点格式非法")
-
+        # 解析风险分数
         risk_score = PredictionService._parse_ai_float(
             ai_point.get("risk_score"),
             "risk_score",
             required=True,
         )
+        # 解析阈值和预测标签
         threshold = PredictionService._parse_ai_float(
             ai_point.get("threshold"),
             "threshold",
@@ -701,7 +710,8 @@ class PredictionService:
             predicted_label = int(risk_score >= threshold)
         elif isinstance(predicted_label, bool) or not isinstance(predicted_label, int):
             raise AIResponseFormatError("AI 区间推理服务返回 predicted_label 格式非法")
-
+        
+        # 构造 trace 追踪信息
         trace = ai_point.get("trace") if isinstance(ai_point.get("trace"), dict) else {}
         model_version = ai_point.get("model_version") or "unknown"
         trace = {
@@ -713,7 +723,8 @@ class PredictionService:
             trace["run_record_id"] = validated_data["run_record_id"]
         if validated_data.get("source_segment"):
             trace["source_segment"] = validated_data["source_segment"]
-
+            
+        # 返回统一格式的预测点
         return {
             "run_record_id": validated_data.get("run_record_id"),
             "source_segment": validated_data.get("source_segment"),
@@ -826,12 +837,12 @@ class PredictionService:
         context_seconds = int(current_app.config.get("RANGE_INFER_CONTEXT_SECONDS", 30))
         monitor_query_start_dt = validated_data["start_dt"] - timedelta(seconds=context_seconds)
         monitor_query_end_dt = validated_data["end_dt"] + timedelta(seconds=1)
-
+        # 从 InfluxDB 查询监测数据
         monitor_rows = MonitorRepository.query_history_by_device_and_range(
             device_code=validated_data["device_code"],
             start_dt=monitor_query_start_dt,
             end_dt=monitor_query_end_dt,
-            fields=list(MonitorRepository.FIELD_COLUMNS),
+            fields=list(MonitorRepository.FIELD_COLUMNS), # 要查询的监测字段
             limit=PredictionService._build_monitor_query_limit(
                 monitor_query_start_dt,
                 monitor_query_end_dt,
@@ -846,37 +857,43 @@ class PredictionService:
                 message="指定设备和时间范围内未查询到监测数据",
                 status_code=404,
             )
-
+        # 构造发给 AI 的请求
         ai_payload = PredictionService._build_range_ai_payload(validated_data, monitor_rows)
 
         try:
+            # 调用 railphm-ai 区间推理接口
             ai_data = AIClient().infer_range(ai_payload)
         except AIResponseFormatError:
             raise
         except AIServiceError:
             current_app.logger.warning("AI range infer failed")
             raise
+        # 结果容器
+        risk_series: list[Dict[str, Any]] = [] # 给前端画风险曲线
+        health_series: list[Dict[str, Any]] = [] # 给前端画健康度曲线
+        prediction_records: list[Dict[str, Any]] = [] # 给告警模块使用的完整预测记录
+        saved_count = 0 # 本次新保存了多少条风险结果
+        skipped_existing_count = 0 # 有多少条因为数据库已有而跳过保存
 
-        risk_series: list[Dict[str, Any]] = []
-        health_series: list[Dict[str, Any]] = []
-        prediction_records: list[Dict[str, Any]] = []
-        saved_count = 0
-        skipped_existing_count = 0
-
+        # 循环处理 AI 返回的每个预测点
         for ai_point in ai_data.get("results", []):
             record = PredictionService._normalize_range_ai_point(ai_point, validated_data)
             record = PredictionService._attach_health_fields(record)
 
+            # 默认认为这个预测点还没有保存到数据库。
             risk_result_id = None
             persist_status = "not_persisted"
 
+            # 如果 persist=True，就保存到 MySQL
             if validated_data["persist"]:
+                # 检查数据库中是否已有相同窗口结果
                 existing_record = PredictionRepository.get_existing_by_device_window(
                     validated_data["device_code"],
                     record.get("window_start_time"),
                     record.get("window_end_time"),
                     run_record_id=validated_data["run_record_id"],
                 )
+                # 防止重复保存结果
                 if existing_record:
                     skipped_existing_count += 1
                     persist_status = "skipped_existing"
@@ -887,6 +904,7 @@ class PredictionService:
                     )
                     risk_result_id = record.get("risk_result_id")
                 else:
+                    # 如果已有记录，复用已有结果
                     saved_record = PredictionRepository.save_infer_result(record)
                     saved_count += 1
                     risk_result_id = saved_record.get("risk_result_id")
@@ -906,7 +924,7 @@ class PredictionService:
                 "run_record_id": validated_data["run_record_id"],
                 "source_segment": validated_data["source_segment"],
             }
-
+            # 构造风险曲线点 risk_point
             risk_point = {
                 "risk_result_id": record.get("risk_result_id"),
                 "run_record_id": record.get("run_record_id"),
@@ -929,6 +947,7 @@ class PredictionService:
             }
             risk_series.append(risk_point)
             prediction_records.append(record)
+            # 构造健康度曲线点
             health_series.append(
                 {
                     "run_record_id": record.get("run_record_id"),
@@ -970,16 +989,16 @@ class PredictionService:
                 range_start_time=validated_data["start_time"],
                 range_end_time=validated_data["end_time"],
             )
-
+        # 最终响应结果,返回给前端
         response = {
-            "run_record_id": validated_data["run_record_id"],
-            "device_code": validated_data["device_code"],
-            "source_segment": validated_data["source_segment"],
-            "start_time": validated_data["start_time"],
-            "end_time": validated_data["end_time"],
-            "lookback_minutes": validated_data["lookback_minutes"],
-            "inference_stride_seconds": validated_data["inference_stride_seconds"],
-            "mc_samples": validated_data["mc_samples"],
+            "run_record_id": validated_data["run_record_id"], # 运行记录 ID
+            "device_code": validated_data["device_code"], # 设备编号
+            "source_segment": validated_data["source_segment"], # source_segment
+            "start_time": validated_data["start_time"],  # 推理起始时间
+            "end_time": validated_data["end_time"], # 结束时间
+            "lookback_minutes": validated_data["lookback_minutes"], # 回看分钟（30min)
+            "inference_stride_seconds": validated_data["inference_stride_seconds"], # 推理步长（1s）
+            "mc_samples": validated_data["mc_samples"], # 蒙特卡洛采样次数
             "monitor_query_start_time": PredictionService._format_datetime_value(
                 monitor_query_start_dt
             ),

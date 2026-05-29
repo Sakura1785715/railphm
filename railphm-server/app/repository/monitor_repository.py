@@ -1,3 +1,8 @@
+"""
+根据 device_code、source_segment、start_time、end_time
+从 InfluxDB 里查出监测点
+并把 InfluxDB 返回的结果整理成 Python 字典列表
+"""
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
@@ -12,6 +17,7 @@ class MonitorRepository:
     运行时数据源为 InfluxDB，不再读取本地样例数据。
     """
 
+    # 系统支持查询的监测字段
     FIELD_COLUMNS = (
         "speed",
         "brake_info",
@@ -41,6 +47,7 @@ class MonitorRepository:
         "alarm_part",
     )
 
+    # 默认查询字段
     DEFAULT_QUERY_FIELDS = (
         "speed",
         "brake_info",
@@ -59,6 +66,7 @@ class MonitorRepository:
         "weather",
     )
 
+    # InfluxDB 里的标签字段
     TAG_COLUMNS = (
         "device_code",
         "condition_label",
@@ -69,6 +77,7 @@ class MonitorRepository:
     )
 
     @classmethod
+    # 按照设备编号 + 时间范围从 InfluxDB 查监测点。
     def query_history_by_device_and_range(
         cls,
         device_code: str,
@@ -97,6 +106,7 @@ class MonitorRepository:
             source_segment=source_segment,
         )
 
+        # 执行 InfluxDB 查询
         tables = get_query_api().query(flux, org=current_app.config["INFLUXDB_ORG"])
         rows: List[Dict[str, Any]] = []
         for table in tables:

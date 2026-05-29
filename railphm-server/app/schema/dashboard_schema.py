@@ -6,10 +6,10 @@ class DashboardSchema:
     """Dashboard 聚合响应序列化。"""
 
     HEALTH_BUCKETS = (
-        ("normal", "正常"),
-        ("attention", "关注"),
-        ("warning", "预警"),
-        ("critical", "告警"),
+        ("normal", "正常", 1),
+        ("attention", "关注", 2),
+        ("warning", "预警", 3),
+        ("critical", "告警", 4),
     )
 
     DEVICE_STATUS_TEXT = {
@@ -30,12 +30,17 @@ class DashboardSchema:
     @classmethod
     def dump_overview(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
         """输出稳定 Dashboard overview 结构。"""
+        device_status_cards = payload.get("device_status_cards")
         return {
             "kpi": cls._dump_kpi(payload.get("kpi")),
-            "risk_trend": cls._dump_risk_trend(payload.get("risk_trend")),
-            "health_distribution": cls._dump_health_distribution(payload.get("health_distribution")),
+            "device_status_cards": cls._dump_device_status_cards(device_status_cards),
+            "health_distribution": cls._dump_health_distribution(
+                payload.get("health_distribution"),
+                device_status_cards=device_status_cards,
+            ),
             "latest_alerts": cls._dump_latest_alerts(payload.get("latest_alerts")),
             "key_devices": cls._dump_key_devices(payload.get("key_devices")),
+            "risk_trend": cls._dump_risk_trend(payload.get("risk_trend")),
             "updated_at": cls._format_datetime(datetime.now()),
         }
 
@@ -45,7 +50,10 @@ class DashboardSchema:
         return {
             "device_total": cls._to_int(source.get("device_total")),
             "normal_device_count": cls._to_int(source.get("normal_device_count")),
+            "attention_device_count": cls._to_int(source.get("attention_device_count")),
             "warning_device_count": cls._to_int(source.get("warning_device_count")),
+            "warning_only_device_count": cls._to_int(source.get("warning_only_device_count")),
+            "critical_device_count": cls._to_int(source.get("critical_device_count")),
             "unhandled_alert_count": cls._to_int(source.get("unhandled_alert_count")),
         }
 
@@ -78,27 +86,88 @@ class DashboardSchema:
         ]
 
     @classmethod
-    def _dump_health_distribution(cls, rows: Any) -> List[Dict[str, Any]]:
-        counts = {level: 0 for level, _label in cls.HEALTH_BUCKETS}
-        if isinstance(rows, list):
+    def _dump_device_status_cards(cls, rows: Any) -> List[Dict[str, Any]]:
+        if not isinstance(rows, list):
+            return []
+
+        return [
+            {
+                "device_id": row.get("device_id"),
+                "device_code": row.get("device_code"),
+                "device_name": row.get("device_name"),
+                "device_type": row.get("device_type"),
+                "location": row.get("location"),
+                "device_status": cls._to_int(row.get("device_status"), fallback=1),
+                "device_status_text": row.get("device_status_text") or cls._format_device_status(row.get("device_status")),
+                "current_status": cls._normalize_current_status(row.get("current_status")),
+                "current_status_text": row.get("current_status_text") or cls._format_current_status(row.get("current_status")),
+                "current_status_level": cls._current_status_level(row.get("current_status")),
+                "status_source": row.get("status_source"),
+                "risk_result_id": row.get("risk_result_id"),
+                "risk_score": cls._to_float(row.get("risk_score")),
+                "health_score": cls._to_float(row.get("health_score")),
+                "health_level": row.get("health_level"),
+                "health_status": row.get("health_status"),
+                "health_description": row.get("health_description"),
+                "latest_prediction_time": cls._format_datetime(row.get("latest_prediction_time")),
+                "window_end_time": cls._format_datetime(row.get("window_end_time")),
+                "active_alert_count": cls._to_int(row.get("active_alert_count")),
+                "highest_active_alert_level": cls._normalize_alert_level(row.get("highest_active_alert_level")),
+                "highest_active_alert_time": cls._format_datetime(row.get("highest_active_alert_time")),
+                "latest_alert_id": row.get("latest_alert_id"),
+                "latest_alert_message": row.get("latest_alert_message"),
+                "latest_alert_status": cls._normalize_key(row.get("latest_alert_status")) or None,
+                "current_risk_score": cls._to_float(row.get("current_risk_score")),
+                "current_health_score": cls._to_float(row.get("current_health_score")),
+                "current_event_time": cls._format_datetime(row.get("current_event_time")),
+                "current_message": row.get("current_message"),
+                "current_alert_level": cls._normalize_alert_level(row.get("current_alert_level")),
+                "current_alert_status": cls._normalize_key(row.get("current_alert_status")) or None,
+                "current_risk_result_id": row.get("current_risk_result_id"),
+                "updated_at": cls._format_datetime(row.get("updated_at")),
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
+
+    @classmethod
+    def _dump_health_distribution(
+        cls,
+        rows: Any,
+        device_status_cards: Any = None,
+    ) -> List[Dict[str, Any]]:
+        counts = {status: 0 for _level, _label, status in cls.HEALTH_BUCKETS}
+        if isinstance(device_status_cards, list):
+            for row in device_status_cards:
+                if not isinstance(row, dict):
+                    continue
+                status = cls._to_int(row.get("current_status"))
+                if status in counts:
+                    counts[status] += 1
+        elif isinstance(rows, list):
             for row in rows:
                 if not isinstance(row, dict):
                     continue
-                level = cls._normalize_health_level(
-                    row.get("health_level") or row.get("health_status")
-                )
-                if level == "unknown":
-                    level = cls._normalize_device_status_level(row.get("device_status"))
-                if level in counts:
-                    counts[level] += 1
+                if "status" in row and "count" in row:
+                    status = cls._to_int(row.get("status"))
+                    if status in counts:
+                        counts[status] += cls._to_int(row.get("count"))
+                    continue
+                level = cls._normalize_health_level(row.get("health_level") or row.get("health_status"))
+                status = cls._status_from_level(level)
+                if status == 0:
+                    status = cls._to_int(row.get("device_status"))
+                if status in counts:
+                    counts[status] += 1
 
         return [
             {
                 "level": level,
                 "label": label,
-                "count": counts[level],
+                "status": status,
+                "count": counts[status],
             }
-            for level, label in cls.HEALTH_BUCKETS
+            for level, label, status in cls.HEALTH_BUCKETS
         ]
 
     @classmethod
@@ -143,13 +212,32 @@ class DashboardSchema:
                 "device_type": row.get("device_type"),
                 "location": row.get("location"),
                 "device_status": row.get("device_status"),
-                "status_text": cls._format_device_status(row.get("device_status")),
+                "device_status_text": row.get("device_status_text") or cls._format_device_status(row.get("device_status")),
+                "current_status": cls._normalize_current_status(row.get("current_status") or row.get("device_status")),
+                "current_status_text": row.get("current_status_text") or cls._format_current_status(row.get("current_status") or row.get("device_status")),
+                "current_status_level": cls._current_status_level(row.get("current_status") or row.get("device_status")),
+                "status_text": row.get("current_status_text") or cls._format_current_status(row.get("current_status") or row.get("device_status")),
+                "status_source": row.get("status_source"),
                 "risk_score": cls._to_float(row.get("risk_score")),
                 "health_score": cls._to_float(row.get("health_score")),
                 "health_level": cls._normalize_health_level(row.get("health_level") or row.get("health_status")),
                 "health_status": row.get("health_status"),
-                "alert_level": cls._normalize_alert_level(row.get("alert_level")),
-                "alert_status": cls._normalize_alert_status(row.get("alert_status")),
+                "current_risk_score": cls._to_float(row.get("current_risk_score")),
+                "current_health_score": cls._to_float(row.get("current_health_score")),
+                "current_event_time": cls._format_datetime(row.get("current_event_time")),
+                "current_message": row.get("current_message"),
+                "current_alert_level": cls._normalize_alert_level(row.get("current_alert_level")),
+                "current_alert_status": cls._normalize_key(row.get("current_alert_status")) or None,
+                "current_risk_result_id": row.get("current_risk_result_id"),
+                "active_alert_count": cls._to_int(row.get("active_alert_count")),
+                "alert_level": cls._normalize_alert_level(row.get("alert_level") or row.get("highest_active_alert_level")),
+                "alert_status": cls._normalize_alert_status(row.get("alert_status") or row.get("latest_alert_status")),
+                "highest_active_alert_level": cls._normalize_alert_level(row.get("highest_active_alert_level")),
+                "highest_active_alert_time": cls._format_datetime(row.get("highest_active_alert_time")),
+                "latest_alert_id": row.get("latest_alert_id"),
+                "latest_alert_message": row.get("latest_alert_message"),
+                "latest_alert_status": cls._normalize_key(row.get("latest_alert_status")) or None,
+                "latest_prediction_time": cls._format_datetime(row.get("latest_prediction_time")),
                 "window_end_time": cls._format_datetime(row.get("window_end_time") or row.get("ts_end") or row.get("updated_at")),
                 "updated_at": cls._format_datetime(row.get("updated_at") or row.get("window_end_time") or row.get("ts_end")),
             }
@@ -178,6 +266,7 @@ class DashboardSchema:
             "danger": "critical",
             "alert": "critical",
             "告警": "critical",
+            "严重": "critical",
             "危险": "critical",
         }
         return mapping.get(normalized, "unknown")
@@ -195,6 +284,34 @@ class DashboardSchema:
     @classmethod
     def _format_device_status(cls, value: Any) -> str:
         return cls.DEVICE_STATUS_TEXT.get(cls._to_int(value, fallback=0), "暂无")
+
+    @classmethod
+    def _normalize_current_status(cls, value: Any) -> int:
+        status = cls._to_int(value, fallback=1)
+        return status if status in cls.DEVICE_STATUS_TEXT else 1
+
+    @classmethod
+    def _format_current_status(cls, value: Any) -> str:
+        return cls.DEVICE_STATUS_TEXT.get(cls._normalize_current_status(value), "正常")
+
+    @classmethod
+    def _current_status_level(cls, value: Any) -> str:
+        status = cls._normalize_current_status(value)
+        return {
+            1: "normal",
+            2: "attention",
+            3: "warning",
+            4: "critical",
+        }.get(status, "normal")
+
+    @staticmethod
+    def _status_from_level(level: Any) -> int:
+        return {
+            "normal": 1,
+            "attention": 2,
+            "warning": 3,
+            "critical": 4,
+        }.get(level, 0)
 
     @classmethod
     def _normalize_alert_status(cls, value: Any) -> Any:
@@ -221,6 +338,7 @@ class DashboardSchema:
             "low": "low",
             "medium": "medium",
             "warning": "medium",
+            "warn": "medium",
             "high": "high",
             "critical": "critical",
         }

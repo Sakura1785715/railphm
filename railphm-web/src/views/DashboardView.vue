@@ -3,7 +3,7 @@
     <PageHeader
       title="高铁列控设备健康管理总览"
       eyebrow="系统首页"
-      description="集中展示设备运行状态、风险趋势、健康度分布、最新告警和重点关注设备。"
+      description="集中展示设备当前状态、告警处置情况与健康分布，便于运维人员快速掌握重点设备。"
       :meta="headerMetaText"
     >
       <template #actions>
@@ -33,39 +33,100 @@
         :trend="item.trend"
         :type="item.type"
         :loading="loading"
-      />
+      >
+        <template #icon>
+          <DashboardIcon :name="item.icon" :tone="item.iconTone || item.type" size="lg" />
+        </template>
+      </StatCard>
     </section>
 
-    <section class="dashboard-overview-grid">
-      <SectionCard
-        title="最近风险变化趋势"
-        description="按设备运行窗口时间展示最近风险分数，曲线使用 EMA 展示层平滑。"
-      >
-        <MetricTrendChart
-          v-if="loading || errorMessage || riskTrendPoints.length > 0"
-          title="风险趋势"
-          description="数值越高表示设备风险越高，展示值为 EMA 平滑风险分数。"
-          metric-name="风险分数"
-          :points="riskTrendPoints"
-          :tooltip-details="riskTrendTooltipDetails"
-          :loading="loading"
-          :error="errorMessage"
-          height="340px"
-        />
-        <EmptyState
-          v-else
-          title="暂无风险趋势数据"
-          description="当前暂无风险趋势数据，请先在风险预测页生成区间风险结果。"
-        />
-      </SectionCard>
+    <SectionCard
+      title="设备状态总览"
+      description="根据活跃告警、最新风险预测和设备台账状态综合判断当前设备状态。"
+    >
+      <LoadingBlock v-if="loading" text="正在加载设备状态总览..." height="260px" />
+      <EmptyState
+        v-else-if="deviceStatusCards.length === 0"
+        title="暂无设备状态数据"
+        description="当前暂无可展示的设备状态卡片。"
+      />
+      <div v-else class="device-status-grid">
+        <article
+          v-for="item in deviceStatusCards"
+          :key="item.device_id || item.device_code"
+          :class="['device-status-card', `device-status-card--${getCurrentStatusLevel(item)}`]"
+        >
+          <div class="device-status-card__topline" aria-hidden="true"></div>
+          <header class="device-status-card__header">
+            <div class="device-status-card__identity">
+              <DashboardIcon name="device" :tone="getStatusIconTone(item)" size="lg" />
+              <div>
+                <strong>{{ displayText(item.device_code) }}</strong>
+                <span>{{ displayText(item.device_name) }}</span>
+              </div>
+            </div>
+            <span :class="['device-status-badge', `device-status-badge--${getCurrentStatusLevel(item)}`]">
+              <span class="device-status-badge__dot" aria-hidden="true"></span>
+              {{ displayText(item.current_status_text || formatDeviceStatus(item.current_status)) }}
+            </span>
+          </header>
 
+          <div class="device-status-card__metrics">
+            <div class="device-status-metric">
+              <span>当前状态</span>
+              <strong>{{ displayText(item.current_status_text || formatDeviceStatus(item.current_status)) }}</strong>
+            </div>
+            <div class="device-status-metric">
+              <span>风险分数</span>
+              <strong>{{ formatDeviceRiskScore(item) }}</strong>
+            </div>
+            <div class="device-status-metric">
+              <span>健康度分数</span>
+              <strong>{{ formatDeviceHealthScore(item) }}</strong>
+            </div>
+            <div class="device-status-metric">
+              <span>活跃告警</span>
+              <strong>{{ formatAlertCount(item.active_alert_count) }}</strong>
+            </div>
+          </div>
+
+          <div class="device-status-card__details">
+            <div>
+              <span>状态来源</span>
+              <strong>{{ formatStatusSource(item.status_source) }}</strong>
+            </div>
+            <div>
+              <span>最新预测时间</span>
+              <strong>{{ formatDateTime(getDevicePredictionTime(item), '--') }}</strong>
+            </div>
+          </div>
+
+          <p v-if="hasCurrentMessage(item)" class="device-status-card__message">
+            {{ displayText(item.current_message, '') }}
+          </p>
+
+          <footer class="device-status-card__actions">
+            <RouterLink
+              v-if="item.device_id"
+              :to="{ name: 'device-detail', params: { id: item.device_id } }"
+            >
+              查看详情
+            </RouterLink>
+            <span v-else>查看详情</span>
+            <RouterLink :to="getAlertRoute(item)">告警记录</RouterLink>
+          </footer>
+        </article>
+      </div>
+    </SectionCard>
+
+    <section class="dashboard-support-grid">
       <SectionCard
         title="健康度分布"
-        description="按设备最新健康等级统计正常、关注、预警和告警数量。"
+        description="按设备当前统一状态统计正常、关注、预警和告警数量。"
       >
-        <LoadingBlock v-if="loading" text="正在加载健康度分布..." height="300px" />
+        <LoadingBlock v-if="loading" text="正在加载健康度分布..." height="260px" />
         <EmptyState
-          v-else-if="!hasHealthDistribution"
+          v-else-if="healthDistributionRows.length === 0"
           title="暂无健康度分布数据"
           description="当前暂无设备健康度统计数据。"
         />
@@ -76,8 +137,8 @@
             class="health-distribution__row"
           >
             <div class="health-distribution__meta">
+              <span :class="['health-distribution__dot', `health-distribution__dot--${item.level}`]" aria-hidden="true"></span>
               <span>{{ displayText(item.label) }}</span>
-              <strong>{{ item.count }}</strong>
             </div>
             <div class="health-distribution__bar" aria-hidden="true">
               <span
@@ -85,112 +146,54 @@
                 :style="{ width: `${item.percent}%` }"
               ></span>
             </div>
+            <strong class="health-distribution__count">{{ item.count }}</strong>
           </article>
         </div>
       </SectionCard>
-    </section>
-
-    <section class="dashboard-list-grid">
       <SectionCard
-        title="最新告警"
-        description="展示最近 5 条真实告警记录。"
+        title="待处理告警"
+        description="展示最近需要运维关注的告警记录。"
       >
         <template #headerActions>
           <RouterLink class="secondary-link" to="/alerts">进入告警中心</RouterLink>
         </template>
 
-        <LoadingBlock v-if="loading" text="正在加载最新告警..." height="260px" />
+        <LoadingBlock v-if="loading" text="正在加载待处理告警..." height="260px" />
         <EmptyState
-          v-else-if="latestAlerts.length === 0"
-          title="暂无告警记录"
-          description="当前暂无告警记录。"
+          v-else-if="pendingAlerts.length === 0"
+          title="暂无待处理告警"
+          description="当前暂无需要运维处理的告警记录。"
         />
         <ul v-else class="dashboard-alert-list">
-          <li v-for="item in latestAlerts" :key="item.alert_id || item.alert_time" class="dashboard-alert-item">
-            <div class="dashboard-alert-item__header">
-              <RiskTag :level="item.alert_level" size="small" />
+          <li v-for="item in pendingAlerts" :key="item.alert_id || item.alert_time" class="dashboard-alert-item">
+            <span :class="['alert-level-pill', `alert-level-pill--${getAlertLevelTone(item.alert_level)}`]">
+              {{ formatAlertLevelLabel(item.alert_level) }}
+            </span>
+            <div class="dashboard-alert-item__content">
+              <div class="dashboard-alert-item__title">
+                <strong>{{ displayText(getDeviceCode(item)) }} / {{ displayText(item.device_name) }}</strong>
+                <span>{{ formatDateTime(getAlertTime(item), '--') }}</span>
+              </div>
+              <p>{{ displayText(item.alert_message) }}</p>
               <StatusTag
                 :value="item.alert_status"
                 :label="item.alert_status_text || formatAlertStatus(item.alert_status)"
                 :type="getAlertStatusTone(item.alert_status)"
                 size="small"
               />
-              <span>{{ formatDateTime(getAlertTime(item)) }}</span>
             </div>
-            <strong>{{ displayText(getDeviceCode(item)) }} {{ item.device_name ? `/ ${item.device_name}` : '' }}</strong>
-            <p>{{ displayText(item.alert_message) }}</p>
             <div class="dashboard-alert-item__metrics">
-              <small>风险 {{ formatPercent(item.risk_score, 2) }}</small>
-              <small>健康度 {{ formatHealthScore(item.health_score, 2) }}</small>
+              <small><span>风险</span>{{ formatPercent(item.risk_score, 2, '--') }}</small>
+              <small><span>健康度</span>{{ formatHealthScore(item.health_score, 2, '--') }}</small>
             </div>
           </li>
         </ul>
-      </SectionCard>
-
-      <SectionCard
-        title="重点设备"
-        description="按最新风险分数筛选最需要关注的设备。"
-      >
-        <template #headerActions>
-          <RouterLink class="secondary-link" to="/devices">进入设备台账</RouterLink>
-        </template>
-
-        <LoadingBlock v-if="loading" text="正在加载重点设备..." height="260px" />
-        <EmptyState
-          v-else-if="keyDevices.length === 0"
-          title="暂无重点设备"
-          description="当前暂无需要重点关注的设备。"
-        />
-        <div v-else class="table-shell dashboard-table-shell">
-          <table class="status-table dashboard-table">
-            <thead>
-              <tr>
-                <th>设备编号</th>
-                <th>设备名称</th>
-                <th>状态</th>
-                <th>风险分数</th>
-                <th>健康度</th>
-                <th>告警等级</th>
-                <th>窗口时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in keyDevices" :key="item.device_code || item.device_id">
-                <td class="dashboard-mono">{{ displayText(getDeviceCode(item)) }}</td>
-                <td>{{ displayText(item.device_name) }}</td>
-                <td>
-                  <StatusTag
-                    :value="item.device_status"
-                    :label="item.status_text || formatDeviceStatus(item.device_status)"
-                    :type="getDeviceStatusTone(item.device_status)"
-                    size="small"
-                  />
-                </td>
-                <td class="dashboard-number-cell">{{ formatPercent(item.risk_score, 2) }}</td>
-                <td class="dashboard-number-cell">{{ formatHealthScore(item.health_score, 2) }}</td>
-                <td>{{ formatNullableAlertLevel(item.alert_level) }}</td>
-                <td>{{ formatDateTime(getDeviceWindowTime(item)) }}</td>
-                <td>
-                  <RouterLink
-                    v-if="item.device_id"
-                    class="table-link"
-                    :to="{ name: 'device-detail', params: { id: item.device_id } }"
-                  >
-                    查看详情
-                  </RouterLink>
-                  <span v-else>暂无</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </SectionCard>
     </section>
 
     <SectionCard
       title="快捷入口"
-      description="演示路径入口：设备、监测、预测、告警。"
+      description="常用功能导航。"
     >
       <div class="quick-link-grid">
         <QuickLinkCard
@@ -206,38 +209,38 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { MetricTrendChart } from '../components/chart'
 import EmptyState from '../components/common/EmptyState.vue'
 import ErrorState from '../components/common/ErrorState.vue'
 import LoadingBlock from '../components/common/LoadingBlock.vue'
 import PageHeader from '../components/common/PageHeader.vue'
-import RiskTag from '../components/common/RiskTag.vue'
 import SectionCard from '../components/common/SectionCard.vue'
 import StatCard from '../components/common/StatCard.vue'
 import StatusTag from '../components/common/StatusTag.vue'
+import DashboardIcon from '../components/dashboard/DashboardIcon.vue'
 import QuickLinkCard from '../components/dashboard/QuickLinkCard.vue'
 import { getDashboardOverview } from '../api/dashboard'
 import { DASHBOARD_QUICK_LINKS } from '../constants/dashboard'
 import { getStoredRole } from '../utils/auth'
-import { DISPLAY_SMOOTH_ALPHA, buildRiskHealthCurve } from '../utils/curve'
 import {
   displayText,
-  formatAlertLevel,
   formatAlertStatus,
   formatDateTime,
   formatDeviceStatus,
   formatHealthScore,
-  formatPercent,
-  toFiniteNumber
+  formatPercent
 } from '../utils/formatters'
 
 const EMPTY_OVERVIEW = {
   kpi: {
     device_total: 0,
     normal_device_count: 0,
+    attention_device_count: 0,
     warning_device_count: 0,
+    warning_only_device_count: 0,
+    critical_device_count: 0,
     unhandled_alert_count: 0
   },
+  device_status_cards: [],
   risk_trend: [],
   health_distribution: [],
   latest_alerts: [],
@@ -270,8 +273,8 @@ const dashboardStatus = computed(() => {
 })
 
 const headerMetaText = computed(() => {
-  const currentText = formatDateTime(now.value)
-  const updatedText = overview.value.updated_at ? formatDateTime(overview.value.updated_at) : '尚未更新'
+  const currentText = formatHeaderTime(now.value)
+  const updatedText = overview.value.updated_at ? formatHeaderTime(overview.value.updated_at) : '尚未更新'
   return `当前时间 ${currentText} · 最近更新 ${updatedText}`
 })
 
@@ -284,7 +287,9 @@ const overviewMetrics = computed(() => [
     value: kpi.value.device_total,
     description: '纳入监测的列控设备',
     trend: '设备台账',
-    type: 'primary'
+    type: 'primary',
+    icon: 'device',
+    iconTone: 'default'
   },
   {
     key: 'normal-device',
@@ -292,7 +297,8 @@ const overviewMetrics = computed(() => [
     value: kpi.value.normal_device_count,
     description: '当前状态正常',
     trend: '健康运行',
-    type: 'success'
+    type: 'success',
+    icon: 'risk'
   },
   {
     key: 'warning-device',
@@ -300,7 +306,8 @@ const overviewMetrics = computed(() => [
     value: kpi.value.warning_device_count,
     description: '需重点关注',
     trend: '状态聚合',
-    type: Number(kpi.value.warning_device_count) > 0 ? 'warning' : 'success'
+    type: Number(kpi.value.warning_device_count) > 0 ? 'warning' : 'success',
+    icon: 'alert'
   },
   {
     key: 'unhandled-alert',
@@ -308,54 +315,34 @@ const overviewMetrics = computed(() => [
     value: kpi.value.unhandled_alert_count,
     description: '待运维处理',
     trend: '告警记录',
-    type: Number(kpi.value.unhandled_alert_count) > 0 ? 'danger' : 'success'
+    type: Number(kpi.value.unhandled_alert_count) > 0 ? 'danger' : 'success',
+    icon: 'alert'
   }
 ])
 
-const riskTrend = computed(() => ensureArray(overview.value.risk_trend))
-const smoothedRiskTrend = computed(() =>
-  buildRiskHealthCurve(riskTrend.value, {
-    alpha: DISPLAY_SMOOTH_ALPHA,
-    timeGetter: getRiskTrendTime,
-    riskGetter: getRiskTrendValue,
-    healthGetter: (item) => item.health_score
-  })
-)
-const riskTrendPoints = computed(() =>
-  smoothedRiskTrend.value.map((item) => ({
-    time: formatTrendTime(item.time),
-    value: item.risk_score_smoothed
-  }))
-)
-const riskTrendTooltipDetails = computed(() =>
-  smoothedRiskTrend.value.map((item) => [
-    { label: '设备编号', value: displayText(getDeviceCode(item)) },
-    { label: '风险原始值', value: formatPercent(item.risk_score_raw, 2) },
-    { label: '风险平滑值', value: formatPercent(item.risk_score_smoothed, 2) },
-    { label: '健康度原始值', value: formatHealthScore(item.health_score_raw, 2) },
-    { label: '健康度平滑值', value: formatHealthScore(item.health_score_smoothed, 2) },
-    { label: '风险波动', value: formatPercent(item.risk_std, 2) },
-    { label: '窗口结束', value: formatDateTime(item.window_end_time || item.time || item.created_at) }
-  ])
-)
-
+const deviceStatusCards = computed(() => ensureArray(overview.value.device_status_cards))
 const healthDistribution = computed(() => ensureArray(overview.value.health_distribution))
 const healthDistributionTotal = computed(() =>
-  healthDistribution.value.reduce((total, item) => total + Number(item.count || 0), 0)
+  healthDistribution.value.reduce((total, item) => total + normalizeCount(item.count), 0)
 )
-const hasHealthDistribution = computed(() => healthDistributionTotal.value > 0)
 const healthDistributionRows = computed(() =>
-  healthDistribution.value.map((item, index) => ({
-    ...item,
-    key: `${item.level || item.label || 'level'}-${index}`,
-    level: normalizeHealthLevel(item.level || item.health_level || item.health_status),
-    label: item.label || formatHealthLevelLabel(item.level || item.health_level || item.health_status),
-    percent: healthDistributionTotal.value > 0 ? Math.round((Number(item.count || 0) / healthDistributionTotal.value) * 100) : 0
-  }))
+  healthDistribution.value.map((item, index) => {
+    const count = normalizeCount(item.count)
+    return {
+      ...item,
+      key: `${item.level || item.label || 'level'}-${index}`,
+      level: normalizeHealthLevel(item.level || item.health_level || item.health_status || item.status),
+      label: item.label || formatHealthLevelLabel(item.level || item.health_level || item.health_status || item.status),
+      count,
+      percent: healthDistributionTotal.value > 0 ? Math.round((count / healthDistributionTotal.value) * 100) : 0
+    }
+  })
 )
 
-const latestAlerts = computed(() => ensureArray(overview.value.latest_alerts).slice(0, 5))
-const keyDevices = computed(() => ensureArray(overview.value.key_devices))
+const latestAlerts = computed(() => ensureArray(overview.value.latest_alerts))
+const pendingAlerts = computed(() =>
+  latestAlerts.value.filter((item) => isActiveAlertStatus(item?.alert_status)).slice(0, 5)
+)
 
 async function loadDashboard() {
   loading.value = true
@@ -382,6 +369,7 @@ function normalizeOverview(result) {
       ...EMPTY_OVERVIEW.kpi,
       ...(source.kpi || {})
     },
+    device_status_cards: ensureArray(source.device_status_cards),
     risk_trend: ensureArray(source.risk_trend),
     health_distribution: ensureArray(source.health_distribution),
     latest_alerts: ensureArray(source.latest_alerts),
@@ -394,28 +382,6 @@ function ensureArray(value) {
   return Array.isArray(value) ? value : []
 }
 
-function formatTrendTime(value) {
-  return formatDateTime(value, '暂无').replace(/^(\d{4})-/, '').replace(' ', '\n')
-}
-
-function getRiskTrendTime(item) {
-  return item?.time || item?.window_end_time || item?.created_at || ''
-}
-
-function getRiskTrendValue(item) {
-  const riskScore = toFiniteNumber(item?.risk_score)
-  if (riskScore !== null) {
-    return riskScore
-  }
-
-  const averageRiskScore = toFiniteNumber(item?.avg_risk_score)
-  if (averageRiskScore !== null) {
-    return averageRiskScore
-  }
-
-  return toFiniteNumber(item?.max_risk_score)
-}
-
 function getDeviceCode(item) {
   return item?.device_code || item?.device_id || ''
 }
@@ -424,18 +390,26 @@ function getAlertTime(item) {
   return item?.alert_time || item?.created_at || item?.updated_at || ''
 }
 
-function getDeviceWindowTime(item) {
-  return item?.window_end_time || item?.updated_at || ''
+function getDevicePredictionTime(item) {
+  return item?.current_event_time || item?.latest_prediction_time || item?.window_end_time || item?.updated_at || ''
 }
 
-function formatNullableAlertLevel(value) {
-  return value ? formatAlertLevel(value) : '--'
+function getAlertRoute(item) {
+  return item?.device_code
+    ? { name: 'alerts', query: { device_code: item.device_code } }
+    : { name: 'alerts' }
 }
 
 function normalizeHealthLevel(value) {
   const normalizedValue = String(value || '').trim().toLowerCase()
-  if (normalizedValue === 'healthy' || normalizedValue === 'good') return 'normal'
-  if (normalizedValue === 'critical' || normalizedValue === 'danger' || normalizedValue === 'alert') return 'critical'
+  if (normalizedValue === '1') return 'normal'
+  if (normalizedValue === '2') return 'attention'
+  if (normalizedValue === '3') return 'warning'
+  if (normalizedValue === '4') return 'critical'
+  if (['normal', 'healthy', 'health', 'good', 'ok', '正常', '健康'].includes(normalizedValue)) return 'normal'
+  if (['attention', 'focus', '关注'].includes(normalizedValue)) return 'attention'
+  if (['warning', 'warn', 'prewarning', '预警'].includes(normalizedValue)) return 'warning'
+  if (['critical', 'danger', 'alert', '告警', '严重', '危险'].includes(normalizedValue)) return 'critical'
   return normalizedValue || 'normal'
 }
 
@@ -459,12 +433,88 @@ function getAlertStatusTone(status) {
   return 'warning'
 }
 
-function getDeviceStatusTone(status) {
-  const numericStatus = Number(status)
-  if (numericStatus === 1) return 'success'
-  if (numericStatus === 2 || numericStatus === 3) return 'warning'
-  if (numericStatus === 4) return 'danger'
+function isActiveAlertStatus(status) {
+  return ['pending', 'unhandled', 'processing'].includes(String(status || '').trim().toLowerCase())
+}
+
+function getAlertLevelTone(level) {
+  const normalizedLevel = String(level || '').trim().toLowerCase()
+  if (normalizedLevel === 'high' || normalizedLevel === 'critical') return 'danger'
+  if (normalizedLevel === 'medium' || normalizedLevel === 'warning' || normalizedLevel === 'warn') return 'warning'
+  if (normalizedLevel === 'low' || normalizedLevel === 'info') return 'info'
   return 'neutral'
+}
+
+function formatAlertLevelLabel(level) {
+  const tone = getAlertLevelTone(level)
+  if (tone === 'danger') return '高等级告警'
+  if (tone === 'warning') return '中等级告警'
+  if (tone === 'info') return '低等级告警'
+  return '告警记录'
+}
+
+function getCurrentStatusLevel(item) {
+  const normalizedLevel = normalizeHealthLevel(item?.current_status_level || item?.current_status)
+  return ['normal', 'attention', 'warning', 'critical'].includes(normalizedLevel) ? normalizedLevel : 'normal'
+}
+
+function getStatusIconTone(item) {
+  const level = getCurrentStatusLevel(item)
+  if (level === 'normal') return 'success'
+  if (level === 'critical') return 'danger'
+  return 'warning'
+}
+
+function formatStatusSource(value) {
+  const sourceMap = {
+    active_alert: '活跃告警',
+    latest_risk: '最新预测',
+    device_status: '台账状态'
+  }
+
+  return sourceMap[String(value || '').trim()] || '暂无'
+}
+
+function formatAlertCount(value) {
+  return `${normalizeCount(value)} 条`
+}
+
+function formatDeviceRiskScore(item) {
+  return formatPercent(resolveCardMetric(item, 'current_risk_score', 'risk_score'), 2, '--')
+}
+
+function formatDeviceHealthScore(item) {
+  return formatHealthScore(resolveCardMetric(item, 'current_health_score', 'health_score'), 2, '--')
+}
+
+function resolveCardMetric(item, currentKey, fallbackKey) {
+  if (hasOwn(item, currentKey)) {
+    return item?.[currentKey]
+  }
+
+  return item?.[fallbackKey]
+}
+
+function hasCurrentMessage(item) {
+  return typeof item?.current_message === 'string' && item.current_message.trim() !== ''
+}
+
+function hasOwn(item, key) {
+  return Object.prototype.hasOwnProperty.call(item || {}, key)
+}
+
+function normalizeCount(value) {
+  const count = Number(value || 0)
+  return Number.isFinite(count) ? count : 0
+}
+
+function formatHeaderTime(value) {
+  if (value instanceof Date) {
+    const pad = (number) => String(number).padStart(2, '0')
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}`
+  }
+
+  return formatDateTime(value, '尚未更新').slice(0, 16)
 }
 
 onMounted(() => {
@@ -493,7 +543,7 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-stat-grid :deep(.stat-card) {
-  min-height: 178px;
+  min-height: 148px;
 }
 
 .dashboard-stat-grid :deep(.stat-card__label) {
@@ -509,39 +559,214 @@ onBeforeUnmount(() => {
   min-height: auto;
 }
 
-.dashboard-overview-grid {
+.device-status-grid {
   display: grid;
-  gap: var(--space-5);
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
-  align-items: start;
+  gap: var(--space-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.dashboard-list-grid {
+.device-status-card {
+  --device-status-color: var(--color-success);
+  --device-status-soft: var(--color-success-soft);
+  --device-status-border: var(--color-success-border);
+  position: relative;
+  display: grid;
+  gap: var(--space-4);
+  overflow: hidden;
+  padding: var(--space-5);
+  border: 1px solid var(--device-status-border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
+}
+
+.device-status-card--attention {
+  --device-status-color: #d99a16;
+  --device-status-soft: rgba(245, 158, 11, 0.12);
+  --device-status-border: rgba(245, 158, 11, 0.34);
+}
+
+.device-status-card--warning {
+  --device-status-color: #f97316;
+  --device-status-soft: rgba(249, 115, 22, 0.12);
+  --device-status-border: rgba(249, 115, 22, 0.34);
+}
+
+.device-status-card--critical {
+  --device-status-color: var(--color-danger);
+  --device-status-soft: var(--color-danger-soft);
+  --device-status-border: var(--color-danger-border);
+}
+
+.device-status-card__topline {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--device-status-color);
+}
+
+.device-status-card__header,
+.device-status-card__identity,
+.device-status-card__actions,
+.device-status-card__details {
+  display: flex;
+  align-items: center;
+}
+
+.device-status-card__header {
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.device-status-card__identity {
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+.device-status-card__identity div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.device-status-card__identity strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+}
+
+.device-status-card__identity span,
+.device-status-metric span,
+.device-status-card__details span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.device-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--device-status-border);
+  border-radius: var(--radius-sm);
+  background: var(--device-status-soft);
+  color: var(--device-status-color);
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.device-status-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.device-status-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.device-status-metric {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-right: 1px solid var(--color-border);
+}
+
+.device-status-metric:last-child {
+  border-right: 0;
+}
+
+.device-status-metric strong {
+  color: var(--device-status-color);
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.device-status-card__details {
+  gap: var(--space-4);
+}
+
+.device-status-card__details > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) 0 0;
+  border-right: 1px solid var(--color-border);
+}
+
+.device-status-card__details > div:last-child {
+  border-right: 0;
+}
+
+.device-status-card__details strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-status-card__message {
+  min-height: 24px;
+  padding: var(--space-3);
+  margin: 0;
+  border: 1px solid var(--device-status-border);
+  border-radius: var(--radius-md);
+  background: var(--device-status-soft);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.device-status-card__actions {
+  justify-content: space-around;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.device-status-card__actions a,
+.device-status-card__actions span {
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 800;
+}
+
+.device-status-card__actions span {
+  color: var(--color-text-muted);
+}
+
+.dashboard-support-grid {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.28fr);
-  align-items: start;
+  grid-template-columns: minmax(340px, 0.65fr) minmax(0, 1.35fr);
+  align-items: stretch;
 }
 
 .health-distribution {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .health-distribution__row {
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-soft);
+  grid-template-columns: 88px minmax(0, 1fr) 32px;
+  gap: var(--space-3);
+  align-items: center;
 }
 
 .health-distribution__meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .health-distribution__meta span {
@@ -549,9 +774,29 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.health-distribution__meta strong {
+.health-distribution__count {
   color: var(--color-text-primary);
   font-size: var(--font-size-lg);
+  text-align: right;
+}
+
+.health-distribution__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-success);
+}
+
+.health-distribution__dot--attention {
+  background: #f5b02e;
+}
+
+.health-distribution__dot--warning {
+  background: #f97316;
+}
+
+.health-distribution__dot--critical {
+  background: var(--color-danger);
 }
 
 .health-distribution__bar {
@@ -565,7 +810,6 @@ onBeforeUnmount(() => {
 .health-distribution__fill {
   display: block;
   height: 100%;
-  min-width: 3px;
   border-radius: inherit;
 }
 
@@ -573,49 +817,21 @@ onBeforeUnmount(() => {
   background: var(--color-success);
 }
 
-.health-distribution__fill--attention,
+.health-distribution__fill--attention {
+  background: #f5b02e;
+}
+
 .health-distribution__fill--warning {
-  background: var(--color-warning);
+  background: #f97316;
 }
 
 .health-distribution__fill--critical {
   background: var(--color-danger);
 }
 
-.health-distribution__fill--danger,
-.health-distribution__fill--alert,
-.health-distribution__fill--fault {
-  background: var(--color-danger);
-}
-
-.health-distribution__fill--healthy,
-.health-distribution__fill--good {
-  background: var(--color-success);
-}
-
-.dashboard-table-shell {
-  overflow-x: auto;
-  border-radius: var(--radius-lg);
-}
-
-.dashboard-table {
-  min-width: 920px;
-}
-
-.dashboard-mono {
-  color: var(--color-text-primary);
-  font-family: var(--font-family-mono);
-  font-weight: 700;
-}
-
-.dashboard-number-cell {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
 .dashboard-alert-list {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   padding: 0;
   margin: 0;
   list-style: none;
@@ -623,52 +839,108 @@ onBeforeUnmount(() => {
 
 .dashboard-alert-item {
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-4);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #ffffff 0%, var(--color-bg-soft) 100%);
+  border-radius: var(--radius-md);
+  background: #ffffff;
 }
 
-.dashboard-alert-item__header {
+.alert-level-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-neutral-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.alert-level-pill--danger {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.alert-level-pill--warning {
+  border-color: rgba(249, 115, 22, 0.28);
+  background: rgba(249, 115, 22, 0.1);
+  color: #f97316;
+}
+
+.alert-level-pill--info {
+  border-color: var(--color-info-border);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+
+.dashboard-alert-item__content {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.dashboard-alert-item__title {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
-.dashboard-alert-item__header > span:last-child {
-  margin-left: auto;
+.dashboard-alert-item__title strong,
+.dashboard-alert-item__title span,
+.dashboard-alert-item p {
+  margin: 0;
+}
+
+.dashboard-alert-item__title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-alert-item__title span {
+  flex: none;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
 
-.dashboard-alert-item strong,
-.dashboard-alert-item p,
-.dashboard-alert-item small {
-  margin: 0;
-}
-
-.dashboard-alert-item strong {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-md);
-}
-
 .dashboard-alert-item p {
+  overflow: hidden;
   color: var(--color-text-secondary);
-  line-height: var(--line-height-relaxed);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-alert-item__metrics {
-  display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  display: grid;
+  gap: var(--space-2);
+  min-width: 86px;
+  text-align: left;
 }
 
 .dashboard-alert-item__metrics small {
-  color: var(--color-text-secondary);
-  font-weight: 700;
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-danger);
+  font-weight: 800;
   line-height: var(--line-height-relaxed);
+}
+
+.dashboard-alert-item__metrics small span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
 }
 
 .quick-link-grid {
@@ -682,14 +954,17 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1280px) {
+  .device-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .quick-link-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 1180px) {
-  .dashboard-overview-grid,
-  .dashboard-list-grid {
+  .dashboard-support-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -703,8 +978,52 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-alert-item__header > span:last-child {
-    margin-left: 0;
+  .device-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .device-status-card__header,
+  .device-status-card__details {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .device-status-card__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .device-status-metric:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .device-status-metric:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .device-status-card__details > div {
+    width: 100%;
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  .health-distribution__row {
+    grid-template-columns: 74px minmax(0, 1fr) 28px;
+  }
+
+  .dashboard-alert-item {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .dashboard-alert-item__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .dashboard-alert-item__title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
   }
 }
 </style>

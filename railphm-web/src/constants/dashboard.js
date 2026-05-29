@@ -69,34 +69,34 @@ export const LAYOUT_SUPPORT_ITEMS = [
 export const DASHBOARD_QUICK_LINKS = [
   {
     title: '设备台账',
-    description: '查看设备主数据、车组编号与基础设备状态。',
+    description: '查看和管理设备基本信息与台账。',
     to: '/devices',
     statusText: '模块入口',
     actionText: '查看模块',
     icon: 'device'
   },
   {
-    title: '运行监测',
-    description: '查看监测序列、运行状态与后续时序分析入口。',
-    to: '/monitor',
+    title: '运行记录',
+    description: '查看设备运行与状态变更记录。',
+    to: '/run-records',
     statusText: '模块入口',
     actionText: '查看模块',
-    icon: 'monitor'
-  },
-  {
-    title: '风险预测',
-    description: '查看风险评估结果与模型输出相关业务页面。',
-    to: '/predictions',
-    statusText: '模块入口',
-    actionText: '查看模块',
-    icon: 'prediction'
+    icon: 'service'
   },
   {
     title: '告警中心',
-    description: '查看系统告警记录、级别状态与处理入口。',
+    description: '查看、处理和跟踪告警事件。',
     to: '/alerts',
     statusText: '模块入口',
     actionText: '查看模块',
     icon: 'alert'
+  },
+  {
+    title: '系统联通测试',
+    description: '验证系统与设备联通状态。',
+    to: '/health',
+    statusText: '模块入口',
+    actionText: '查看模块',
+    icon: 'health'
   }
 ]
