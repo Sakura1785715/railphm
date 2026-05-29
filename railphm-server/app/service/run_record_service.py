@@ -57,11 +57,19 @@ class RunRecordService:
             page=normalized_page,
             page_size=normalized_page_size,
         )
+        summary = RunRecordRepository.count_summary(filters)
         return {
             "items": RunRecordSchema.dump_list(result["items"]),
             "total": result["total"],
             "page": normalized_page,
             "page_size": normalized_page_size,
+            "summary": {
+                "page_record_count": len(result["items"]),
+                "total_record_count": result["total"],
+                "inferred_count": summary["inferred_count"],
+                "risk_segment_count": summary["risk_segment_count"],
+                "official_alert_count": summary["official_alert_count"],
+            },
         }
 
     @classmethod
@@ -183,6 +191,11 @@ class RunRecordService:
                 "max_alert_level": summary["max_alert_level"],
             },
         )
+        effective_record = updated_record or record
+        alert_recommendation = cls._build_alert_recommendation(
+            run_record=effective_record,
+            infer_summary=summary,
+        )
 
         return {
             **result,
@@ -197,7 +210,8 @@ class RunRecordService:
             "max_alert_level": summary["max_alert_level"],
             "run_record_status": (updated_record or {}).get("status", "inferred"),
             "alert_generation_skipped": True,
-            "alert_generation_skip_reason": "run_record_alert_not_implemented",
+            "alert_generation_skip_reason": cls._resolve_alert_generation_skip_reason(alert_recommendation),
+            "alert_recommendation": alert_recommendation,
         }
 
     @classmethod
@@ -271,6 +285,7 @@ class RunRecordService:
                 "health_score": max_risk_record.get("health_score"),
                 "health_level": max_risk_record.get("health_level"),
                 "health_status": max_risk_record.get("health_status"),
+                "message": "最高风险未达到预警阈值，未生成正式告警。",
             }
 
         # 风险足够高，生成告警
@@ -307,7 +322,7 @@ class RunRecordService:
             "health_score": max_risk_record.get("health_score"),
             "health_level": max_risk_record.get("health_level"),
             "health_status": max_risk_record.get("health_status"),
-            "message": alert_record.get("alert_message") or alert_record.get("message"),
+            "message": "告警生成成功，已同步至告警中心。",
             "alert": AlertSchema.dump_detail(alert_record),
         }
 
@@ -363,9 +378,91 @@ class RunRecordService:
             "health_score": alert_record.get("health_score"),
             "health_level": alert_record.get("health_level"),
             "health_status": alert_record.get("health_status"),
-            "message": alert_record.get("alert_message") or alert_record.get("message"),
+            "message": "该运行记录已存在告警，可前往告警中心查看。",
             "alert": AlertSchema.dump_detail(alert_record),
         }
+
+    @classmethod
+    def _build_alert_recommendation(
+        cls,
+        run_record: Dict[str, Any],
+        infer_summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        warning_threshold = cls._get_warning_threshold()
+        critical_threshold = cls._get_critical_threshold()
+        max_risk_score = infer_summary.get("max_risk_score")
+        max_alert_level = infer_summary.get("max_alert_level")
+        max_risk_result_id = infer_summary.get("max_risk_result_id")
+        existing_alert = cls._get_existing_run_record_alert(run_record)
+        existing_alert_id = existing_alert.get("alert_id") if existing_alert else None
+
+        if existing_alert:
+            reason = "existing_alert"
+            should_prompt = False
+            can_generate_alert = False
+        elif max_risk_score is None or not max_risk_result_id:
+            reason = "missing_risk_result"
+            should_prompt = False
+            can_generate_alert = False
+        elif float(max_risk_score) >= warning_threshold or max_alert_level in {"medium", "high"}:
+            reason = "reaches_warning_threshold"
+            should_prompt = True
+            can_generate_alert = True
+        elif cls._is_attention_risk_level(max_alert_level):
+            reason = "attention_risk_only"
+            should_prompt = False
+            can_generate_alert = False
+        else:
+            reason = "below_normal_threshold"
+            should_prompt = False
+            can_generate_alert = False
+
+        return {
+            "should_prompt": should_prompt,
+            "can_generate_alert": can_generate_alert,
+            "reason": reason,
+            "message": cls._get_alert_recommendation_message(reason),
+            "max_risk_score": max_risk_score,
+            "max_alert_level": max_alert_level,
+            "max_risk_result_id": max_risk_result_id,
+            "warning_threshold": warning_threshold,
+            "critical_threshold": critical_threshold,
+            "existing_alert_id": existing_alert_id,
+        }
+
+    @staticmethod
+    def _get_alert_recommendation_message(reason: str) -> str:
+        messages = {
+            "below_normal_threshold": "预测完成，当前运行记录未发现明显风险。",
+            "attention_risk_only": "预测完成，当前运行记录存在关注风险，但未达到正式告警阈值，建议持续观察。",
+            "reaches_warning_threshold": "检测到该运行记录存在较高风险，建议生成正式告警。",
+            "existing_alert": "该运行记录已存在告警，可前往告警中心查看。",
+            "missing_risk_result": "预测完成，但未获得可用于生成告警的代表风险点。",
+        }
+        return messages.get(reason, "预测完成。")
+
+    @staticmethod
+    def _resolve_alert_generation_skip_reason(alert_recommendation: Dict[str, Any]) -> str:
+        reason = alert_recommendation.get("reason")
+        if reason == "reaches_warning_threshold" and alert_recommendation.get("can_generate_alert"):
+            return "manual_confirmation_required"
+        if reason == "existing_alert":
+            return "existing_alert"
+        if reason == "missing_risk_result":
+            return "missing_risk_result"
+        return "below_warning_threshold"
+
+    @staticmethod
+    def _is_attention_risk_level(level: Any) -> bool:
+        return str(level or "").strip().lower() in {"low", "attention"}
+
+    @staticmethod
+    def _get_warning_threshold() -> float:
+        return float(current_app.config.get("RISK_THRESHOLD_WARNING", 0.65))
+
+    @staticmethod
+    def _get_critical_threshold() -> float:
+        return float(current_app.config.get("RISK_THRESHOLD_CRITICAL", 0.85))
 
     @staticmethod
     # 根据告警等级选择告警文案和处置建议。

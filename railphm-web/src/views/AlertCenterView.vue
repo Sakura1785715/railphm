@@ -1,361 +1,220 @@
 <template>
   <section class="alert-center-page">
-    <div class="monitor-topbar">
-      <div class="monitor-topbar__content">
-        <p class="page-tag">告警中心</p>
-        <h2>设备告警中心</h2>
-        <p class="page-description">
-          集中展示系统生成的设备告警记录，支持按设备、等级和状态筛选，并完成告警查看、复核与处理。
-        </p>
-      </div>
+    <PageHeader
+      title="告警中心"
+      eyebrow="告警中心"
+      description="集中管理列控设备告警信息，支持告警查询、跟踪与处理。"
+      :meta="headerMetaText"
+    >
+      <template #actions>
+        <button class="secondary-button" type="button" :disabled="listLoading" @click="fetchAlerts">
+          {{ listLoading ? '刷新中...' : '刷新' }}
+        </button>
+      </template>
+    </PageHeader>
 
-      <div class="monitor-topbar__meta">
-        <span :class="['status-pill', `status-pill--${statusTone}`]">{{ statusLabel }}</span>
-        <span class="monitor-topbar__summary">{{ statusDescription }}</span>
-      </div>
-    </div>
-
-    <section class="alert-summary-grid">
+    <section class="alert-summary-grid" aria-label="当前页告警统计">
       <article
         v-for="card in alertSummaryCards"
         :key="card.key"
         :class="['alert-summary-card', `alert-summary-card--${card.tone}`]"
       >
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
-        <p>{{ card.description }}</p>
+        <div class="alert-summary-card__icon" aria-hidden="true">{{ card.icon }}</div>
+        <div class="alert-summary-card__body">
+          <span>{{ card.label }}</span>
+          <strong>{{ card.value }}</strong>
+          <p>{{ card.description }}</p>
+        </div>
       </article>
     </section>
 
-    <form class="device-filter-card alert-filter-card" @submit.prevent="handleSearch">
-      <div class="device-filter-card__header alert-filter-card__header">
-        <div>
-          <p class="section-tag">条件筛选</p>
-          <h3>告警查询条件</h3>
-        </div>
-      </div>
+    <form class="alert-filter-bar" @submit.prevent="handleSearch">
+      <label class="filter-field filter-field--device">
+        <span>设备编号</span>
+        <input
+          v-model.trim="filters.deviceId"
+          type="search"
+          placeholder="请输入设备编号或ID"
+          :disabled="listLoading"
+        />
+      </label>
 
-      <div class="alert-filter-grid">
-        <label class="filter-field">
-          <span>设备编号</span>
-          <input
-            v-model.trim="filters.deviceId"
-            type="search"
-            placeholder="请输入设备编号"
-            :disabled="listLoading"
-          />
-        </label>
+      <label class="filter-field">
+        <span>告警等级</span>
+        <select v-model="filters.alertLevel" :disabled="listLoading">
+          <option value="">全部</option>
+          <option v-for="option in levelOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
 
-        <label class="filter-field">
-          <span>告警等级</span>
-          <select v-model="filters.alertLevel" :disabled="listLoading">
-            <option value="">全部</option>
-            <option v-for="option in levelOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
+      <label class="filter-field">
+        <span>处理状态</span>
+        <select v-model="filters.alertStatus" :disabled="listLoading">
+          <option value="">全部</option>
+          <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
 
-        <label class="filter-field">
-          <span>告警状态</span>
-          <select v-model="filters.alertStatus" :disabled="listLoading">
-            <option value="">全部</option>
-            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-
-        <div class="filter-actions">
-          <button class="primary-button" type="submit" :disabled="listLoading">
-            {{ listLoading ? '查询中...' : '查询' }}
-          </button>
-          <button class="secondary-button" type="button" :disabled="listLoading" @click="handleReset">
-            重置
-          </button>
-        </div>
+      <div class="filter-actions">
+        <button class="primary-button" type="submit" :disabled="listLoading">
+          查询
+        </button>
+        <button class="secondary-button" type="button" :disabled="listLoading" @click="handleReset">
+          重置
+        </button>
       </div>
     </form>
 
-    <section class="alert-content">
-      <article class="device-table-card alert-list-card">
-        <div class="device-table-card__header">
-          <div>
-            <p class="section-tag">告警列表</p>
-            <h3>告警记录清单</h3>
-            <p class="device-table-card__description">
-              点击任意告警记录，可在右侧查看详情并完成处理。
-            </p>
-          </div>
-
-          <div class="device-table-card__meta">
-            <span class="status-pill status-pill--default">共 {{ pagination.total }} 条告警</span>
-            <span class="device-table-card__page">第 {{ pagination.page }} / {{ pageCount }} 页</span>
-          </div>
+    <section class="alert-table-card">
+      <header class="alert-table-card__header">
+        <div>
+          <p class="section-tag">告警列表</p>
+          <h3>告警记录清单</h3>
         </div>
-
-        <div v-if="listError" class="state-panel error-state alert-state">
-          <h3>告警列表加载失败</h3>
-          <p>{{ listError }}</p>
-          <button class="secondary-button" type="button" @click="fetchAlerts">重新加载</button>
+        <div class="alert-table-card__meta">
+          <span>共 {{ pagination.total }} 条</span>
+          <span>第 {{ pagination.page }} / {{ pageCount }} 页</span>
         </div>
+      </header>
 
-        <div v-else class="alert-table-wrapper">
-          <table class="alert-table">
-            <thead>
-              <tr>
-                <th>告警ID</th>
-                <th>设备编号</th>
-                <th>告警等级</th>
-                <th>告警状态</th>
-                <th>风险分数</th>
-                <th class="alert-table__time-col">告警时间</th>
-                <th>告警信息</th>
-                <th class="alert-table__action-col">操作</th>
-              </tr>
-            </thead>
+      <ErrorState
+        v-if="listError"
+        title="告警列表加载失败"
+        :message="listError"
+        retry-text="重新加载"
+        @retry="fetchAlerts"
+      />
 
-            <tbody v-if="listLoading">
-              <tr>
-                <td colspan="8" class="alert-table__placeholder">正在加载告警列表...</td>
-              </tr>
-            </tbody>
+      <div v-else class="alert-table-wrapper">
+        <table class="alert-table">
+          <thead>
+            <tr>
+              <th>告警ID</th>
+              <th>设备编号</th>
+              <th>告警等级</th>
+              <th>处理状态</th>
+              <th>风险分数</th>
+              <th>健康度</th>
+              <th>告警时间</th>
+              <th>告警说明</th>
+              <th class="alert-table__action-col">操作</th>
+            </tr>
+          </thead>
 
-            <tbody v-else-if="alertItems.length">
-              <tr
-                v-for="item in alertItems"
-                :key="item.alert_id"
-                :class="{ 'alert-table__row--active': isSelected(item.alert_id) }"
-                tabindex="0"
-                @click="handleSelectAlert(item)"
-                @keydown.enter.prevent="handleSelectAlert(item)"
-                @keydown.space.prevent="handleSelectAlert(item)"
-              >
-                <td class="alert-table__mono">{{ displayValue(item.alert_id) }}</td>
-                <td>{{ displayValue(item.device_code || item.device_id) }}</td>
-                <td>
-                  <span :class="['alert-badge', getRiskLevelClass(item.alert_level)]">
-                    {{ getLevelLabel(item.alert_level) }}
-                  </span>
-                </td>
-                <td>
-                  <span :class="['alert-badge', getStatusClass(item.alert_status)]">
-                    {{ item.alert_status_text || getStatusLabel(item.alert_status) }}
-                  </span>
-                </td>
-                <td class="alert-table__score">{{ formatPercent(item.risk_score, 2, '--') }}</td>
-                <td class="alert-table__time">{{ formatDateTimeForList(item.alert_time || item.created_at || item.updated_at) }}</td>
-                <td class="alert-table__position" :title="displayValue(item.alert_message || item.message)">
-                  {{ displayValue(item.alert_message || item.message) }}
-                </td>
-                <td class="alert-table__action-cell">
-                  <button
-                    class="secondary-button alert-table__action"
-                    type="button"
-                    @click.stop="handleSelectAlert(item)"
-                  >
-                    查看详情
-                  </button>
-                </td>
-              </tr>
-            </tbody>
+          <tbody v-if="listLoading">
+            <tr>
+              <td colspan="9">
+                <LoadingBlock text="正在加载告警列表..." height="220px" />
+              </td>
+            </tr>
+          </tbody>
 
-            <tbody v-else>
-              <tr>
-                <td colspan="8" class="alert-table__placeholder">{{ emptyText }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="device-table-footer alert-pagination">
-          <p class="device-table-footer__summary">{{ rangeText }}</p>
-          <div class="device-table-footer__actions">
-            <button
-              class="secondary-button"
-              type="button"
-              :disabled="listLoading || pagination.page <= 1"
-              @click="handlePageChange(pagination.page - 1)"
+          <tbody v-else-if="alertItems.length">
+            <tr
+              v-for="item in alertItems"
+              :key="item.alert_id"
+              :class="['alert-table__row', `alert-table__row--${getRiskTone(item.alert_level)}`]"
             >
-              上一页
-            </button>
-            <button
-              class="secondary-button"
-              type="button"
-              :disabled="listLoading || pagination.page >= pageCount || pagination.total === 0"
-              @click="handlePageChange(pagination.page + 1)"
-            >
-              下一页
-            </button>
-          </div>
-        </div>
-      </article>
+              <td class="alert-table__mono">{{ displayValue(item.alert_id) }}</td>
+              <td>{{ displayValue(item.device_code || item.device_id) }}</td>
+              <td>
+                <span :class="['alert-badge', `alert-badge--${getRiskTone(item.alert_level)}`]">
+                  {{ formatAlertLevel(item.alert_level) }}
+                </span>
+              </td>
+              <td>
+                <span :class="['alert-badge', `alert-badge--${getStatusTone(item.alert_status)}`]">
+                  {{ item.alert_status_text || formatAlertStatus(item.alert_status) }}
+                </span>
+              </td>
+              <td :class="['alert-table__score', `alert-table__score--${getRiskTone(item.alert_level)}`]">
+                {{ formatRiskScore(item.risk_score) }}
+              </td>
+              <td class="alert-table__score alert-table__score--health">
+                {{ formatHealthScore(item.health_score, 2, '--') }}
+              </td>
+              <td class="alert-table__time">
+                {{ formatDateTime(item.alert_time || item.created_at || item.updated_at, '--') }}
+              </td>
+              <td class="alert-table__message" :title="displayValue(item.alert_message || item.message)">
+                {{ displayValue(item.alert_message || item.message) }}
+              </td>
+              <td class="alert-table__action-cell">
+                <button class="secondary-button table-action-button" type="button" @click="goDiagnosis(item)">
+                  查看详情
+                </button>
+                <button
+                  class="primary-button table-action-button"
+                  type="button"
+                  :disabled="isResolved(item.alert_status)"
+                  @click="goDiagnosis(item)"
+                >
+                  处理
+                </button>
+              </td>
+            </tr>
+          </tbody>
 
-      <article class="device-table-card alert-detail-card">
-        <div class="device-table-card__header alert-detail-card__header">
-          <div>
-            <p class="section-tag">告警详情</p>
-            <h3>告警记录详情</h3>
-          </div>
+          <tbody v-else>
+            <tr>
+              <td colspan="9">
+                <EmptyState
+                  :title="emptyTitle"
+                  description="可调整筛选条件后重新查询。"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-          <div class="device-table-card__meta">
-            <span v-if="selectedAlertId" class="device-chip">当前告警 {{ displayValue(selectedAlertId) }}</span>
-            <span v-else class="status-pill status-pill--muted">未选择记录</span>
-          </div>
-        </div>
-
-        <div v-if="handleSuccess" class="alert-handle-message alert-handle-message--success">
-          {{ handleSuccess }}
-        </div>
-
-        <div v-if="!selectedAlertId" class="alert-detail-placeholder">
-          请选择一条告警记录查看详情和处理建议。
-        </div>
-
-        <div v-else-if="detailLoading" class="state-panel loading-state alert-detail-state">
-          正在加载告警详情...
-        </div>
-
-        <div v-else-if="detailError" class="state-panel error-state alert-detail-state">
-          <h3>告警详情加载失败</h3>
-          <p>{{ detailError }}</p>
+      <footer class="alert-pagination">
+        <p>{{ rangeText }}</p>
+        <div class="alert-pagination__actions">
           <button
             class="secondary-button"
             type="button"
-            @click="fetchAlertDetail(selectedAlertId)"
+            :disabled="listLoading || pagination.page <= 1"
+            @click="handlePageChange(pagination.page - 1)"
           >
-            重新加载详情
+            上一页
+          </button>
+          <button
+            v-for="page in visiblePages"
+            :key="page"
+            :class="['pagination-page', { 'pagination-page--active': page === pagination.page }]"
+            type="button"
+            :disabled="listLoading || page === pagination.page"
+            @click="handlePageChange(page)"
+          >
+            {{ page }}
+          </button>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="listLoading || pagination.page >= pageCount || pagination.total === 0"
+            @click="handlePageChange(pagination.page + 1)"
+          >
+            下一页
           </button>
         </div>
-
-        <div v-else-if="alertDetail" class="alert-detail-content">
-          <div class="alert-detail-hero">
-            <div class="alert-detail-message__header">
-              <span>{{ displayValue(alertDetail.device_code || alertDetail.device_id) }} 告警详情</span>
-              <div class="alert-detail-summary">
-                <span :class="['alert-badge', getRiskLevelClass(alertDetail.alert_level)]">
-                  {{ getLevelLabel(alertDetail.alert_level) }}
-                </span>
-                <span :class="['alert-badge', getStatusClass(alertDetail.alert_status)]">
-                  {{ alertDetail.alert_status_text || getStatusLabel(alertDetail.alert_status) }}
-                </span>
-              </div>
-            </div>
-            <strong>{{ displayValue(alertDetail.alert_message || alertDetail.message) }}</strong>
-            <p>
-              设备 {{ displayValue(alertDetail.device_code || alertDetail.device_id) }} ·
-              告警时间 {{ formatDateTimeForDetail(alertDetail.alert_time || alertDetail.created_at || alertDetail.updated_at) }}
-            </p>
-          </div>
-
-          <div class="alert-detail-metrics">
-            <article v-for="item in selectedDetailMetrics" :key="item.key" class="alert-detail-metric-card">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </article>
-          </div>
-
-          <div class="alert-advice-card">
-            <span>处理建议</span>
-            <p>{{ alertAdviceText }}</p>
-          </div>
-
-          <div class="alert-handle-panel">
-            <div class="alert-handle-panel__header">
-              <div>
-                <p class="section-tag">告警处理</p>
-                <h4>处理状态</h4>
-              </div>
-
-              <span v-if="isAlertResolved" class="status-pill status-pill--success">该告警已处理</span>
-              <button
-                v-else-if="canHandleAlert && !handleFormVisible"
-                class="primary-button"
-                type="button"
-                @click="openHandleForm"
-              >
-                处理告警
-              </button>
-            </div>
-
-            <form v-if="handleFormVisible" class="alert-handle-form" @submit.prevent="submitAlertHandle">
-              <div class="alert-handle-form__grid">
-                <label class="filter-field">
-                  <span>处理状态</span>
-                  <select v-model="handleForm.alertStatus" :disabled="handleSubmitting">
-                    <option value="processing">处理中</option>
-                    <option value="resolved">已处理</option>
-                  </select>
-                </label>
-
-                <label class="filter-field">
-                  <span>处理人ID</span>
-                  <input
-                    v-model.trim="handleForm.handlerId"
-                    type="text"
-                    inputmode="numeric"
-                    placeholder="请输入处理人ID"
-                    :disabled="handleSubmitting"
-                  />
-                </label>
-
-                <label class="filter-field alert-handle-form__note">
-                  <span>处理说明</span>
-                  <textarea
-                    v-model="handleForm.handleNote"
-                    class="alert-handle-textarea"
-                    placeholder="请输入处理说明"
-                    :disabled="handleSubmitting"
-                  ></textarea>
-                </label>
-              </div>
-
-              <div v-if="handleError" class="alert-handle-message alert-handle-message--error">
-                {{ handleError }}
-              </div>
-
-              <div class="alert-handle-form__actions">
-                <button class="primary-button" type="submit" :disabled="handleSubmitting">
-                  {{ handleSubmitting ? '提交中...' : '提交处理' }}
-                </button>
-                <button
-                  class="secondary-button"
-                  type="button"
-                  :disabled="handleSubmitting"
-                  @click="cancelHandleForm"
-                >
-                  取消
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div class="alert-detail-groups">
-            <div v-for="group in detailGroups" :key="group.title" class="alert-detail-section">
-              <h4>{{ group.title }}</h4>
-              <div class="alert-detail-grid">
-                <div v-for="field in group.fields" :key="field.key" class="alert-detail-item">
-                  <span>{{ field.label }}</span>
-                  <strong :title="field.value">{{ field.value }}</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-else class="alert-detail-placeholder">
-          当前告警暂无可展示的详情信息
-        </div>
-      </article>
+      </footer>
     </section>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { getAlertDetail, getAlertList, updateAlertStatus } from '../api/alert'
-import { hasAnyRole } from '../utils/auth'
+import { useRoute, useRouter } from 'vue-router'
+import { getAlertList } from '../api/alert'
+import EmptyState from '../components/common/EmptyState.vue'
+import ErrorState from '../components/common/ErrorState.vue'
+import LoadingBlock from '../components/common/LoadingBlock.vue'
+import PageHeader from '../components/common/PageHeader.vue'
 import {
   displayText,
   formatAlertLevel,
@@ -366,8 +225,9 @@ import {
 } from '../utils/formatters'
 
 const route = useRoute()
+const router = useRouter()
 
-const DEFAULT_PAGE_SIZE = 5
+const DEFAULT_PAGE_SIZE = 10
 const DEFAULT_FILTERS = {
   deviceId: '',
   alertLevel: '',
@@ -383,10 +243,9 @@ const statusOptions = ['unhandled', 'processing', 'resolved'].map((value) => ({
   label: formatAlertStatus(value)
 }))
 
-const queryDeviceId = normalizeQueryDeviceId(route.query.device_code || route.query.device_id)
 const filters = reactive({
   ...DEFAULT_FILTERS,
-  deviceId: queryDeviceId || DEFAULT_FILTERS.deviceId
+  deviceId: normalizeQueryValue(route.query.device_code || route.query.device_id)
 })
 const pagination = reactive({
   page: 1,
@@ -398,122 +257,51 @@ const alertItems = ref([])
 const listLoading = ref(false)
 const listError = ref('')
 const hasLoaded = ref(false)
-
-const selectedAlertId = ref('')
-const alertDetail = ref(null)
-const detailLoading = ref(false)
-const detailError = ref('')
-const handleFormVisible = ref(false)
-const handleSubmitting = ref(false)
-const handleError = ref('')
-const handleSuccess = ref('')
-const handleForm = reactive({
-  alertStatus: 'resolved',
-  handlerId: '',
-  handleNote: ''
-})
-
 let listRequestId = 0
-let detailRequestId = 0
 
-const hasActiveFilters = computed(
-  () => Boolean(filters.deviceId.trim() || filters.alertLevel || filters.alertStatus)
+const hasActiveFilters = computed(() =>
+  Boolean(filters.deviceId.trim() || filters.alertLevel || filters.alertStatus)
 )
-
-const statusTone = computed(() => {
-  if (listLoading.value) {
-    return 'muted'
-  }
-
-  if (listError.value) {
-    return 'warning'
-  }
-
-  if (hasActiveFilters.value) {
-    return 'default'
-  }
-
-  if (hasLoaded.value) {
-    return alertItems.value.length > 0 ? 'success' : 'muted'
-  }
-
-  return 'default'
-})
-
-const statusLabel = computed(() => {
-  if (!hasLoaded.value && !listLoading.value) {
-    return '等待查询'
-  }
-
-  if (listLoading.value) {
-    return '告警加载中'
-  }
-
-  if (listError.value) {
-    return '查询待处理'
-  }
-
-  if (hasActiveFilters.value) {
-    return '已应用筛选'
-  }
-
-  if (hasLoaded.value) {
-    return '告警数据已接入'
-  }
-
-  return '等待查询'
-})
-
-const statusDescription = computed(() => {
-  if (!hasLoaded.value && !listLoading.value) {
-    return '首次进入页面后将自动查询告警列表。'
-  }
-
-  if (listLoading.value) {
-    return '正在请求告警列表。'
-  }
-
-  if (listError.value) {
-    return '告警列表请求失败，可调整筛选条件后重新查询。'
-  }
-
-  if (hasActiveFilters.value) {
-    return `当前筛选条件下返回 ${pagination.total} 条告警记录。`
-  }
-
-  return pagination.total > 0
-    ? `当前共接入 ${pagination.total} 条告警记录。`
-    : '当前暂无告警记录。'
-})
-
 const pageCount = computed(() => Math.max(1, Math.ceil(pagination.total / pagination.size) || 1))
-
-const emptyText = computed(() =>
-  hasActiveFilters.value ? '当前筛选条件下暂无匹配告警。' : '当前暂无告警记录。'
+const emptyTitle = computed(() =>
+  hasActiveFilters.value ? '当前筛选条件下暂无匹配告警' : '当前暂无告警记录'
 )
+const headerMetaText = computed(() => {
+  if (listLoading.value) {
+    return '正在同步告警列表。'
+  }
 
+  if (listError.value) {
+    return '告警列表请求失败，请稍后重试。'
+  }
+
+  if (!hasLoaded.value) {
+    return '进入页面后自动查询告警列表。'
+  }
+
+  return `当前页 ${alertItems.value.length} 条，列表总计 ${pagination.total} 条。`
+})
 const rangeText = computed(() => {
   if (!pagination.total) {
     return `当前每页 ${pagination.size} 条，共 0 条记录`
   }
 
-  if (!alertItems.value.length) {
-    return `当前页暂无记录，共 ${pagination.total} 条记录`
-  }
-
   const start = (pagination.page - 1) * pagination.size + 1
   const end = Math.min(pagination.total, start + alertItems.value.length - 1)
-
-  return `当前显示 ${start}-${end} 条，共 ${pagination.total} 条记录，每页 ${pagination.size} 条`
+  return `当前显示 ${start}-${end} 条，共 ${pagination.total} 条记录`
 })
-
+const visiblePages = computed(() => {
+  const total = pageCount.value
+  const current = pagination.page
+  const start = Math.max(1, current - 2)
+  const end = Math.min(total, start + 4)
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index)
+})
 const alertSummaryCards = computed(() => {
   const unhandledCount = countAlertsByStatus(['unhandled'])
   const processingCount = countAlertsByStatus(['processing'])
   const resolvedCount = countAlertsByStatus(['resolved'])
-  const highRiskCount = alertItems.value.filter((item) =>
-    ['high', 'critical'].includes(String(item.alert_level || '').toLowerCase())
-  ).length
+  const highRiskCount = alertItems.value.filter((item) => getRiskTone(item.alert_level) === 'danger').length
 
   return [
     {
@@ -521,20 +309,23 @@ const alertSummaryCards = computed(() => {
       label: '当前页未处理',
       value: unhandledCount,
       description: '待运维复核',
-      tone: unhandledCount > 0 ? 'warning' : 'success'
+      icon: '!',
+      tone: unhandledCount > 0 ? 'danger' : 'muted'
     },
     {
       key: 'processing',
       label: '当前页处理中',
       value: processingCount,
       description: '处置跟进中',
-      tone: processingCount > 0 ? 'default' : 'muted'
+      icon: '~',
+      tone: processingCount > 0 ? 'warning' : 'muted'
     },
     {
       key: 'resolved',
       label: '当前页已处理',
       value: resolvedCount,
       description: '闭环完成',
+      icon: '✓',
       tone: 'success'
     },
     {
@@ -542,77 +333,16 @@ const alertSummaryCards = computed(() => {
       label: '当前页高风险',
       value: highRiskCount,
       description: '优先关注',
+      icon: '▲',
       tone: highRiskCount > 0 ? 'danger' : 'muted'
-    }
-  ]
-})
-
-const isAlertResolved = computed(() =>
-  normalizeAlertStatusKey(alertDetail.value?.alert_status) === 'resolved'
-)
-
-const canHandleAlert = computed(() => {
-  const status = String(alertDetail.value?.alert_status || '').toUpperCase()
-  const normalizedStatus = normalizeAlertStatusKey(status)
-  return hasAnyRole(['OPS', 'ADMIN']) && (normalizedStatus === 'unhandled' || normalizedStatus === 'processing')
-})
-
-const selectedDetailMetrics = computed(() => {
-  const detail = alertDetail.value
-  if (!detail) {
-    return []
-  }
-
-  return [
-    { key: 'risk_result_id', label: '风险结果ID', value: displayValue(detail.risk_result_id) },
-    { key: 'risk_score', label: '风险分数', value: formatPercent(detail.risk_score, 2, '--') },
-    { key: 'health_score', label: '健康度', value: formatHealthScore(detail.health_score, 2, '--') },
-    { key: 'health_level', label: '健康等级', value: displayValue(detail.health_level || detail.health_status) },
-    { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(detail.alert_time || detail.created_at || detail.updated_at) },
-    { key: 'device_code', label: '设备编号', value: displayValue(detail.device_code || detail.device_id) }
-  ]
-})
-
-const alertAdviceText = computed(() =>
-  displayText(alertDetail.value?.alert_advice, '暂无处理建议，请结合风险趋势和设备监测数据人工复核。')
-)
-
-const detailGroups = computed(() => {
-  if (!alertDetail.value) {
-    return []
-  }
-
-  return [
-    {
-      title: '基础信息',
-      fields: [
-        { key: 'alert_id', label: '告警ID', value: displayValue(alertDetail.value.alert_id) },
-        { key: 'device_code', label: '设备编号', value: displayValue(alertDetail.value.device_code || alertDetail.value.device_id) },
-        { key: 'device_name', label: '设备名称', value: displayValue(alertDetail.value.device_name) },
-        { key: 'alert_level', label: '告警等级', value: displayValue(getLevelLabel(alertDetail.value.alert_level)) },
-        { key: 'alert_status', label: '告警状态', value: displayValue(alertDetail.value.alert_status_text || getStatusLabel(alertDetail.value.alert_status)) },
-        { key: 'alert_time', label: '告警时间', value: formatDateTimeForDetail(alertDetail.value.alert_time || alertDetail.value.created_at || alertDetail.value.updated_at) }
-      ]
     },
     {
-      title: '告警对象',
-      fields: [
-        { key: 'risk_score', label: '风险分数', value: formatPercent(alertDetail.value.risk_score, 2, '--') },
-        { key: 'health_score', label: '健康度', value: formatHealthScore(alertDetail.value.health_score, 2, '--') },
-        { key: 'health_level', label: '健康等级', value: displayValue(alertDetail.value.health_level || alertDetail.value.health_status) },
-        { key: 'target_label_value', label: '目标标签值', value: displayValue(alertDetail.value.target_label_value) }
-      ]
-    },
-    {
-      title: '关联与处理',
-      fields: [
-        { key: 'risk_result_id', label: '风险结果ID', value: displayValue(alertDetail.value.risk_result_id) },
-        { key: 'target_time', label: '目标时间', value: formatDateTimeForDetail(alertDetail.value.target_time) },
-        { key: 'handler_id', label: '处理人ID', value: displayValue(alertDetail.value.handler_id || alertDetail.value.handler) },
-        { key: 'handle_time', label: '处理时间', value: formatDateTimeForDetail(alertDetail.value.handle_time) },
-        { key: 'handle_desc', label: '处理说明', value: displayValue(alertDetail.value.handle_desc || alertDetail.value.handle_remark || alertDetail.value.remark) },
-        { key: 'update_time', label: '更新时间', value: formatDateTimeForDetail(alertDetail.value.update_time || alertDetail.value.updated_at) }
-      ]
+      key: 'page-total',
+      label: '当前页告警数',
+      value: alertItems.value.length,
+      description: `每页 ${pagination.size} 条`,
+      icon: '#',
+      tone: 'primary'
     }
   ]
 })
@@ -623,7 +353,6 @@ onMounted(() => {
 
 async function fetchAlerts() {
   const requestId = ++listRequestId
-
   listLoading.value = true
   listError.value = ''
 
@@ -635,26 +364,11 @@ async function fetchAlerts() {
     }
 
     const pageData = normalizeAlertPage(normalizePayload(result))
-    const items = await enrichAlertListItems(pageData.items, requestId)
-
-    if (requestId !== listRequestId) {
-      return
-    }
-
-    alertItems.value = items
+    alertItems.value = pageData.items
     pagination.total = pageData.total
     pagination.page = pageData.page
     pagination.size = pageData.size
     hasLoaded.value = true
-
-    if (!alertItems.value.length) {
-      clearSelection()
-      return
-    }
-
-    if (selectedAlertId.value && !alertItems.value.some((item) => isSameAlert(item.alert_id, selectedAlertId.value))) {
-      clearSelection()
-    }
   } catch (error) {
     if (requestId !== listRequestId) {
       return
@@ -664,47 +378,9 @@ async function fetchAlerts() {
     pagination.total = 0
     hasLoaded.value = true
     listError.value = error.message || '告警列表加载失败'
-    clearSelection()
   } finally {
     if (requestId === listRequestId) {
       listLoading.value = false
-    }
-  }
-}
-
-async function fetchAlertDetail(alertId) {
-  if (!alertId) {
-    return
-  }
-
-  const requestId = ++detailRequestId
-
-  detailLoading.value = true
-  detailError.value = ''
-  alertDetail.value = null
-
-  try {
-    const result = await getAlertDetail(alertId)
-
-    if (requestId !== detailRequestId) {
-      return
-    }
-
-    alertDetail.value = normalizeAlertDetail(result)
-    if (isAlertResolved.value) {
-      handleFormVisible.value = false
-      handleError.value = ''
-    }
-  } catch (error) {
-    if (requestId !== detailRequestId) {
-      return
-    }
-
-    detailError.value = error.message || '告警详情加载失败'
-    alertDetail.value = null
-  } finally {
-    if (requestId === detailRequestId) {
-      detailLoading.value = false
     }
   }
 }
@@ -729,125 +405,12 @@ function handlePageChange(nextPage) {
   fetchAlerts()
 }
 
-function handleSelectAlert(alert) {
-  const nextAlertId = alert?.alert_id
-
-  if (!nextAlertId) {
+function goDiagnosis(alert) {
+  if (!alert?.alert_id) {
     return
   }
 
-  if (
-    isSameAlert(nextAlertId, selectedAlertId.value) &&
-    (detailLoading.value || (alertDetail.value && !detailError.value))
-  ) {
-    return
-  }
-
-  selectedAlertId.value = nextAlertId
-  resetHandleState()
-  fetchAlertDetail(nextAlertId)
-}
-
-function clearSelection() {
-  selectedAlertId.value = ''
-  alertDetail.value = null
-  detailError.value = ''
-  detailLoading.value = false
-  detailRequestId += 1
-  resetHandleState()
-}
-
-function openHandleForm() {
-  handleFormVisible.value = true
-  handleError.value = ''
-  handleSuccess.value = ''
-  handleForm.alertStatus = normalizeAlertStatusKey(alertDetail.value?.alert_status) === 'processing'
-    ? 'resolved'
-    : 'processing'
-  handleForm.handlerId = alertDetail.value?.handler_id ? String(alertDetail.value.handler_id) : ''
-  handleForm.handleNote = ''
-}
-
-function cancelHandleForm() {
-  handleFormVisible.value = false
-  handleError.value = ''
-}
-
-async function submitAlertHandle() {
-  if (handleSubmitting.value || !alertDetail.value || !selectedAlertId.value) {
-    return
-  }
-
-  handleError.value = ''
-  handleSuccess.value = ''
-
-  const validationMessage = validateHandleForm()
-  if (validationMessage) {
-    handleError.value = validationMessage
-    return
-  }
-
-  const currentAlertId = selectedAlertId.value
-  handleSubmitting.value = true
-
-  try {
-    const nextStatus = normalizeAlertStatusKey(handleForm.alertStatus)
-    const result = await updateAlertStatus(currentAlertId, {
-      alert_status: nextStatus,
-      handler_id: Number(handleForm.handlerId),
-      handle_note: handleForm.handleNote.trim()
-    })
-
-    alertDetail.value = normalizeAlertDetail(result)
-    handleFormVisible.value = false
-    handleSuccess.value = nextStatus === 'resolved' ? '告警处理成功' : '告警状态已更新为处理中'
-
-    await fetchAlerts()
-    handleSuccess.value = nextStatus === 'resolved' ? '告警处理成功' : '告警状态已更新为处理中'
-
-    if (isSameAlert(selectedAlertId.value, currentAlertId)) {
-      await fetchAlertDetail(currentAlertId)
-    }
-  } catch (error) {
-    handleError.value = error.message || '告警处理失败，请稍后重试'
-  } finally {
-    handleSubmitting.value = false
-  }
-}
-
-function validateHandleForm() {
-  const handlerIdText = String(handleForm.handlerId || '').trim()
-  const handleNoteText = String(handleForm.handleNote || '').trim()
-  const nextStatus = normalizeAlertStatusKey(handleForm.alertStatus)
-  const handlerId = Number(handlerIdText)
-
-  if (!['processing', 'resolved'].includes(nextStatus)) {
-    return '处理状态必须为处理中或已处理'
-  }
-
-  if (!handlerIdText) {
-    return '处理人ID不能为空'
-  }
-
-  if (!Number.isInteger(handlerId) || handlerId <= 0) {
-    return '处理人ID必须为正整数'
-  }
-
-  if (!handleNoteText) {
-    return '处理说明不能为空'
-  }
-
-  return ''
-}
-
-function resetHandleState() {
-  handleFormVisible.value = false
-  handleSubmitting.value = false
-  handleError.value = ''
-  handleSuccess.value = ''
-  handleForm.alertStatus = 'resolved'
-  handleForm.handlerId = ''
-  handleForm.handleNote = ''
+  router.push({ name: 'alert-diagnosis-detail', params: { id: alert.alert_id } })
 }
 
 function buildApiParams() {
@@ -876,11 +439,7 @@ function normalizePayload(result) {
     return {}
   }
 
-  if ('data' in result) {
-    return result.data || {}
-  }
-
-  return result
+  return 'data' in result ? result.data || {} : result
 }
 
 function normalizeAlertPage(payload) {
@@ -894,7 +453,6 @@ function normalizeAlertPage(payload) {
         : Array.isArray(source.rows)
           ? source.rows
           : []
-
   const items = rawItems.map((item) => normalizeAlertRecord(item))
 
   return {
@@ -912,142 +470,57 @@ function normalizeAlertRecord(record) {
     alert_id: source.alert_id ?? '',
     device_id: source.device_id ?? '',
     device_code: source.device_code ?? '',
-    device_name: source.device_name ?? '',
     alert_level: source.alert_level ?? '',
     alert_status: source.alert_status ?? '',
     alert_status_text: source.alert_status_text ?? '',
+    risk_score: source.risk_score ?? null,
+    health_score: source.health_score ?? null,
     alert_time: source.alert_time ?? '',
     created_at: source.created_at ?? source.create_time ?? '',
     updated_at: source.updated_at ?? source.update_time ?? '',
-    alert_position: source.alert_position ?? '',
-    alert_source: source.alert_source ?? '',
     message: source.message ?? source.alert_message ?? '',
-    alert_message: source.alert_message ?? source.message ?? '',
-    alert_advice: source.alert_advice ?? '',
-    risk_score: source.risk_score ?? null,
-    health_score: source.health_score ?? null,
-    health_level: source.health_level ?? '',
-    health_status: source.health_status ?? '',
-    alert_object_type: source.alert_object_type ?? '',
-    alert_object_code: source.alert_object_code ?? '',
-    risk_result_id: source.risk_result_id ?? '',
-    target_time: source.target_time ?? '',
-    target_label_value: source.target_label_value ?? '',
-    handler_id: source.handler_id ?? '',
-    handle_time: source.handle_time ?? '',
-    handle_desc: source.handle_desc ?? ''
+    alert_message: source.alert_message ?? source.message ?? ''
   }
-}
-
-function normalizeAlertDetail(result) {
-  return normalizeAlertRecord(normalizePayload(result))
-}
-
-async function enrichAlertListItems(items, requestId) {
-  if (!items.length || items.every((item) => displayText(item.alert_position, '') !== '')) {
-    return items
-  }
-
-  const settledDetails = await Promise.allSettled(
-    items.map((item) => (item.alert_id ? getAlertDetail(item.alert_id) : Promise.resolve(null)))
-  )
-
-  if (requestId !== listRequestId) {
-    return items
-  }
-
-  return items.map((item, index) => {
-    const settledDetail = settledDetails[index]
-
-    if (settledDetail.status !== 'fulfilled' || !settledDetail.value) {
-      return item
-    }
-
-    const detail = normalizeAlertDetail(settledDetail.value)
-
-    return {
-      ...item,
-      alert_position: detail.alert_position || item.alert_position,
-      alert_source: detail.alert_source || item.alert_source,
-      alert_object_type: detail.alert_object_type || item.alert_object_type,
-      alert_object_code: detail.alert_object_code || item.alert_object_code,
-      alert_status_text: detail.alert_status_text || item.alert_status_text,
-      alert_message: detail.alert_message || item.alert_message,
-      alert_advice: detail.alert_advice || item.alert_advice,
-      risk_score: detail.risk_score ?? item.risk_score,
-      health_score: detail.health_score ?? item.health_score,
-      health_level: detail.health_level || item.health_level,
-      health_status: detail.health_status || item.health_status,
-      risk_result_id: detail.risk_result_id || item.risk_result_id,
-      handler_id: detail.handler_id || item.handler_id,
-      handle_time: detail.handle_time || item.handle_time,
-      handle_desc: detail.handle_desc || item.handle_desc
-    }
-  })
-}
-
-function formatDateTimeForList(value) {
-  return formatDateTime(value, '--').slice(0, 16)
-}
-
-function formatDateTimeForDetail(value) {
-  return formatDateTime(value, '--')
-}
-
-function getLevelLabel(level) {
-  return formatAlertLevel(level)
-}
-
-function getStatusLabel(status) {
-  return formatAlertStatus(status)
 }
 
 function countAlertsByStatus(statusList) {
   return alertItems.value.filter((item) => statusList.includes(normalizeAlertStatusKey(item.alert_status))).length
 }
 
-function getRiskLevelClass(level) {
+function getRiskTone(level) {
   const normalizedLevel = String(level || '').toLowerCase()
 
   if (normalizedLevel === 'high' || normalizedLevel === 'critical') {
-    return 'alert-badge--high'
+    return 'danger'
   }
 
   if (normalizedLevel === 'medium' || normalizedLevel === 'warning') {
-    return 'alert-badge--medium'
+    return 'warning'
   }
 
   if (normalizedLevel === 'low' || normalizedLevel === 'info') {
-    return 'alert-badge--low'
+    return 'success'
   }
 
-  return 'alert-badge--muted'
+  return 'muted'
 }
 
-function getStatusClass(status) {
+function getStatusTone(status) {
   const normalizedStatus = normalizeAlertStatusKey(status)
 
   if (normalizedStatus === 'unhandled') {
-    return 'alert-badge--pending'
+    return 'danger'
   }
 
   if (normalizedStatus === 'processing') {
-    return 'alert-badge--processing'
+    return 'warning'
   }
 
   if (normalizedStatus === 'resolved') {
-    return 'alert-badge--resolved'
+    return 'success'
   }
 
-  if (normalizedStatus === 'ignored') {
-    return 'alert-badge--muted'
-  }
-
-  return 'alert-badge--muted'
-}
-
-function displayValue(value) {
-  return displayText(value, '--')
+  return 'muted'
 }
 
 function normalizeAlertStatusKey(status) {
@@ -1055,12 +528,24 @@ function normalizeAlertStatusKey(status) {
   return normalizedStatus === 'pending' ? 'unhandled' : normalizedStatus
 }
 
-function isSelected(alertId) {
-  return isSameAlert(alertId, selectedAlertId.value)
+function isResolved(status) {
+  return normalizeAlertStatusKey(status) === 'resolved'
 }
 
-function isSameAlert(left, right) {
-  return String(left) !== '' && String(left) === String(right)
+function formatRiskScore(value) {
+  return formatPercent(value, 2, '--')
+}
+
+function displayValue(value) {
+  return displayText(value, '--')
+}
+
+function normalizeQueryValue(value) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0].trim() : ''
+  }
+
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function toPositiveInteger(value, fallback) {
@@ -1072,271 +557,236 @@ function toNonNegativeInteger(value, fallback) {
   const parsedValue = Number.parseInt(value, 10)
   return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : fallback
 }
-
-function normalizeQueryDeviceId(value) {
-  if (Array.isArray(value)) {
-    return typeof value[0] === 'string' ? value[0].trim() : ''
-  }
-
-  return typeof value === 'string' ? value.trim() : ''
-}
 </script>
 
 <style scoped>
 .alert-center-page {
+  width: 100%;
+  max-width: var(--layout-page-max);
+  margin: 0 auto;
   display: grid;
-  gap: 18px;
-}
-
-.monitor-topbar,
-.monitor-topbar__meta,
-.alert-pagination,
-.alert-detail-card__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: flex-start;
-}
-
-.monitor-topbar__meta,
-.alert-pagination {
-  align-items: center;
-}
-
-.monitor-topbar__summary {
-  max-width: 320px;
-  text-align: right;
+  gap: var(--space-6);
 }
 
 .alert-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-4);
 }
 
 .alert-summary-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  min-height: 128px;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.alert-summary-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 1.15rem;
+  font-weight: 820;
+}
+
+.alert-summary-card__body {
   display: grid;
-  gap: 8px;
-  min-height: 138px;
-  padding: 18px 20px;
-  border: 1px solid #deebf3;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.045);
+  min-width: 0;
+  gap: 6px;
 }
 
 .alert-summary-card span {
-  color: #45617f;
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
   font-weight: 760;
 }
 
 .alert-summary-card strong {
-  color: #17253a;
-  font-size: 2.35rem;
+  color: var(--color-text-primary);
+  font-size: 2rem;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .alert-summary-card p {
   margin: 0;
-  color: #5b6d86;
-  font-size: 0.9rem;
-  font-weight: 650;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
 
-.alert-summary-card--warning {
-  border-color: #fed7aa;
+.alert-summary-card--danger .alert-summary-card__icon {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
 }
 
-.alert-summary-card--danger {
-  border-color: #fecdca;
+.alert-summary-card--warning .alert-summary-card__icon {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 
-.alert-summary-card--success {
-  border-color: #abefc6;
+.alert-summary-card--success .alert-summary-card__icon {
+  color: var(--color-success);
+  background: var(--color-success-soft);
 }
 
-.alert-summary-card--muted {
-  border-color: #d7e1ee;
+.alert-summary-card--primary .alert-summary-card__icon {
+  color: var(--color-primary);
+  background: var(--color-info-soft);
 }
 
-.alert-filter-card {
-  padding-bottom: 18px;
+.alert-summary-card--muted .alert-summary-card__icon {
+  color: var(--color-text-muted);
+  background: var(--color-neutral-soft);
 }
 
-.alert-filter-card__header {
-  margin-bottom: 14px;
+.alert-filter-bar,
+.alert-table-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
 }
 
-.alert-filter-grid {
+.alert-filter-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.7fr) minmax(180px, 0.7fr) auto;
-  gap: 16px;
+  grid-template-columns: minmax(260px, 1.3fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto;
+  gap: var(--space-4);
   align-items: end;
+  padding: var(--space-5);
 }
 
 .filter-field {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .filter-field span {
-  margin: 0;
-  color: #45617f;
-  font-size: 0.92rem;
-  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 760;
 }
 
 .filter-field input,
 .filter-field select {
   width: 100%;
-  min-height: 46px;
-  padding: 0 14px;
-  border: 1px solid #cfe0eb;
-  border-radius: 12px;
-  background: #f8fbfd;
-  color: #17253a;
+  min-height: 42px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .filter-field input:focus,
 .filter-field select:focus {
-  border-color: #0f6c85;
-  box-shadow: 0 0 0 4px rgba(15, 108, 133, 0.12);
-  background: #ffffff;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  background: #fff;
+}
+
+.filter-field input:disabled {
+  color: var(--color-text-muted);
+  background: #f8fafc;
+}
+
+.filter-actions,
+.alert-table-card__meta,
+.alert-pagination,
+.alert-pagination__actions,
+.alert-table__action-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .filter-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
   justify-content: flex-end;
   white-space: nowrap;
 }
 
-.alert-content {
+.alert-table-card {
   display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
-  align-items: start;
+  gap: var(--space-4);
+  padding: var(--space-5);
 }
 
-.alert-list-card,
-.alert-detail-card {
-  min-width: 0;
+.alert-table-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
-.alert-state,
-.alert-detail-state {
-  margin: 0;
+.alert-table-card__header h3 {
+  margin: 4px 0 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+}
+
+.alert-table-card__meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .alert-table-wrapper {
-  width: 100%;
   overflow-x: auto;
-  border: 1px solid #deebf3;
-  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .alert-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1180px;
   border-collapse: collapse;
-  table-layout: fixed;
 }
 
 .alert-table th,
 .alert-table td {
-  padding: 14px 18px;
-  border-bottom: 1px solid #e6eef5;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
   vertical-align: middle;
-  line-height: 1.45;
-}
-
-/* 关键修复1：给表格左右两端留出更明显的呼吸空间 */
-.alert-table th:first-child,
-.alert-table td:first-child {
-  padding-left: 24px;
-}
-
-.alert-table th:last-child,
-.alert-table td:last-child {
-  padding-right: 26px;
+  line-height: 1.5;
 }
 
 .alert-table th {
-  color: #45617f;
-  font-size: 0.9rem;
-  font-weight: 700;
-  background: #f8fbfd;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 780;
+  background: var(--color-bg-panel);
   white-space: nowrap;
 }
 
-.alert-table tbody tr {
-  transition: background-color 0.18s ease, box-shadow 0.18s ease;
-  cursor: pointer;
+.alert-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
-.alert-table tbody tr:hover {
-  background: rgba(15, 108, 133, 0.04);
+.alert-table__row td:first-child {
+  box-shadow: inset 0 0 0 transparent;
 }
 
-.alert-table tbody tr:focus-visible {
-  outline: 2px solid rgba(15, 108, 133, 0.28);
-  outline-offset: -2px;
+.alert-table__row--danger td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-danger);
 }
 
-.alert-table__row--active {
-  background: rgba(15, 108, 133, 0.09);
-  box-shadow: inset 4px 0 0 #0f6c85;
+.alert-table__row--warning td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-warning);
 }
 
-.alert-table th:nth-child(1),
-.alert-table td:nth-child(1) {
-  width: 110px;
-}
-
-.alert-table th:nth-child(2),
-.alert-table td:nth-child(2) {
-  width: 120px;
-}
-
-.alert-table th:nth-child(3),
-.alert-table td:nth-child(3),
-.alert-table th:nth-child(4),
-.alert-table td:nth-child(4),
-.alert-table th:nth-child(5),
-.alert-table td:nth-child(5) {
-  width: 140px;
-}
-
-.alert-table__score {
-  color: #17253a;
-  font-weight: 760;
-  font-variant-numeric: tabular-nums;
-}
-
-.alert-table__time-col,
-.alert-table__time {
-  width: 180px;
-  white-space: nowrap;
-}
-
-.alert-table__position {
-  width: auto;
-  min-width: 180px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.alert-table__action-col,
-.alert-table__action-cell {
-  width: 132px;
-  white-space: nowrap;
-  text-align: right;
+.alert-table__row:hover {
+  background: rgba(37, 99, 235, 0.035);
 }
 
 .alert-table__mono {
@@ -1344,15 +794,48 @@ function normalizeQueryDeviceId(value) {
   font-weight: 700;
 }
 
-.alert-table__placeholder {
-  padding: 44px 24px;
-  color: #5b6d86;
-  text-align: center;
+.alert-table__score {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
-.alert-table__action {
-  min-height: 36px;
-  padding: 0 14px;
+.alert-table__score--danger {
+  color: var(--color-danger);
+}
+
+.alert-table__score--warning {
+  color: var(--color-warning);
+}
+
+.alert-table__score--success,
+.alert-table__score--health {
+  color: var(--color-success);
+}
+
+.alert-table__time {
+  white-space: nowrap;
+}
+
+.alert-table__message {
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alert-table__action-col,
+.alert-table__action-cell {
+  min-width: 180px;
+  text-align: right;
+}
+
+.alert-table__action-cell {
+  justify-content: flex-end;
+}
+
+.table-action-button {
+  min-height: 32px;
+  padding: 0 12px;
   white-space: nowrap;
 }
 
@@ -1360,483 +843,103 @@ function normalizeQueryDeviceId(value) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
+  min-height: 26px;
+  padding: 0 9px;
   border: 1px solid transparent;
-  font-size: 0.8rem;
-  font-weight: 760;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 780;
   white-space: nowrap;
 }
 
-.alert-badge--high {
-  color: #b42318;
-  background: #fef3f2;
-  border-color: #fecdca;
+.alert-badge--danger {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger-border);
 }
 
-.alert-badge--medium,
-.alert-badge--processing {
-  color: #b54708;
-  background: #fff7ed;
-  border-color: #fed7aa;
+.alert-badge--warning {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border-color: var(--color-warning-border);
 }
 
-.alert-badge--low,
-.alert-badge--resolved {
-  color: #027a48;
-  background: #ecfdf3;
-  border-color: #abefc6;
-}
-
-.alert-badge--pending {
-  color: #1d4f91;
-  background: #eef4ff;
-  border-color: #c7d7fe;
+.alert-badge--success {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: var(--color-success-border);
 }
 
 .alert-badge--muted {
-  color: #5b6d86;
-  background: #f5f7fa;
-  border-color: #d7e1ee;
+  color: var(--color-text-muted);
+  background: var(--color-neutral-soft);
+  border-color: var(--color-neutral-border);
 }
 
-.alert-detail-card {
-  scroll-margin-top: 20px;
-  position: sticky;
-  top: 18px;
-}
-
-.alert-detail-placeholder {
-  padding: 18px 22px;
-  color: #5b6d86;
-  background: #f8fbfd;
-  border: 1px dashed #cfe0eb;
-  border-radius: 14px;
-}
-
-/* 关键修复2：详情区整体左右留白更舒展 */
-.alert-detail-content {
-  display: grid;
-  gap: 18px;
-  padding-right: 2px;
-}
-
-.alert-detail-hero {
-  display: grid;
-  gap: 12px;
-  padding: 20px 24px;
-  background: #f8fbfd;
-  border: 1px solid #deebf3;
-  border-radius: 14px;
-}
-
-.alert-detail-message__header,
-.alert-detail-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.alert-detail-message__header {
+.alert-pagination {
   justify-content: space-between;
+  gap: var(--space-4);
 }
 
-.alert-detail-hero span,
-.alert-detail-section h4 {
+.alert-pagination p {
   margin: 0;
-  color: #45617f;
-  font-size: 0.9rem;
-  font-weight: 760;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
-.alert-detail-hero strong {
-  color: #17253a;
-  line-height: 1.65;
-  word-break: break-word;
-}
-
-.alert-detail-hero p {
-  margin: 0;
-  color: #5b6d86;
-  font-size: 0.92rem;
-  line-height: 1.6;
-}
-
-.alert-detail-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.alert-detail-metric-card {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid #deebf3;
-  border-radius: 12px;
-  background: #f8fbfd;
-}
-
-.alert-detail-metric-card span,
-.alert-advice-card span {
-  color: #5b6d86;
-  font-size: 0.86rem;
-  font-weight: 700;
-}
-
-.alert-detail-metric-card strong {
-  color: #17253a;
-  font-weight: 780;
-  overflow-wrap: anywhere;
-}
-
-.alert-advice-card {
-  display: grid;
-  gap: 10px;
-  padding: 18px 20px;
-  border: 1px solid #c7d7fe;
-  border-radius: 14px;
-  background: #f8fbff;
-}
-
-.alert-advice-card p {
-  margin: 0;
-  color: #17253a;
-  line-height: 1.7;
-}
-
-.alert-handle-panel {
-  display: grid;
-  gap: 14px;
-  padding: 18px 20px;
-  background: #fbfdff;
-  border: 1px solid #deebf3;
-  border-radius: 14px;
-}
-
-.alert-handle-panel__header,
-.alert-handle-form__actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.alert-handle-panel__header h4 {
-  margin: 6px 0 0;
-  color: #17253a;
-  font-size: 1rem;
-}
-
-.alert-handle-form {
-  display: grid;
-  gap: 14px;
-}
-
-.alert-handle-form__grid {
-  display: grid;
-  grid-template-columns: minmax(160px, 0.35fr) minmax(180px, 0.45fr) minmax(280px, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.alert-handle-form__note {
-  min-width: 0;
-}
-
-.alert-handle-textarea {
-  width: 100%;
-  min-height: 90px;
-  padding: 12px 14px;
-  border: 1px solid #cfe0eb;
-  border-radius: 12px;
-  background: #f8fbfd;
-  color: #17253a;
-  line-height: 1.55;
-  resize: vertical;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
-}
-
-.alert-handle-textarea:focus {
-  border-color: #0f6c85;
-  box-shadow: 0 0 0 4px rgba(15, 108, 133, 0.12);
-  background: #ffffff;
-}
-
-.alert-handle-form__actions {
+.alert-pagination__actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
-.alert-handle-message {
-  padding: 12px 14px;
-  border-radius: 12px;
-  font-size: 0.92rem;
-  font-weight: 650;
-  line-height: 1.5;
+.pagination-page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--color-text-secondary);
+  font-weight: 760;
+  cursor: pointer;
 }
 
-.alert-handle-message--error {
-  color: #b42318;
-  background: #fef3f2;
-  border: 1px solid #fecdca;
+.pagination-page--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
 }
 
-.alert-handle-message--success {
-  color: #027a48;
-  background: #ecfdf3;
-  border: 1px solid #abefc6;
+.pagination-page:disabled {
+  cursor: default;
 }
 
-.alert-detail-groups {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-}
-
-.alert-detail-section {
-  display: grid;
-  gap: 10px;
-}
-
-.alert-detail-grid {
-  display: grid;
-  gap: 10px;
-}
-
-/* 关键修复3：详情项内部右侧不要贴边 */
-.alert-detail-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 0;
-  padding: 14px 20px 14px 16px;
-  background: #f8fbfd;
-  border: 1px solid #deebf3;
-  border-radius: 10px;
-}
-
-.alert-detail-item span {
-  flex: 0 0 88px;
-  color: #5b6d86;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
-.alert-detail-item strong {
-  min-width: 0;
-  color: #17253a;
-  text-align: right;
-  line-height: 1.5;
-  word-break: break-word;
-  padding-right: 4px;
-}
-
-/* 关键修复4：中等屏幕下减少拥挤 */
 @media (max-width: 1280px) {
   .alert-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .alert-detail-groups {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 1180px) {
-  .alert-content {
-    grid-template-columns: 1fr;
-  }
-
-  .alert-detail-card {
-    position: static;
-  }
-
-  .alert-filter-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .filter-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
-
-  .alert-detail-groups {
-    grid-template-columns: 1fr;
+  .alert-filter-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 768px) {
-  .monitor-topbar,
-  .monitor-topbar__meta,
-  .alert-pagination,
-  .alert-detail-card__header,
-  .alert-detail-message__header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .monitor-topbar__summary {
-    max-width: none;
-    text-align: left;
-  }
-
-  .alert-filter-grid {
-    grid-template-columns: 1fr;
-  }
-
   .alert-summary-grid,
-  .alert-detail-metrics {
+  .alert-filter-bar {
     grid-template-columns: 1fr;
   }
 
-  .filter-actions {
-    justify-content: flex-start;
-  }
-
-  .alert-table {
-    min-width: 820px;
-  }
-
-  .alert-detail-item {
+  .alert-table-card__header,
+  .alert-pagination {
     display: grid;
-    padding: 14px 18px;
   }
 
-  .alert-handle-panel__header,
-  .alert-handle-form__actions {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .alert-handle-form__grid {
-    grid-template-columns: 1fr;
-  }
-
-  .alert-detail-item span {
-    flex-basis: auto;
-  }
-
-  .alert-detail-item strong {
-    text-align: left;
-    padding-right: 0;
-  }
-}/* 修复：告警列表卡片头部内容贴边问题 */
-.alert-list-card.device-table-card > .device-table-card__header {
-  padding: 24px 24px 18px;
-  box-sizing: border-box;
-}
-
-/* 修复：告警列表标题与说明文字的层级和间距 */
-.alert-list-card .device-table-card__header h3 {
-  margin-top: 8px;
-  margin-bottom: 10px;
-}
-
-.alert-list-card .device-table-card__description {
-  margin: 0;
-  max-width: 680px;
-  line-height: 1.7;
-}
-
-/* 修复：右侧统计信息不要贴边 */
-.alert-list-card .device-table-card__meta {
-  padding-top: 4px;
-  padding-right: 2px;
-  flex-shrink: 0;
-}
-/* 统一修复：筛选卡片、告警列表卡片、告警详情卡片内部内容贴边问题 */
-
-/* 条件筛选卡片头部：条件筛选 / 告警查询条件 */
-.alert-filter-card.device-filter-card > .device-filter-card__header {
-  padding: 24px 32px 14px;
-  box-sizing: border-box;
-}
-
-/* 条件筛选卡片表单区：设备编号 / 告警等级 / 告警状态 / 查询按钮 */
-.alert-filter-card .alert-filter-grid {
-  padding: 0 32px 24px;
-  box-sizing: border-box;
-}
-
-/* 告警列表卡片头部：告警列表 / 告警记录清单 / 统计信息 */
-.alert-list-card.device-table-card > .device-table-card__header {
-  padding: 24px 32px 18px;
-  box-sizing: border-box;
-}
-
-/* 告警列表底部分页区域也同步留白 */
-.alert-list-card .alert-pagination {
-  padding: 18px 32px 22px;
-  box-sizing: border-box;
-}
-
-/* 告警详情卡片头部：告警详情 / 告警记录详情 */
-.alert-detail-card.device-table-card > .device-table-card__header {
-  padding: 24px 32px 18px;
-  box-sizing: border-box;
-}
-
-/* 告警详情内容区：未选择提示、告警信息、基础信息等 */
-.alert-detail-card > .alert-detail-placeholder,
-.alert-detail-card > .alert-detail-content,
-.alert-detail-card > .alert-handle-message,
-.alert-detail-card > .alert-detail-state {
-  margin-left: 32px;
-  margin-right: 32px;
-}
-
-/* 告警详情卡片底部留白，避免内容贴住卡片底边 */
-.alert-detail-card {
-  padding-bottom: 24px;
-}
-
-/* 标题间距统一优化 */
-.alert-filter-card .device-filter-card__header h3,
-.alert-list-card .device-table-card__header h3,
-.alert-detail-card .device-table-card__header h3 {
-  margin-top: 8px;
-  margin-bottom: 8px;
-}
-
-/* 说明文字统一不要贴边、不要过长 */
-.alert-list-card .device-table-card__description {
-  margin: 0;
-  max-width: 720px;
-  line-height: 1.7;
-}
-
-/* 右侧统计信息不要贴边 */
-.alert-list-card .device-table-card__meta,
-.alert-detail-card .device-table-card__meta {
-  padding-top: 4px;
-  flex-shrink: 0;
-}
-
-/* 小屏幕下适当收窄左右留白 */
-@media (max-width: 768px) {
-  .alert-filter-card.device-filter-card > .device-filter-card__header,
-  .alert-list-card.device-table-card > .device-table-card__header,
-  .alert-detail-card.device-table-card > .device-table-card__header {
-    padding: 20px 22px 14px;
-  }
-
-  .alert-filter-card .alert-filter-grid {
-    padding: 0 22px 20px;
-  }
-
-  .alert-list-card .alert-pagination {
-    padding: 16px 22px 20px;
-  }
-
-  .alert-detail-card > .alert-detail-placeholder,
-  .alert-detail-card > .alert-detail-content,
-  .alert-detail-card > .alert-handle-message,
-  .alert-detail-card > .alert-detail-state {
-    margin-left: 22px;
-    margin-right: 22px;
+  .filter-actions,
+  .alert-pagination__actions {
+    justify-content: flex-start;
   }
 }
 </style>

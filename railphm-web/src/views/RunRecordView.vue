@@ -1,11 +1,11 @@
 <template>
   <section class="run-record-page">
-    <div class="monitor-topbar">
+    <div class="monitor-topbar run-record-hero">
       <div class="monitor-topbar__content">
         <p class="page-tag">运行记录</p>
         <h2>运行记录池</h2>
         <p class="page-description">
-          每条运行记录对应一个连续的 source_segment，系统按片段内部时间顺序展示监测数据并执行逐秒风险预测。
+          每条运行记录对应一个连续的 source_segment，用于监控展示与按秒风险推断。
         </p>
       </div>
 
@@ -13,24 +13,20 @@
         <span :class="['status-pill', `status-pill--${statusTone}`]">{{ statusLabel }}</span>
         <span class="monitor-topbar__summary">{{ statusDescription }}</span>
       </div>
+      <div class="run-record-hero__rail" aria-hidden="true">
+        <span></span>
+      </div>
     </div>
 
-    <div class="monitor-overview-grid">
-      <article class="monitor-overview-card">
-        <span>当前页记录数</span>
-        <strong>{{ records.length }}</strong>
-      </article>
-      <article class="monitor-overview-card">
-        <span>记录总数</span>
-        <strong>{{ total }}</strong>
-      </article>
-      <article class="monitor-overview-card">
-        <span>已推理</span>
-        <strong>{{ inferredCount }}</strong>
-      </article>
-      <article class="monitor-overview-card">
-        <span>已告警</span>
-        <strong>{{ alertedCount }}</strong>
+    <div class="monitor-overview-grid run-record-stat-grid">
+      <article
+        v-for="card in summaryCards"
+        :key="card.key"
+        :class="['monitor-overview-card', 'run-record-stat-card', `run-record-stat-card--${card.tone}`]"
+      >
+        <span>{{ card.label }}</span>
+        <strong>{{ card.value }}</strong>
+        <small>{{ card.description }}</small>
       </article>
     </div>
 
@@ -99,7 +95,7 @@
           <p class="section-tag">片段池</p>
           <h3>运行记录列表</h3>
         </div>
-        <p>列表按运行开始时间倒序展示，预测与告警均以运行记录为单位执行。</p>
+        <p>展示当前筛选条件下的运行记录，支持查看详情并进入预测工作台。</p>
       </div>
 
       <div class="run-record-table-wrapper">
@@ -115,7 +111,7 @@
               <th>持续时长</th>
               <th>状态</th>
               <th>最高风险</th>
-              <th>告警等级</th>
+              <th>最高风险等级</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -136,22 +132,12 @@
                   <RouterLink class="secondary-button table-action-button" :to="{ name: 'run-record-detail', params: { id: record.run_record_id } }">
                     查看详情
                   </RouterLink>
-                  <button
-                    type="button"
-                    class="secondary-button table-action-button"
-                    :disabled="isBusy(record.run_record_id)"
-                    @click="handleInfer(record)"
+                  <RouterLink
+                    class="primary-button table-action-button"
+                    :to="{ name: 'run-record-detail', params: { id: record.run_record_id }, query: { action: 'predict' } }"
                   >
-                    {{ busyId === record.run_record_id && busyAction === 'infer' ? '预测中...' : '执行预测' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="secondary-button table-action-button"
-                    :disabled="isBusy(record.run_record_id)"
-                    @click="handleAlert(record)"
-                  >
-                    {{ busyId === record.run_record_id && busyAction === 'alert' ? '处理中...' : '生成告警' }}
-                  </button>
+                    进入预测
+                  </RouterLink>
                 </div>
               </td>
             </tr>
@@ -178,10 +164,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import {
-  generateRunRecordAlert,
   getRandomRunRecord,
-  getRunRecords,
-  inferRunRecord
+  getRunRecords
 } from '../api/runRecord'
 import {
   displayText,
@@ -200,17 +184,54 @@ const filters = reactive({
 })
 const records = ref([])
 const total = ref(0)
+const listSummary = ref(null)
 const loading = ref(false)
 const randomLoading = ref(false)
 const errorMessage = ref('')
 const feedbackMessage = ref('')
 const feedbackTone = ref('success')
-const busyId = ref(null)
-const busyAction = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / filters.page_size)))
-const inferredCount = computed(() => records.value.filter((record) => record.status === 'inferred').length)
-const alertedCount = computed(() => records.value.filter((record) => record.status === 'alerted').length)
+const pageRecordCount = computed(() => toSummaryNumber('page_record_count', records.value.length))
+const totalRecordCount = computed(() => toSummaryNumber('total_record_count', total.value))
+const inferredCount = computed(() => toSummaryNumber(
+  'inferred_count',
+  records.value.filter((record) => isInferredRecord(record)).length
+))
+const riskSegmentCount = computed(() => toSummaryNumber(
+  'risk_segment_count',
+  records.value.filter((record) => isRiskSegmentLevel(record.max_alert_level)).length
+))
+const summaryCards = computed(() => [
+  {
+    key: 'page',
+    label: '当前页记录数',
+    value: formatInteger(pageRecordCount.value),
+    description: '当前页返回',
+    tone: 'primary'
+  },
+  {
+    key: 'total',
+    label: '记录总数',
+    value: formatInteger(totalRecordCount.value),
+    description: '当前筛选条件',
+    tone: 'default'
+  },
+  {
+    key: 'inferred',
+    label: '已推理',
+    value: formatInteger(inferredCount.value),
+    description: '已完成风险预测',
+    tone: 'success'
+  },
+  {
+    key: 'risk',
+    label: '风险片段数',
+    value: formatInteger(riskSegmentCount.value),
+    description: '存在非正常最高风险',
+    tone: 'danger'
+  }
+])
 const statusTone = computed(() => {
   if (loading.value) return 'muted'
   if (errorMessage.value) return 'warning'
@@ -226,7 +247,7 @@ const statusLabel = computed(() => {
 const statusDescription = computed(() => {
   if (loading.value) return '正在请求 /api/v1/run-records'
   if (errorMessage.value) return '请检查后端服务或接口代理配置'
-  return `当前筛选返回 ${records.value.length} 条，共 ${total.value} 条`
+  return `当前筛选返回 ${pageRecordCount.value} 条，共 ${totalRecordCount.value} 条`
 })
 const feedbackToneClass = computed(() => (feedbackTone.value === 'error' ? 'error-state' : 'success-state'))
 
@@ -249,9 +270,11 @@ async function fetchRecords() {
     const payload = normalizePayload(result)
     records.value = Array.isArray(payload.items) ? payload.items : []
     total.value = Number(payload.total) || 0
+    listSummary.value = payload.summary && typeof payload.summary === 'object' ? payload.summary : null
   } catch (error) {
     records.value = []
     total.value = 0
+    listSummary.value = null
     errorMessage.value = error.message || '无法加载运行记录'
   } finally {
     loading.value = false
@@ -292,58 +315,30 @@ async function handleRandom() {
   }
 }
 
-async function handleInfer(record) {
-  busyId.value = record.run_record_id
-  busyAction.value = 'infer'
-  clearFeedback()
-  try {
-    const result = await inferRunRecord(record.run_record_id)
-    const payload = normalizePayload(result)
-    const skippedExisting = Number(payload.skipped_existing_count) || 0
-    showFeedback(skippedExisting > 0 && Number(payload.saved_count) === 0 ? '已加载已有预测结果' : '预测完成')
-    await fetchRecords()
-  } catch (error) {
-    showFeedback(error.message || '预测失败', 'error')
-  } finally {
-    busyId.value = null
-    busyAction.value = ''
-  }
-}
-
-async function handleAlert(record) {
-  busyId.value = record.run_record_id
-  busyAction.value = 'alert'
-  clearFeedback()
-  try {
-    const result = await generateRunRecordAlert(record.run_record_id)
-    const payload = normalizePayload(result)
-    if (payload.existing) {
-      showFeedback('该运行记录已存在告警')
-    } else if (payload.alert_generated === false) {
-      showFeedback('最高风险未达到预警阈值，未生成正式告警')
-    } else {
-      showFeedback('告警处理完成')
-    }
-    await fetchRecords()
-  } catch (error) {
-    showFeedback(error.message || '告警处理失败', 'error')
-  } finally {
-    busyId.value = null
-    busyAction.value = ''
-  }
-}
-
 function goPage(page) {
   filters.page = Math.min(Math.max(1, page), totalPages.value)
   fetchRecords()
 }
 
-function isBusy(id) {
-  return busyId.value === id
-}
-
 function normalizePayload(result) {
   return result?.data && typeof result.data === 'object' ? result.data : result
+}
+
+function toSummaryNumber(key, fallback) {
+  const value = listSummary.value?.[key]
+  const numericValue = toFiniteNumber(value)
+  return numericValue === null ? fallback : numericValue
+}
+
+function isInferredRecord(record) {
+  const status = String(record?.status || '').toLowerCase()
+  return status === 'inferred' || status === 'alerted' || Boolean(record?.max_risk_result_id)
+}
+
+function isRiskSegmentLevel(level) {
+  return ['low', 'attention', 'medium', 'warning', 'warn', 'high', 'critical'].includes(
+    String(level || '').trim().toLowerCase()
+  )
 }
 
 function showFeedback(message, tone = 'success') {
@@ -382,7 +377,10 @@ function formatRunRecordStatus(status) {
 
 function formatRunRecordRisk(level) {
   const riskMap = {
+    critical: '严重',
     high: '严重',
+    warning: '预警',
+    warn: '预警',
     medium: '预警',
     low: '关注',
     attention: '关注',
@@ -401,8 +399,8 @@ function getStatusTone(status) {
 
 function getRiskTone(level) {
   const normalized = String(level || '').toLowerCase()
-  if (normalized === 'high') return 'danger'
-  if (normalized === 'medium') return 'warning'
+  if (normalized === 'high' || normalized === 'critical') return 'danger'
+  if (normalized === 'medium' || normalized === 'warning' || normalized === 'warn') return 'warning'
   if (normalized === 'low' || normalized === 'attention') return 'notice'
   return 'success'
 }
@@ -415,6 +413,97 @@ function getRiskTone(level) {
   margin: 0 auto;
   display: grid;
   gap: var(--space-6);
+}
+
+.run-record-hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 170px;
+}
+
+.run-record-hero__rail {
+  position: absolute;
+  right: 28px;
+  bottom: 22px;
+  width: min(360px, 34vw);
+  height: 86px;
+  opacity: 0.34;
+  pointer-events: none;
+}
+
+.run-record-hero__rail::before,
+.run-record-hero__rail::after,
+.run-record-hero__rail span {
+  position: absolute;
+  content: "";
+}
+
+.run-record-hero__rail::before {
+  inset: 18px 0 24px 28px;
+  border: 2px solid rgba(37, 99, 235, 0.48);
+  border-left-width: 8px;
+  border-radius: 999px 22px 22px 999px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.02));
+}
+
+.run-record-hero__rail::after {
+  right: 28px;
+  bottom: 13px;
+  width: 210px;
+  height: 2px;
+  background: rgba(37, 99, 235, 0.38);
+  box-shadow: -64px 14px 0 rgba(37, 99, 235, 0.18);
+}
+
+.run-record-hero__rail span {
+  right: 62px;
+  top: 32px;
+  width: 88px;
+  height: 12px;
+  border-radius: 999px;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(37, 99, 235, 0.55) 0 14px,
+    rgba(37, 99, 235, 0.18) 14px 22px
+  );
+}
+
+.run-record-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.run-record-stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.run-record-stat-card::before {
+  position: absolute;
+  top: 24px;
+  right: 22px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-info-soft);
+  content: "";
+}
+
+.run-record-stat-card small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+}
+
+.run-record-stat-card--danger {
+  border-color: var(--color-danger-border);
+}
+
+.run-record-stat-card--danger::before {
+  background: var(--color-danger-soft);
+}
+
+.run-record-stat-card--success::before {
+  background: var(--color-success-soft);
 }
 
 .run-record-filter-grid {
@@ -438,6 +527,8 @@ function getRiskTone(level) {
 .run-record-table-wrapper {
   min-width: 0;
   overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .run-record-table {
@@ -451,7 +542,7 @@ function getRiskTone(level) {
   padding: 13px 12px;
   border-bottom: 1px solid var(--color-border);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .run-record-table th {
@@ -517,6 +608,7 @@ function getRiskTone(level) {
 .table-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -536,6 +628,10 @@ function getRiskTone(level) {
 }
 
 @media (max-width: 980px) {
+  .run-record-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
   .run-record-filter-grid {
     grid-template-columns: 1fr;
   }

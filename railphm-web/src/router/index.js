@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AlertCenterView from '../views/AlertCenterView.vue'
+import AlertDiagnosisDetailView from '../views/AlertDiagnosisDetailView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import DeviceDetailView from '../views/DeviceDetailView.vue'
 import DeviceLedgerView from '../views/DeviceLedgerView.vue'
@@ -87,6 +88,15 @@ const routes = [
     meta: {
       title: '告警中心',
       description: '集中展示系统告警记录，支持筛选、分页与详情查看。'
+    }
+  },
+  {
+    path: '/alerts/:id/diagnosis',
+    name: 'alert-diagnosis-detail',
+    component: AlertDiagnosisDetailView,
+    meta: {
+      title: '告警研判详情',
+      description: '查看单条告警的风险趋势、监测曲线、工况分段与处置记录。'
     }
   },
   {

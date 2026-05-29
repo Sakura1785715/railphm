@@ -17,9 +17,6 @@
         <button type="button" class="primary-button" :disabled="inferLoading || initialLoading" @click="handleInfer">
           {{ inferLoading ? '预测中...' : '执行逐秒预测' }}
         </button>
-        <button type="button" class="secondary-button" :disabled="alertLoading || initialLoading" @click="handleAlert">
-          {{ alertLoading ? '处理中...' : '生成运行记录告警' }}
-        </button>
         <button type="button" class="secondary-button" :disabled="initialLoading" @click="loadPage">
           刷新
         </button>
@@ -40,47 +37,46 @@
       </article>
     </div>
 
-    <section class="monitor-section detail-panel">
+    <section class="monitor-section detail-panel prediction-status-panel">
       <div class="monitor-section__header">
         <div>
-          <p class="section-tag">监测曲线</p>
-          <h3>原始 1 秒采样监测数据</h3>
+          <p class="section-tag">预测任务状态</p>
+          <h3>{{ predictionStatusTitle }}</h3>
         </div>
-        <p>当前返回 {{ monitorRows.length }} 个监测点，数据按 source_segment 边界查询。</p>
+        <p>{{ predictionStatusDescription }}</p>
       </div>
 
-      <LineTrendChart
-        title="速度与制动参考"
-        description="展示 speed、service_brake_speed 与 emergency_brake_speed 的运行变化。"
-        :x-axis-data="monitorXAxis"
-        :series="monitorSpeedSeries"
-        :loading="monitorLoading"
-        :empty="monitorRows.length === 0"
-        :error="monitorError"
-        height="360px"
-      />
+      <div class="prediction-progress-card">
+        <div class="prediction-progress-card__main">
+          <strong>{{ predictionStage }}</strong>
+          <span>{{ predictionProgress }}%</span>
+          <div class="prediction-progress-bar" aria-hidden="true">
+            <span :style="{ width: `${predictionProgress}%` }"></span>
+          </div>
+          <small>已耗时 {{ predictionElapsedSeconds }}s</small>
+        </div>
 
-      <div class="detail-chart-grid">
-        <LineTrendChart
-          title="环境温度"
-          description="展示 outdoor_temperature 随时间变化。"
-          :x-axis-data="monitorXAxis"
-          :series="temperatureSeries"
-          :loading="monitorLoading"
-          :empty="monitorRows.length === 0"
-          :error="monitorError"
-          height="280px"
-        />
-        <LineTrendChart
-          title="环境湿度"
-          description="展示 humidity 随时间变化。"
-          :x-axis-data="monitorXAxis"
-          :series="humiditySeries"
-          :loading="monitorLoading"
-          :empty="monitorRows.length === 0"
-          :error="monitorError"
-          height="280px"
-        />
+        <div class="prediction-stepper">
+          <div
+            v-for="step in predictionSteps"
+            :key="step.key"
+            :class="['prediction-step', getPredictionStepClass(step)]"
+          >
+            <span>{{ step.index }}</span>
+            <strong>{{ step.label }}</strong>
+            <small>{{ getPredictionStepText(step) }}</small>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="riskResult" class="risk-result-summary prediction-result-summary">
+        <article v-for="card in inferSummaryCards" :key="card.key" class="monitor-overview-card">
+          <span>{{ card.label }}</span>
+          <strong>{{ card.value }}</strong>
+        </article>
+      </div>
+      <div v-else-if="inferError" class="state-panel error-state">
+        逐秒风险预测失败：{{ inferError }}
       </div>
     </section>
 
@@ -121,12 +117,75 @@
         />
       </div>
 
-      <div v-if="riskResult" class="risk-result-summary">
-        <article v-for="card in inferSummaryCards" :key="card.key" class="monitor-overview-card">
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-        </article>
+    </section>
+
+    <section class="monitor-section detail-panel">
+      <div class="monitor-section__header">
+        <div>
+          <p class="section-tag">运行监测分析</p>
+          <h3>原始 1 秒采样监测数据</h3>
+        </div>
+        <p>当前返回 {{ monitorRows.length }} 个监测点，数据按 source_segment 边界查询。</p>
       </div>
+
+      <div class="monitor-tabs" role="tablist" aria-label="运行监测分析">
+        <button
+          v-for="tab in monitorTabs"
+          :key="tab.key"
+          :class="['monitor-tab', { 'monitor-tab--active': activeMonitorTab === tab.key }]"
+          type="button"
+          @click="activeMonitorTab = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <LineTrendChart
+        v-if="activeMonitorTab === 'speed'"
+        title="速度与制动"
+        description="展示 speed、service_brake_speed 与 emergency_brake_speed 的运行变化。"
+        :x-axis-data="monitorXAxis"
+        :series="monitorSpeedSeries"
+        :loading="monitorLoading"
+        :empty="monitorRows.length === 0"
+        :error="monitorError"
+        height="360px"
+      />
+
+      <div v-else-if="activeMonitorTab === 'environment'" class="detail-chart-grid">
+        <LineTrendChart
+          title="环境温度"
+          description="展示 outdoor_temperature 随时间变化。"
+          :x-axis-data="monitorXAxis"
+          :series="temperatureSeries"
+          :loading="monitorLoading"
+          :empty="monitorRows.length === 0"
+          :error="monitorError"
+          height="300px"
+        />
+        <LineTrendChart
+          title="环境湿度"
+          description="展示 humidity 随时间变化。"
+          :x-axis-data="monitorXAxis"
+          :series="humiditySeries"
+          :loading="monitorLoading"
+          :empty="monitorRows.length === 0"
+          :error="monitorError"
+          height="300px"
+        />
+      </div>
+
+      <LineTrendChart
+        v-else
+        title="位置与运行"
+        description="展示 mileage 与 run_distance 的运行变化。"
+        :x-axis-data="monitorXAxis"
+        :series="positionSeries"
+        :loading="monitorLoading"
+        :empty="monitorRows.length === 0"
+        :error="monitorError"
+        height="340px"
+      />
     </section>
 
     <section class="detail-grid">
@@ -139,11 +198,23 @@
           <p>按相邻相同工况合并展示。</p>
         </div>
 
-        <div v-if="conditionSegments.length" class="condition-list">
-          <div v-for="segment in conditionSegments" :key="segment.key" class="condition-item">
-            <strong>{{ displayText(segment.label, '--') }}</strong>
-            <span>{{ formatDateTime(segment.start, '--') }} ~ {{ formatDateTime(segment.end, '--') }}</span>
-            <small>{{ segment.count }} 点</small>
+        <div v-if="conditionSegments.length" class="condition-timeline">
+          <div class="condition-timeline__bar">
+            <article
+              v-for="(segment, index) in conditionSegments"
+              :key="segment.key"
+              :class="['condition-segment', `condition-segment--${getSegmentTone(index)}`, { 'condition-segment--active': isFocusSegment(segment) }]"
+              :style="{ flexBasis: `${segment.width}%` }"
+            >
+              {{ displayText(segment.label, '--') }}
+            </article>
+          </div>
+          <div class="condition-timeline__legend">
+            <article v-for="(segment, index) in conditionSegments" :key="`${segment.key}-legend`">
+              <span :class="['condition-dot', `condition-dot--${getSegmentTone(index)}`]" aria-hidden="true"></span>
+              <strong>{{ displayText(segment.label, '--') }}</strong>
+              <small>{{ formatDateTime(segment.start, '--') }} ~ {{ formatDateTime(segment.end, '--') }} / {{ segment.count }} 点</small>
+            </article>
           </div>
         </div>
         <div v-else class="state-panel empty-state">暂无可展示的工况标签。</div>
@@ -185,9 +256,17 @@
               <dd>{{ formatAlertCreateState(alertResult) }}</dd>
             </div>
           </dl>
+          <button
+            v-if="alertResult.alert_id"
+            class="primary-button alert-diagnosis-link"
+            type="button"
+            @click="goAlertDiagnosis"
+          >
+            查看告警研判详情
+          </button>
         </div>
         <div v-else class="state-panel empty-state">
-          点击“生成运行记录告警”后展示主告警结果。
+          预测达到告警阈值后，系统会提示是否生成正式告警。
         </div>
       </article>
     </section>
@@ -231,11 +310,81 @@
         暂无风险点明细。
       </div>
     </section>
+
+    <div v-if="inferLoading" class="modal-mask">
+      <div class="modal-card prediction-modal-card" role="dialog" aria-modal="true">
+        <div class="loading-ring" aria-hidden="true"></div>
+        <h3>正在执行逐秒风险预测</h3>
+        <p>系统正在处理当前运行片段，请勿重复点击</p>
+        <div class="modal-progress">
+          <div class="prediction-progress-bar" aria-hidden="true">
+            <span :style="{ width: `${predictionProgress}%` }"></span>
+          </div>
+          <strong>{{ predictionProgress }}%</strong>
+        </div>
+        <p class="prediction-modal-stage">当前阶段：{{ predictionStage }}</p>
+        <p class="prediction-modal-elapsed">已耗时 {{ predictionElapsedSeconds }}s</p>
+        <div class="prediction-stepper prediction-stepper--modal">
+          <div
+            v-for="step in predictionSteps"
+            :key="`modal-${step.key}`"
+            :class="['prediction-step', getPredictionStepClass(step)]"
+          >
+            <span>{{ step.index }}</span>
+            <strong>{{ step.label }}</strong>
+            <small>{{ getPredictionStepText(step) }}</small>
+          </div>
+        </div>
+        <button class="secondary-button modal-disabled-button" type="button" disabled>处理中...</button>
+      </div>
+    </div>
+
+    <div v-if="alertConfirmVisible" class="modal-mask">
+      <div class="modal-card alert-confirm-card" role="dialog" aria-modal="true">
+        <h3>生成运行记录告警</h3>
+        <p>检测到该运行记录存在较高风险点，系统可基于最高风险结果生成正式告警，并同步至告警中心。</p>
+        <dl class="alert-confirm-grid">
+          <div v-for="item in alertConfirmFields" :key="item.key">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          </div>
+        </dl>
+        <div v-if="alertError" class="state-panel error-state alert-modal-error">
+          {{ alertError }}
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" :disabled="alertLoading" @click="handleCancelGenerateAlert">
+            暂不生成
+          </button>
+          <button class="primary-button" type="button" :disabled="alertLoading" @click="handleConfirmGenerateAlert">
+            {{ alertLoading ? '生成中...' : '生成告警' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="alertSuccessVisible" class="modal-mask">
+      <div class="modal-card alert-success-card" role="dialog" aria-modal="true">
+        <button class="modal-close-button" type="button" @click="closeAlertSuccessModal">×</button>
+        <div class="success-check" aria-hidden="true"></div>
+        <h3>{{ alertSuccessTitle }}</h3>
+        <p>已同步至告警中心，可继续查看告警研判详情</p>
+        <p class="alert-success-id">告警ID：<strong>{{ displayText(alertResult?.alert_id, '--') }}</strong></p>
+        <div class="modal-actions">
+          <button class="primary-button" type="button" :disabled="!alertResult?.alert_id" @click="goAlertDiagnosis">
+            查看告警详情
+          </button>
+          <button class="secondary-button" type="button" @click="closeAlertSuccessModal">
+            知道了
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { LineTrendChart, MetricTrendChart } from '../components/chart'
 import {
@@ -267,11 +416,33 @@ const monitorLoading = ref(false)
 const inferLoading = ref(false)
 const alertLoading = ref(false)
 const randomLoading = ref(false)
+const activeMonitorTab = ref('speed')
+const predictionState = ref('idle')
+const predictionProgress = ref(0)
+const predictionStage = ref('等待开始')
+const predictionElapsedSeconds = ref(0)
+const alertConfirmVisible = ref(false)
+const alertSuccessVisible = ref(false)
+const alertError = ref('')
 const errorMessage = ref('')
 const monitorError = ref('')
 const inferError = ref('')
 const feedbackMessage = ref('')
 const feedbackTone = ref('success')
+let predictionTimer = 0
+let elapsedTimer = 0
+
+const monitorTabs = [
+  { key: 'speed', label: '速度与制动' },
+  { key: 'environment', label: '环境与工况' },
+  { key: 'position', label: '位置与运行' }
+]
+const predictionSteps = [
+  { key: 'read', index: 1, label: '读取监测数据', progress: 8 },
+  { key: 'window', index: 2, label: '构建滑动窗口', progress: 32 },
+  { key: 'infer', index: 3, label: '模型推理', progress: 58 },
+  { key: 'save', index: 4, label: '保存预测结果', progress: 90 }
+]
 
 const runRecordId = computed(() => route.params.id)
 const monitorRows = computed(() => {
@@ -310,6 +481,17 @@ const humiditySeries = computed(() => [
     unit: '%',
     data: monitorRows.value.map((row) => toNumberOrNull(row.humidity)),
     area: true
+  }
+])
+const positionSeries = computed(() => [
+  {
+    name: '里程',
+    data: monitorRows.value.map((row) => toNumberOrNull(row.mileage)),
+    area: true
+  },
+  {
+    name: '运行距离',
+    data: monitorRows.value.map((row) => toNumberOrNull(row.run_distance))
   }
 ])
 const riskSeries = computed(() => {
@@ -400,7 +582,12 @@ const conditionSegments = computed(() => {
     }
   })
   if (active) segments.push(active)
-  return segments.slice(0, 18)
+  const limitedSegments = segments.slice(0, 18)
+  const totalCount = limitedSegments.reduce((sum, segment) => sum + segment.count, 0)
+  return limitedSegments.map((segment) => ({
+    ...segment,
+    width: totalCount > 0 ? Math.max(8, (segment.count / totalCount) * 100) : 100 / limitedSegments.length
+  }))
 })
 const summaryCards = computed(() => [
   { key: 'device', label: '设备编号', value: displayText(runRecord.value?.device_code, '--') },
@@ -414,17 +601,39 @@ const summaryCards = computed(() => [
   { key: 'duration', label: '持续时长', value: formatDuration(runRecord.value?.duration_seconds) },
   { key: 'status', label: '状态', value: formatRunRecordStatus(runRecord.value?.status) },
   { key: 'risk', label: '最高风险', value: formatPercent(runRecord.value?.max_risk_score, 2, '--') },
-  { key: 'level', label: '告警等级', value: formatRunRecordRisk(runRecord.value?.max_alert_level) }
+  { key: 'level', label: '最高风险等级', value: formatRunRecordRisk(runRecord.value?.max_alert_level) }
 ])
 const inferSummaryCards = computed(() => [
-  { key: 'monitor', label: '监测点数', value: formatInteger(riskResult.value?.monitor_point_count) },
-  { key: 'result', label: '风险点数', value: formatInteger(riskResult.value?.result_count) },
+  { key: 'max', label: '最高风险分数', value: formatPercent(riskResult.value?.max_risk_score, 2, '--') },
+  { key: 'level', label: '最高风险等级', value: formatRunRecordRisk(riskResult.value?.max_alert_level) },
+  { key: 'result', label: '风险点数量', value: formatInteger(riskResult.value?.result_count) },
+  { key: 'riskId', label: '代表风险结果ID', value: displayText(riskResult.value?.max_risk_result_id, '--') },
   { key: 'saved', label: '新保存', value: formatInteger(riskResult.value?.saved_count) },
   { key: 'existing', label: '复用已有', value: formatInteger(riskResult.value?.skipped_existing_count) },
-  { key: 'max', label: '最高风险', value: formatPercent(riskResult.value?.max_risk_score, 2, '--') },
-  { key: 'level', label: '最高等级', value: formatRunRecordRisk(riskResult.value?.max_alert_level) }
+  { key: 'recommend', label: '是否建议生成告警', value: riskResult.value?.alert_recommendation?.should_prompt ? '是' : '否' }
 ])
 const feedbackToneClass = computed(() => (feedbackTone.value === 'error' ? 'error-state' : 'success-state'))
+const predictionStatusTitle = computed(() => {
+  if (predictionState.value === 'running') return '正在执行逐秒风险预测'
+  if (predictionState.value === 'success') return '预测完成摘要'
+  if (predictionState.value === 'error') return '预测失败'
+  return '等待执行预测'
+})
+const predictionStatusDescription = computed(() => {
+  if (predictionState.value === 'running') return '系统正在处理当前运行片段，请勿重复点击。'
+  if (predictionState.value === 'success') return '已生成风险序列，可继续查看趋势并按建议生成告警。'
+  if (predictionState.value === 'error') return '逐秒风险预测失败，可重新点击执行预测。'
+  return '点击“执行逐秒预测”后，系统将按 1 秒步长对当前 source_segment 生成风险序列。'
+})
+const alertRecommendation = computed(() => riskResult.value?.alert_recommendation || null)
+const alertConfirmFields = computed(() => [
+  { key: 'risk', label: '最高风险分数', value: formatPercent(alertRecommendation.value?.max_risk_score, 2, '--') },
+  { key: 'level', label: '最高风险等级', value: formatRunRecordRisk(alertRecommendation.value?.max_alert_level) },
+  { key: 'riskId', label: '代表风险结果ID', value: displayText(alertRecommendation.value?.max_risk_result_id, '--') },
+  { key: 'warning', label: '预警阈值', value: formatPercent(alertRecommendation.value?.warning_threshold, 0, '--') },
+  { key: 'critical', label: '严重阈值', value: formatPercent(alertRecommendation.value?.critical_threshold, 0, '--') }
+])
+const alertSuccessTitle = computed(() => (alertResult.value?.existing ? '告警已存在' : '告警生成成功'))
 const alertMessage = computed(() => {
   if (!alertResult.value) return ''
   if (alertResult.value.alert_generated === false) {
@@ -438,16 +647,28 @@ const alertMessage = computed(() => {
 
 onMounted(() => {
   loadPage()
+  if (route.query.action === 'predict') {
+    predictionState.value = 'idle'
+    window.setTimeout(() => {
+      document.querySelector('.prediction-status-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 120)
+  }
 })
 
 watch(
   () => route.params.id,
   () => {
+    resetPredictionProgress()
+    closeAlertModals()
     riskResult.value = null
     alertResult.value = null
     loadPage()
   }
 )
+
+onBeforeUnmount(() => {
+  clearPredictionTimers()
+})
 
 async function loadPage() {
   initialLoading.value = true
@@ -481,8 +702,18 @@ async function loadMonitor() {
 }
 
 async function handleInfer() {
+  if (inferLoading.value) {
+    return
+  }
+
   inferLoading.value = true
   inferError.value = ''
+  alertError.value = ''
+  alertConfirmVisible.value = false
+  alertSuccessVisible.value = false
+  alertResult.value = null
+  predictionState.value = 'running'
+  startPredictionProgress()
   clearFeedback()
   try {
     const result = await inferRunRecord(runRecordId.value, {
@@ -491,6 +722,7 @@ async function handleInfer() {
       generate_alert: false,
       inference_stride_seconds: DEFAULT_INFERENCE_STRIDE_SECONDS
     })
+    finishPredictionProgress()
     riskResult.value = normalizePayload(result)
     runRecord.value = {
       ...(runRecord.value || {}),
@@ -499,45 +731,171 @@ async function handleInfer() {
       max_risk_result_id: riskResult.value.max_risk_result_id,
       max_alert_level: riskResult.value.max_alert_level
     }
-    const skippedExisting = Number(riskResult.value.skipped_existing_count) || 0
-    showFeedback(skippedExisting > 0 && Number(riskResult.value.saved_count) === 0 ? '已加载已有预测结果' : '预测完成')
+    predictionState.value = 'success'
+    await wait(360)
+    openAlertConfirmIfNeeded()
   } catch (error) {
+    failPredictionProgress()
     inferError.value = error.message || '执行逐秒预测失败'
+    predictionState.value = 'error'
     showFeedback(inferError.value, 'error')
   } finally {
     inferLoading.value = false
+    clearPredictionTimers()
   }
 }
 
-async function handleAlert() {
+async function handleConfirmGenerateAlert() {
   alertLoading.value = true
-  clearFeedback()
+  alertError.value = ''
   try {
     const result = await generateRunRecordAlert(runRecordId.value, {})
     alertResult.value = normalizePayload(result)
-    runRecord.value = {
-      ...(runRecord.value || {}),
-      status: alertResult.value.alert_generated === false ? 'inferred' : 'alerted',
-      alert_id: alertResult.value.alert_id || runRecord.value?.alert_id,
-      max_risk_score: alertResult.value.max_risk_score ?? runRecord.value?.max_risk_score,
-      max_risk_result_id:
-        alertResult.value.max_risk_result_id ??
-        alertResult.value.risk_result_id ??
-        runRecord.value?.max_risk_result_id,
-      max_alert_level: alertResult.value.max_alert_level ?? alertResult.value.alert_level ?? runRecord.value?.max_alert_level
-    }
-    if (alertResult.value.existing) {
-      showFeedback('该运行记录已存在告警')
-    } else if (alertResult.value.alert_generated === false) {
-      showFeedback('最高风险未达到预警阈值，未生成正式告警')
+    syncRunRecordAfterAlert()
+    alertConfirmVisible.value = false
+    if (alertResult.value.alert_generated) {
+      openAlertSuccessModal()
     } else {
-      showFeedback('告警处理完成')
+      showFeedback(alertResult.value.message || '最高风险未达到预警阈值，未生成正式告警')
     }
   } catch (error) {
-    showFeedback(error.message || '生成运行记录告警失败', 'error')
+    alertError.value = error.message || '生成运行记录告警失败'
   } finally {
     alertLoading.value = false
   }
+}
+
+function syncRunRecordAfterAlert() {
+  if (!alertResult.value) {
+    return
+  }
+
+  runRecord.value = {
+    ...(runRecord.value || {}),
+    status: alertResult.value.alert_generated === false ? 'inferred' : 'alerted',
+    alert_id: alertResult.value.alert_id || runRecord.value?.alert_id,
+    max_risk_score: alertResult.value.max_risk_score ?? runRecord.value?.max_risk_score,
+    max_risk_result_id:
+      alertResult.value.max_risk_result_id ??
+      alertResult.value.risk_result_id ??
+      runRecord.value?.max_risk_result_id,
+    max_alert_level: alertResult.value.max_alert_level ?? alertResult.value.alert_level ?? runRecord.value?.max_alert_level
+  }
+}
+
+function handleCancelGenerateAlert() {
+  alertConfirmVisible.value = false
+  showFeedback('已保留预测结果，可稍后生成告警。')
+}
+
+function openAlertConfirmIfNeeded() {
+  const recommendation = riskResult.value?.alert_recommendation
+  if (!recommendation) {
+    showFeedback('预测完成')
+    return
+  }
+
+  if (recommendation.should_prompt && recommendation.can_generate_alert) {
+    alertConfirmVisible.value = true
+    return
+  }
+
+  showFeedback(recommendation.message || '预测完成')
+}
+
+function openAlertSuccessModal() {
+  alertSuccessVisible.value = true
+}
+
+function closeAlertSuccessModal() {
+  alertSuccessVisible.value = false
+}
+
+function closeAlertModals() {
+  alertConfirmVisible.value = false
+  alertSuccessVisible.value = false
+  alertError.value = ''
+}
+
+function goAlertDiagnosis() {
+  if (alertResult.value?.alert_id) {
+    router.push({ name: 'alert-diagnosis-detail', params: { id: alertResult.value.alert_id } })
+    return
+  }
+
+  router.push({ name: 'alerts' })
+}
+
+function startPredictionProgress() {
+  clearPredictionTimers()
+  predictionProgress.value = 0
+  predictionElapsedSeconds.value = 0
+  predictionStage.value = getPredictionStage(0)
+  predictionTimer = window.setInterval(() => {
+    const nextProgress = Math.min(
+      90,
+      predictionProgress.value + (predictionProgress.value < 28 ? 6 : predictionProgress.value < 58 ? 4 : 2)
+    )
+    predictionProgress.value = nextProgress
+    predictionStage.value = getPredictionStage(nextProgress)
+  }, 700)
+  elapsedTimer = window.setInterval(() => {
+    predictionElapsedSeconds.value += 1
+  }, 1000)
+}
+
+function finishPredictionProgress() {
+  clearPredictionTimers()
+  predictionProgress.value = 100
+  predictionStage.value = '整理预测结果'
+}
+
+function failPredictionProgress() {
+  clearPredictionTimers()
+  predictionStage.value = '预测失败'
+}
+
+function resetPredictionProgress() {
+  clearPredictionTimers()
+  predictionState.value = 'idle'
+  predictionProgress.value = 0
+  predictionElapsedSeconds.value = 0
+  predictionStage.value = '等待开始'
+}
+
+function clearPredictionTimers() {
+  window.clearInterval(predictionTimer)
+  window.clearInterval(elapsedTimer)
+  predictionTimer = 0
+  elapsedTimer = 0
+}
+
+function getPredictionStage(progress) {
+  if (progress < 25) return '读取监测数据'
+  if (progress < 50) return '构建滑动窗口'
+  if (progress < 90) return '模型推理与结果保存'
+  return '整理预测结果'
+}
+
+function getPredictionStepClass(step) {
+  if (predictionProgress.value >= step.progress + 20 || predictionProgress.value === 100) {
+    return 'prediction-step--done'
+  }
+  if (predictionProgress.value >= step.progress) {
+    return 'prediction-step--active'
+  }
+  return 'prediction-step--pending'
+}
+
+function getPredictionStepText(step) {
+  const className = getPredictionStepClass(step)
+  if (className === 'prediction-step--done') return '已完成'
+  if (className === 'prediction-step--active') return '进行中'
+  return '待开始'
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 async function handleRandom() {
@@ -602,7 +960,10 @@ function formatRunRecordStatus(status) {
 
 function formatRunRecordRisk(level) {
   const riskMap = {
+    critical: '严重',
     high: '严重',
+    warning: '预警',
+    warn: '预警',
     medium: '预警',
     low: '关注',
     attention: '关注',
@@ -614,10 +975,19 @@ function formatRunRecordRisk(level) {
 
 function getRiskTone(level) {
   const normalized = String(level || '').toLowerCase()
-  if (normalized === 'high') return 'danger'
-  if (normalized === 'medium') return 'warning'
+  if (normalized === 'high' || normalized === 'critical') return 'danger'
+  if (normalized === 'medium' || normalized === 'warning' || normalized === 'warn') return 'warning'
   if (normalized === 'low' || normalized === 'attention') return 'notice'
   return 'success'
+}
+
+function getSegmentTone(index) {
+  return ['primary', 'warning', 'success', 'notice', 'muted'][index % 5]
+}
+
+function isFocusSegment(segment) {
+  const focusLabel = riskRows.value[0]?.condition_label || riskSeries.value.find((row) => row.condition_label)?.condition_label
+  return Boolean(focusLabel && segment?.label === focusLabel)
 }
 
 function formatPersistStatus(status) {
@@ -680,6 +1050,140 @@ function formatAlertCreateState(result) {
   gap: var(--space-4);
 }
 
+.prediction-status-panel {
+  border-color: rgba(37, 99, 235, 0.18);
+}
+
+.prediction-progress-card {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+
+.prediction-progress-card__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.prediction-progress-card__main strong {
+  color: var(--color-primary);
+  font-size: var(--font-size-base);
+}
+
+.prediction-progress-card__main span {
+  color: var(--color-text-primary);
+  font-weight: 820;
+}
+
+.prediction-progress-card__main small {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-weight: 680;
+}
+
+.prediction-progress-bar {
+  grid-column: 1 / -1;
+  height: 9px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: #e5eaf3;
+}
+
+.prediction-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb 0%, #22c55e 100%);
+  transition: width 0.35s ease;
+}
+
+.prediction-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.prediction-step {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.prediction-step span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: #fff;
+  font-weight: 820;
+}
+
+.prediction-step strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.prediction-step small {
+  font-size: var(--font-size-xs);
+}
+
+.prediction-step--done span {
+  border-color: var(--color-success-border);
+  background: var(--color-success);
+  color: #fff;
+}
+
+.prediction-step--active span {
+  border-color: rgba(37, 99, 235, 0.26);
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12);
+}
+
+.prediction-step--active small {
+  color: var(--color-primary);
+  font-weight: 760;
+}
+
+.prediction-result-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.monitor-tabs {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+
+.monitor-tab {
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.monitor-tab--active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
 .condition-list {
   display: grid;
   gap: var(--space-3);
@@ -703,6 +1207,111 @@ function formatAlertCreateState(result) {
 .condition-item span,
 .condition-item small {
   color: var(--color-text-secondary);
+}
+
+.condition-timeline {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.condition-timeline__bar {
+  display: flex;
+  min-height: 46px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+
+.condition-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  padding: 0 var(--space-3);
+  border-right: 1px solid rgba(255, 255, 255, 0.86);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 820;
+  text-align: center;
+}
+
+.condition-segment:last-child {
+  border-right: 0;
+}
+
+.condition-segment--primary {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.condition-segment--warning {
+  background: rgba(217, 119, 6, 0.18);
+}
+
+.condition-segment--success {
+  background: rgba(22, 163, 74, 0.17);
+}
+
+.condition-segment--notice {
+  background: rgba(14, 165, 233, 0.14);
+}
+
+.condition-segment--muted {
+  background: var(--color-neutral-soft);
+}
+
+.condition-segment--active {
+  background: rgba(249, 115, 22, 0.86);
+  color: #fff;
+}
+
+.condition-timeline__legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.condition-timeline__legend article {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.condition-timeline__legend strong,
+.condition-timeline__legend small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.condition-timeline__legend small {
+  color: var(--color-text-muted);
+}
+
+.condition-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.condition-dot--warning {
+  background: var(--color-warning);
+}
+
+.condition-dot--success {
+  background: var(--color-success);
+}
+
+.condition-dot--notice {
+  background: #0ea5e9;
+}
+
+.condition-dot--muted {
+  background: var(--color-text-muted);
 }
 
 .alert-result-card {
@@ -741,6 +1350,10 @@ function formatAlertCreateState(result) {
   margin: 0;
   color: var(--color-text-primary);
   font-weight: 760;
+}
+
+.alert-diagnosis-link {
+  justify-self: start;
 }
 
 .detail-table-wrapper {
@@ -805,16 +1418,210 @@ function formatAlertCreateState(result) {
   color: #15803d;
 }
 
+.record-tag--primary {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--color-primary);
+}
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(3px);
+}
+
+.modal-card {
+  width: min(620px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+  padding: 44px 48px 36px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.22);
+  text-align: center;
+}
+
+.modal-card h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 1.6rem;
+}
+
+.modal-card p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+
+.loading-ring {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: 8px solid rgba(34, 197, 94, 0.14);
+  border-top-color: #22c55e;
+  animation: prediction-spin 1s linear infinite;
+}
+
+@keyframes prediction-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.modal-progress {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.modal-progress .prediction-progress-bar {
+  grid-column: auto;
+}
+
+.modal-progress strong {
+  color: var(--color-success);
+  font-weight: 820;
+}
+
+.prediction-modal-stage,
+.prediction-modal-elapsed {
+  color: var(--color-text-secondary);
+  font-weight: 700;
+}
+
+.prediction-stepper--modal {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.modal-disabled-button {
+  margin-top: var(--space-2);
+  min-width: 138px;
+}
+
+.alert-confirm-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.alert-confirm-grid div {
+  display: grid;
+  gap: 5px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+}
+
+.alert-confirm-grid dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 760;
+}
+
+.alert-confirm-grid dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-weight: 820;
+}
+
+.alert-modal-error {
+  width: 100%;
+  margin: 0;
+  text-align: left;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.modal-actions .primary-button,
+.modal-actions .secondary-button {
+  min-width: 142px;
+}
+
+.alert-success-card {
+  position: relative;
+  width: min(560px, 100%);
+}
+
+.modal-close-button {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 1.7rem;
+  cursor: pointer;
+}
+
+.success-check {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  border: 8px solid rgba(34, 197, 94, 0.18);
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.success-check::after {
+  position: absolute;
+  left: 31px;
+  top: 34px;
+  width: 44px;
+  height: 24px;
+  border-left: 8px solid #22a75a;
+  border-bottom: 8px solid #22a75a;
+  transform: rotate(-45deg);
+  content: "";
+}
+
+.alert-success-id {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+}
+
+.alert-success-id strong {
+  color: var(--color-primary);
+}
+
 @media (max-width: 1080px) {
   .detail-chart-grid,
   .detail-grid,
   .run-record-summary-grid,
-  .risk-result-summary {
+  .risk-result-summary,
+  .prediction-result-summary,
+  .prediction-stepper,
+  .condition-timeline__legend,
+  .alert-confirm-grid {
     grid-template-columns: 1fr;
   }
 
   .condition-item {
     grid-template-columns: 1fr;
+  }
+
+  .modal-card {
+    padding: 34px 24px 28px;
   }
 }
 </style>

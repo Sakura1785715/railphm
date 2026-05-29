@@ -23,6 +23,13 @@ def get_alert_detail(alert_id):
     data = AlertService.get_alert_detail(alert_id)
     return success_response(data=data)
 
+@alert_bp.route('/<int:alert_id>/diagnosis', methods=['GET'])
+def get_alert_diagnosis(alert_id):
+    """获取单条告警研判详情"""
+    context_seconds = request.args.get('context_seconds')
+    data = AlertService.get_alert_diagnosis(alert_id, context_seconds=context_seconds)
+    return success_response(data=data)
+
 @alert_bp.route('/<int:alert_id>/status', methods=['PATCH'])
 @require_roles("OPS", "ADMIN")
 def update_alert_status(alert_id):

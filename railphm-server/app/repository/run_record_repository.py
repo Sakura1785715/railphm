@@ -164,6 +164,62 @@ class RunRecordRepository:
         }
 
     @classmethod
+    def count_summary(cls, filters: Dict[str, Any]) -> Dict[str, Any]:
+        """按运行记录列表同一筛选条件统计全量摘要。"""
+        where_sql, params = cls._build_list_where(filters)
+
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) AS total_record_count,
+                        COALESCE(SUM(
+                            CASE
+                                WHEN LOWER(COALESCE(status, '')) IN ('inferred', 'alerted')
+                                  OR max_risk_result_id IS NOT NULL
+                                THEN 1 ELSE 0
+                            END
+                        ), 0) AS inferred_count,
+                        COALESCE(SUM(
+                            CASE
+                                WHEN LOWER(COALESCE(max_alert_level, '')) IN (
+                                    'low',
+                                    'attention',
+                                    'medium',
+                                    'warning',
+                                    'warn',
+                                    'high',
+                                    'critical'
+                                )
+                                THEN 1 ELSE 0
+                            END
+                        ), 0) AS risk_segment_count,
+                        COALESCE(SUM(
+                            CASE
+                                WHEN LOWER(COALESCE(status, '')) = 'alerted'
+                                  OR alert_id IS NOT NULL
+                                THEN 1 ELSE 0
+                            END
+                        ), 0) AS official_alert_count
+                    FROM phm_run_record
+                    {where_sql}
+                    """,
+                    params,
+                )
+                summary = cursor.fetchone() or {}
+        finally:
+            connection.close()
+
+        return {
+            "total_record_count": int(summary.get("total_record_count") or 0),
+            "inferred_count": int(summary.get("inferred_count") or 0),
+            "risk_segment_count": int(summary.get("risk_segment_count") or 0),
+            "official_alert_count": int(summary.get("official_alert_count") or 0),
+        }
+
+    @classmethod
     def get_by_id(cls, run_record_id: int) -> Optional[Dict[str, Any]]:
         connection = get_connection()
         try:

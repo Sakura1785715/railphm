@@ -229,6 +229,32 @@ class PredictionRepository:
         return cls._normalize_risk_record(record) if record else None
 
     @classmethod
+    def query_history_by_run_record_id(cls, run_record_id: int) -> List[Dict[str, Any]]:
+        """查询同一运行记录下的全部风险预测结果，按窗口时间升序返回。"""
+        normalized_run_record_id = cls._normalize_optional_int(run_record_id)
+        if normalized_run_record_id is None:
+            return []
+
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {cls._RISK_RESULT_SELECT_FIELDS}
+                    FROM phm_risk_result
+                    WHERE run_record_id = %s
+                    ORDER BY COALESCE(window_end_time, ts_end, created_at) ASC,
+                             risk_result_id ASC
+                    """,
+                    (normalized_run_record_id,),
+                )
+                records = cursor.fetchall()
+        finally:
+            connection.close()
+
+        return [cls._normalize_risk_record(record) for record in records]
+
+    @classmethod
     def get_existing_by_device_window(
         cls,
         device_value: Any,

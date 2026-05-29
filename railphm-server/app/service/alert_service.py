@@ -1,7 +1,7 @@
 # app/service/alert_service.py
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 
 from app.core.errors import BusinessException
 from app.core.risk_rules import (
@@ -26,6 +26,9 @@ from app.core.risk_rules import (
     RISK_THRESHOLD_WARNING,
 )
 from app.repository.alert_repository import AlertRepository
+from app.repository.monitor_repository import MonitorRepository
+from app.repository.prediction_repository import PredictionRepository
+from app.repository.run_record_repository import RunRecordRepository
 from app.schema.alert_schema import AlertSchema
 
 
@@ -543,6 +546,414 @@ class AlertService:
         if not record:
             raise BusinessException(code=404, message=f"未找到告警ID为 {alert_id} 的告警记录", status_code=404)
         return AlertSchema.dump_detail(record)
+
+    @staticmethod
+    def get_alert_diagnosis(alert_id: int, context_seconds: Any = None) -> Dict[str, Any]:
+        context = AlertService._parse_context_seconds(context_seconds)
+        alert = AlertRepository.get_alert_by_id(alert_id)
+        if not alert:
+            raise BusinessException(code=404, message=f"未找到告警ID为 {alert_id} 的告警记录", status_code=404)
+
+        representative_risk = AlertService._get_representative_risk(alert)
+        run_record = AlertService._get_related_run_record(alert, representative_risk)
+        event_time = AlertService._resolve_event_time(alert, representative_risk)
+        context_start, context_end = AlertService._build_context_window(
+            event_time=event_time,
+            context_seconds=context,
+            run_record=run_record,
+        )
+
+        risk_records = AlertService._query_risk_records(
+            alert=alert,
+            representative_risk=representative_risk,
+            run_record=run_record,
+            context_start=context_start,
+            context_end=context_end,
+        )
+        risk_records = AlertService._dedupe_risk_records_by_time(risk_records)
+        monitor_series = AlertService._query_monitor_series(
+            alert=alert,
+            representative_risk=representative_risk,
+            run_record=run_record,
+            context_start=context_start,
+            context_end=context_end,
+        )
+        risk_series = AlertService._build_risk_series(risk_records)
+        health_series = AlertService._build_health_series(risk_records)
+        condition_segments = AlertService._build_condition_segments(monitor_series)
+        if not condition_segments:
+            condition_segments = AlertService._build_condition_segments(risk_series)
+        diagnosis_summary = AlertService._build_diagnosis_summary(
+            event_time=event_time,
+            context_start=context_start,
+            context_end=context_end,
+            monitor_series=monitor_series,
+            risk_records=risk_records,
+            representative_risk=representative_risk,
+            run_record=run_record,
+        )
+
+        return AlertSchema.dump_diagnosis(
+            {
+                "alert": alert,
+                "run_record": run_record,
+                "representative_risk": representative_risk,
+                "monitor_series": monitor_series,
+                "risk_series": risk_series,
+                "health_series": health_series,
+                "condition_segments": condition_segments,
+                "diagnosis_summary": diagnosis_summary,
+            }
+        )
+
+    @staticmethod
+    def _parse_context_seconds(value: Any) -> int:
+        if value is None or value == "":
+            return 120
+        if isinstance(value, bool):
+            raise BusinessException(code=400, message="context_seconds 必须为正整数", status_code=400)
+        try:
+            context_seconds = int(value)
+        except (TypeError, ValueError) as exc:
+            raise BusinessException(code=400, message="context_seconds 必须为正整数", status_code=400) from exc
+        if context_seconds <= 0:
+            raise BusinessException(code=400, message="context_seconds 必须为正整数", status_code=400)
+        return min(context_seconds, 1800)
+
+    @staticmethod
+    def _get_representative_risk(alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        risk_result_id = AlertService._safe_int(alert.get("risk_result_id"))
+        if risk_result_id is None:
+            return None
+        return PredictionRepository.get_by_id(risk_result_id)
+
+    @staticmethod
+    def _get_related_run_record(
+        alert: Dict[str, Any],
+        representative_risk: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        run_record_id = AlertService._safe_int(alert.get("run_record_id"))
+        if run_record_id is None and representative_risk:
+            run_record_id = AlertService._safe_int(representative_risk.get("run_record_id"))
+        if run_record_id is None:
+            return None
+        return RunRecordRepository.get_by_id(run_record_id)
+
+    @staticmethod
+    def _resolve_event_time(
+        alert: Dict[str, Any],
+        representative_risk: Optional[Dict[str, Any]],
+    ) -> Optional[datetime]:
+        for value in (
+            (representative_risk or {}).get("window_end_time"),
+            (representative_risk or {}).get("ts_end"),
+            alert.get("target_time"),
+            alert.get("alert_time"),
+            alert.get("create_time"),
+        ):
+            parsed_value = AlertService._parse_datetime(value)
+            if parsed_value:
+                return parsed_value
+        return None
+
+    @staticmethod
+    def _build_context_window(
+        event_time: Optional[datetime],
+        context_seconds: int,
+        run_record: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Optional[datetime], Optional[datetime]]:
+        if run_record:
+            start_dt = AlertService._parse_datetime(run_record.get("record_start_time"))
+            end_dt = AlertService._parse_datetime(run_record.get("record_end_time"))
+            if start_dt and end_dt and end_dt >= start_dt:
+                return start_dt, end_dt
+        if not event_time:
+            return None, None
+        return (
+            event_time - timedelta(seconds=context_seconds),
+            event_time + timedelta(seconds=context_seconds),
+        )
+
+    @staticmethod
+    def _query_risk_records(
+        alert: Dict[str, Any],
+        representative_risk: Optional[Dict[str, Any]],
+        run_record: Optional[Dict[str, Any]],
+        context_start: Optional[datetime],
+        context_end: Optional[datetime],
+    ) -> List[Dict[str, Any]]:
+        run_record_id = AlertService._safe_int((run_record or {}).get("run_record_id"))
+        if run_record_id is not None:
+            return PredictionRepository.query_history_by_run_record_id(run_record_id)
+
+        if not context_start or not context_end:
+            return []
+
+        device_value = (
+            alert.get("device_code")
+            or (representative_risk or {}).get("device_code")
+            or alert.get("device_id")
+        )
+        if not device_value:
+            return []
+        return PredictionRepository.query_history_by_device_and_range(
+            device_value,
+            context_start,
+            context_end,
+        )
+
+    @staticmethod
+    def _dedupe_risk_records_by_time(risk_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        keyed_records: Dict[str, Dict[str, Any]] = {}
+        no_time_records: List[Dict[str, Any]] = []
+
+        for record in risk_records or []:
+            record_time = AlertService._get_record_time(record)
+            if not record_time:
+                no_time_records.append(record)
+                continue
+
+            time_key = AlertService._format_datetime(record_time)
+            existing_record = keyed_records.get(time_key)
+            if existing_record is None or AlertService._should_replace_duplicate_risk_record(
+                existing_record,
+                record,
+            ):
+                keyed_records[time_key] = record
+
+        deduped_records = sorted(
+            keyed_records.values(),
+            key=lambda record: AlertService._get_record_time(record) or datetime.max,
+        )
+        return [*deduped_records, *no_time_records]
+
+    @staticmethod
+    def _should_replace_duplicate_risk_record(
+        existing_record: Dict[str, Any],
+        candidate_record: Dict[str, Any],
+    ) -> bool:
+        existing_id = AlertService._safe_int(existing_record.get("risk_result_id"))
+        candidate_id = AlertService._safe_int(candidate_record.get("risk_result_id"))
+        if existing_id is None and candidate_id is None:
+            return True
+        if existing_id is None:
+            return True
+        if candidate_id is None:
+            return False
+        return candidate_id > existing_id
+
+    @staticmethod
+    def _query_monitor_series(
+        alert: Dict[str, Any],
+        representative_risk: Optional[Dict[str, Any]],
+        run_record: Optional[Dict[str, Any]],
+        context_start: Optional[datetime],
+        context_end: Optional[datetime],
+    ) -> List[Dict[str, Any]]:
+        try:
+            if run_record:
+                device_code = AlertService._clean_text(run_record.get("device_code"))
+                source_segment = AlertService._clean_text(run_record.get("source_segment"))
+                start_dt = AlertService._parse_datetime(run_record.get("record_start_time"))
+                end_dt = AlertService._parse_datetime(run_record.get("record_end_time"))
+                if device_code and source_segment and start_dt and end_dt:
+                    return MonitorRepository.query_history_by_device_and_segment(
+                        device_code=device_code,
+                        source_segment=source_segment,
+                        start_time=start_dt,
+                        end_time=end_dt + timedelta(seconds=1),
+                        limit=20000,
+                        fields=list(MonitorRepository.FIELD_COLUMNS),
+                    )
+
+            device_code = AlertService._clean_text(
+                alert.get("device_code") or (representative_risk or {}).get("device_code")
+            )
+            if not device_code or not context_start or not context_end:
+                return []
+            return MonitorRepository.query_history_by_device_and_range(
+                device_code=device_code,
+                start_dt=context_start,
+                end_dt=context_end,
+                fields=list(MonitorRepository.FIELD_COLUMNS),
+                limit=20000,
+            )
+        except Exception:
+            return []
+
+    @staticmethod
+    def _build_risk_series(risk_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        series = []
+        for record in risk_records or []:
+            series.append(
+                {
+                    "time": AlertService._format_datetime(AlertService._get_record_time(record)),
+                    "risk_result_id": record.get("risk_result_id"),
+                    "risk_score": AlertService._safe_float(record.get("risk_score")),
+                    "risk_raw": AlertService._safe_float(record.get("risk_raw")),
+                    "risk_std": AlertService._safe_float(record.get("risk_std")),
+                    "threshold": AlertService._safe_float(record.get("threshold")),
+                    "predicted_label": record.get("predicted_label"),
+                    "condition_label": record.get("condition_label"),
+                    "health_score": AlertService._safe_float(record.get("health_score")),
+                    "health_level": record.get("health_level"),
+                    "health_status": record.get("health_status"),
+                    "window_start_time": record.get("window_start_time"),
+                    "window_end_time": record.get("window_end_time"),
+                    "ts_end": record.get("ts_end"),
+                }
+            )
+        return series
+
+    @staticmethod
+    def _build_health_series(risk_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        series = []
+        for record in risk_records or []:
+            series.append(
+                {
+                    "time": AlertService._format_datetime(AlertService._get_record_time(record)),
+                    "risk_result_id": record.get("risk_result_id"),
+                    "health_score": AlertService._safe_float(record.get("health_score")),
+                    "health_level": record.get("health_level"),
+                    "health_status": record.get("health_status"),
+                    "health_description": record.get("health_description"),
+                    "risk_score": AlertService._safe_float(record.get("risk_score")),
+                    "condition_label": record.get("condition_label"),
+                }
+            )
+        return series
+
+    @staticmethod
+    def _build_condition_segments(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        points = []
+        for row in rows or []:
+            label = AlertService._clean_text(row.get("condition_label"))
+            if not label:
+                continue
+            point_time = AlertService._get_series_time(row)
+            if not point_time:
+                continue
+            points.append({"label": label, "time": point_time})
+
+        points.sort(key=lambda item: item["time"])
+        segments: List[Dict[str, Any]] = []
+        for point in points:
+            if not segments or segments[-1]["label"] != point["label"]:
+                segments.append(
+                    {
+                        "label": point["label"],
+                        "start_time": AlertService._format_datetime(point["time"]),
+                        "end_time": AlertService._format_datetime(point["time"]),
+                        "point_count": 1,
+                    }
+                )
+                continue
+            segments[-1]["end_time"] = AlertService._format_datetime(point["time"])
+            segments[-1]["point_count"] += 1
+        return segments
+
+    @staticmethod
+    def _build_diagnosis_summary(
+        event_time: Optional[datetime],
+        context_start: Optional[datetime],
+        context_end: Optional[datetime],
+        monitor_series: List[Dict[str, Any]],
+        risk_records: List[Dict[str, Any]],
+        representative_risk: Optional[Dict[str, Any]],
+        run_record: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        risk_scores = [
+            AlertService._safe_float(record.get("risk_score"))
+            for record in risk_records or []
+            if AlertService._safe_float(record.get("risk_score")) is not None
+        ]
+        health_scores = [
+            AlertService._safe_float(record.get("health_score"))
+            for record in risk_records or []
+            if AlertService._safe_float(record.get("health_score")) is not None
+        ]
+        max_risk_score = max(risk_scores) if risk_scores else None
+        min_health_score = min(health_scores) if health_scores else None
+
+        evidence_parts = []
+        if max_risk_score is not None and max_risk_score >= RISK_THRESHOLD_CRITICAL:
+            evidence_parts.append("告警窗口内风险分数处于较高水平，建议结合制动速度、速度变化和工况状态进行复核。")
+        if min_health_score is not None and min_health_score <= 60:
+            evidence_parts.append("告警窗口内健康度下降明显，建议关注设备状态变化。")
+        if monitor_series:
+            evidence_parts.append("已关联告警前后运行监测数据，可用于检修研判。")
+        else:
+            evidence_parts.append("当前告警缺少可关联监测数据，建议检查运行记录或 InfluxDB 数据同步情况。")
+
+        return {
+            "event_time": AlertService._format_datetime(event_time),
+            "context_start_time": AlertService._format_datetime(context_start),
+            "context_end_time": AlertService._format_datetime(context_end),
+            "monitor_point_count": len(monitor_series or []),
+            "risk_point_count": len(risk_records or []),
+            "max_risk_score": max_risk_score,
+            "min_health_score": min_health_score,
+            "representative_risk_result_id": (representative_risk or {}).get("risk_result_id"),
+            "run_record_id": AlertService._resolve_summary_run_record_id(
+                run_record,
+                representative_risk,
+            ),
+            "source_segment": AlertService._resolve_summary_source_segment(
+                run_record,
+                representative_risk,
+                monitor_series,
+            ),
+            "evidence_text": "".join(evidence_parts),
+        }
+
+    @staticmethod
+    def _resolve_summary_run_record_id(
+        run_record: Optional[Dict[str, Any]],
+        representative_risk: Optional[Dict[str, Any]],
+    ) -> Any:
+        return (run_record or {}).get("run_record_id") or (representative_risk or {}).get("run_record_id")
+
+    @staticmethod
+    def _resolve_summary_source_segment(
+        run_record: Optional[Dict[str, Any]],
+        representative_risk: Optional[Dict[str, Any]],
+        monitor_series: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        first_monitor = monitor_series[0] if monitor_series and isinstance(monitor_series[0], dict) else {}
+        for value in (
+            (run_record or {}).get("source_segment"),
+            (representative_risk or {}).get("segment_id"),
+            (representative_risk or {}).get("segment_file"),
+            first_monitor.get("source_segment"),
+        ):
+            text = AlertService._clean_text(value)
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _get_series_time(row: Dict[str, Any]) -> Optional[datetime]:
+        for field in ("sample_time", "time", "window_end_time", "ts_end", "created_at"):
+            parsed_value = AlertService._parse_datetime(row.get(field))
+            if parsed_value:
+                return parsed_value
+        return None
+
+    @staticmethod
+    def _safe_int(value: Any) -> Optional[int]:
+        if value is None or value == "" or isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _clean_text(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @staticmethod
     def update_alert_status(alert_id: int, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
