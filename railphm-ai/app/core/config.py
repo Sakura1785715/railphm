@@ -19,10 +19,10 @@ class BaseConfig:
     APP_PORT: int = int(os.getenv("APP_PORT", "5001"))
     SECRET_KEY: str = os.getenv("SECRET_KEY", "railphm-ai-dev-secret")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    MODEL_VERSION: str = os.getenv("MODEL_VERSION", "bilstm_attention_h1_synthetic_v3")
+    MODEL_VERSION: str = os.getenv("MODEL_VERSION", "bilstm_attention_h1_synthetic_v3_rule_anchor")
     AI_MODEL_DIR: str = os.getenv(
         "RAILPHM_AI_MODEL_DIR",
-        "outputs/sequence_models/bilstm_attention_h1_synthetic_v3",
+        "outputs/sequence_models/bilstm_attention_h1_synthetic_v3_rule_anchor",
     )
     AI_DATASET_DIR: str = os.getenv(
         "RAILPHM_AI_DATASET_DIR",

@@ -102,8 +102,9 @@ def test_range_infer_builds_online_windows_and_uses_feature_processor(client, mo
     assert first_result["risk_score"] == 0.28
     assert first_result["trace"]["feature_adapter"] == "monitor_rows_to_feature_processor"
     assert first_result["trace"]["scaler_applied"] is True
-    assert first_result["trace"]["scaler_mode"] == "partial"
-    assert "condition_0" in first_result["trace"]["missing_feature_columns"]
+    assert first_result["trace"]["scaler_mode"] == "full"
+    assert first_result["trace"]["rule_condition_status"] == "evaluated"
+    assert first_result["trace"]["final_condition_source"] in {"rule_anchor", "kmeans"}
 
 
 def test_range_infer_skips_insufficient_window(client, monkeypatch):

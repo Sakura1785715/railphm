@@ -401,8 +401,10 @@ import {
   formatPercent,
   toFiniteNumber
 } from '../utils/formatters'
+import { DEFAULT_EMA_ALPHA, applyEmaToPoints } from '../utils/seriesSmoothing'
 
 const DEFAULT_INFERENCE_STRIDE_SECONDS = 1
+const RISK_TREND_EMA_ALPHA = DEFAULT_EMA_ALPHA
 
 const route = useRoute()
 const router = useRouter()
@@ -522,24 +524,37 @@ const healthSeries = computed(() => {
     })
     .filter(Boolean)
 })
-const riskTrendPoints = computed(() =>
-  riskSeries.value
-    .map((point) => ({
-      time: point.time || point.window_end_time,
-      value: toNumberOrNull(point.risk_score)
-    }))
-    .filter((point) => point.time && point.value !== null)
+const riskTrendSourceRows = computed(() =>
+  riskSeries.value.filter((point) => {
+    const time = point.time || point.window_end_time
+    return time && toNumberOrNull(point.risk_score) !== null
+  })
 )
-const healthTrendPoints = computed(() =>
-  healthSeries.value
-    .map((point) => ({
-      time: point.time || point.window_end_time,
-      value: toNumberOrNull(point.health_score)
-    }))
-    .filter((point) => point.time && point.value !== null)
+const rawRiskTrendPoints = computed(() =>
+  riskTrendSourceRows.value.map((point) => ({
+    time: point.time || point.window_end_time,
+    value: toNumberOrNull(point.risk_score)
+  }))
 )
+// EMA smoothing is only used for visualization.
+// Raw risk_score and health_score are still used for alert rules, tables and persisted records.
+const riskTrendPoints = computed(() => applyEmaToPoints(rawRiskTrendPoints.value, { alpha: RISK_TREND_EMA_ALPHA }))
+const healthTrendSourceRows = computed(() =>
+  healthSeries.value.filter((point) => {
+    const time = point.time || point.window_end_time
+    return time && toNumberOrNull(point.health_score) !== null
+  })
+)
+const rawHealthTrendPoints = computed(() =>
+  healthTrendSourceRows.value.map((point) => ({
+    time: point.time || point.window_end_time,
+    value: toNumberOrNull(point.health_score)
+  }))
+)
+const healthTrendPoints = computed(() => applyEmaToPoints(rawHealthTrendPoints.value, { alpha: RISK_TREND_EMA_ALPHA }))
 const riskTooltipDetails = computed(() =>
-  riskSeries.value.map((point) => [
+  riskTrendSourceRows.value.map((point) => [
+    { label: '风险原始值', value: formatPercent(point.risk_score, 2, '--') },
     { label: '窗口结束', value: formatDateTime(point.window_end_time || point.time, '--') },
     { label: '风险波动', value: formatPercent(point.risk_std, 2, '--') },
     { label: '工况', value: displayText(point.condition_label, '--') },
@@ -547,7 +562,8 @@ const riskTooltipDetails = computed(() =>
   ])
 )
 const healthTooltipDetails = computed(() =>
-  healthSeries.value.map((point) => [
+  healthTrendSourceRows.value.map((point) => [
+    { label: '健康度原始值', value: formatHealthScore(point.health_score, 2, '--') },
     { label: '健康等级', value: displayText(point.health_level || point.health_status, '--') },
     { label: 'source_segment', value: displayText(point.source_segment, '--') }
   ])

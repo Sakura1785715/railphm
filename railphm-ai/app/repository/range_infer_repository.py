@@ -113,6 +113,7 @@ class RangeInferRepository:
                 scaled_base_window,
                 base_feature_columns=base_feature_columns,
                 condition_columns=condition_columns,
+                raw_base_window=feature_matrix,
             )
             condition_one_hot = condition_info["condition_one_hot"]
             condition_matrix = np.repeat(
@@ -153,7 +154,8 @@ class RangeInferRepository:
                 "inference_stride_seconds": payload["inference_stride_seconds"],
                 "raw_window_points": len(window_rows),
                 "window_selection_method": "latest_n_points_before_prediction_time",
-                "feature_adapter": "monitor_rows_to_base_feature_processor",
+                "feature_adapter": "monitor_rows_to_feature_processor",
+                "feature_adapter_detail": "monitor_rows_to_base_feature_processor",
                 "base_feature_columns": base_feature_columns,
                 "condition_columns": condition_columns,
                 "missing_feature_columns": feature_result.missing_feature_columns,

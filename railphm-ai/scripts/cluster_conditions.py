@@ -115,6 +115,7 @@ def save_json(path: Path, data: Any) -> None:
 
 # 读取工况聚类需要的全部输入
 def load_dataset_inputs(dataset_dir: Path) -> dict[str, Any]:
+    scaler_summary_path = dataset_dir / "scaler_summary.json"
     return {
         "X": np.load(dataset_dir / "X.npy", allow_pickle=False),
         "y": np.load(dataset_dir / "y.npy", allow_pickle=False),
@@ -123,7 +124,68 @@ def load_dataset_inputs(dataset_dir: Path) -> dict[str, Any]:
         "train_indices": np.load(dataset_dir / "splits" / "train_indices.npy", allow_pickle=False),
         "val_indices": np.load(dataset_dir / "splits" / "val_indices.npy", allow_pickle=False),
         "test_indices": np.load(dataset_dir / "splits" / "test_indices.npy", allow_pickle=False),
+        "scaler_summary": load_json(scaler_summary_path) if scaler_summary_path.exists() else None,
     }
+
+
+def restore_raw_feature_scale_if_possible(
+    X: np.ndarray,
+    feature_columns: list[str],
+    scaler_summary: dict[str, Any] | None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """
+    cluster_conditions 常在 scaled_window 数据集上运行。
+    若存在 scaler_summary.json，则把基础特征原地还原为训练前物理尺度。
+    """
+    trace = {
+        "raw_feature_source": "X.npy",
+        "scaler_summary_applied": False,
+        "restored_feature_columns": [],
+        "missing_scaler_feature_columns": [],
+    }
+    if not isinstance(scaler_summary, dict):
+        return X, trace
+
+    scaler_columns = scaler_summary.get("feature_columns")
+    mean = scaler_summary.get("mean")
+    safe_std = scaler_summary.get("safe_std")
+    if not isinstance(scaler_columns, list) or not isinstance(mean, list) or not isinstance(safe_std, list):
+        trace["raw_feature_source"] = "X.npy_scaler_summary_invalid"
+        return X, trace
+    if len(scaler_columns) != len(mean) or len(scaler_columns) != len(safe_std):
+        trace["raw_feature_source"] = "X.npy_scaler_summary_invalid"
+        return X, trace
+
+    column_index = {column: index for index, column in enumerate(feature_columns)}
+    mean_array = np.asarray(mean, dtype=np.float32)
+    safe_std_array = np.asarray(safe_std, dtype=np.float32)
+    if not np.isfinite(mean_array).all() or not np.isfinite(safe_std_array).all() or (safe_std_array == 0).any():
+        trace["raw_feature_source"] = "X.npy_scaler_summary_invalid"
+        return X, trace
+
+    restored_columns: list[str] = []
+    missing_columns: list[str] = []
+    raw_X = X.astype(np.float32, copy=False)
+    for scaler_index, column in enumerate(scaler_columns):
+        feature_index = column_index.get(column)
+        if feature_index is None:
+            missing_columns.append(column)
+            continue
+        raw_X[:, :, feature_index] = (
+            raw_X[:, :, feature_index] * safe_std_array[scaler_index] + mean_array[scaler_index]
+        ).astype(np.float32, copy=False)
+        restored_columns.append(column)
+
+    if restored_columns:
+        trace.update(
+            {
+                "raw_feature_source": "X.npy_restored_from_scaler_summary",
+                "scaler_summary_applied": True,
+                "restored_feature_columns": restored_columns,
+                "missing_scaler_feature_columns": missing_columns,
+            }
+        )
+    return raw_X, trace
 
 
 def validate_loaded_inputs(
@@ -243,6 +305,7 @@ def build_enriched_summary(
     condition_feature_names: list[str],
     cluster_summary: dict,
     warnings: list[str],
+    raw_feature_trace: dict[str, Any],
 ) -> dict[str, Any]:
     n_clusters = int(config.n_clusters)
 
@@ -264,19 +327,25 @@ def build_enriched_summary(
         "seed": int(config.seed),
         "max_iter": int(config.max_iter),
         "n_init": int(config.n_init),
-        "fit_scope": "train_split_only",
+        "fit_scope": cluster_summary.get("fit_scope", "train_split_only"),
         "sample_count": int(condition_ids.shape[0]),
         "train_sample_count": int(train_indices.shape[0]),
+        "stable_train_sample_count": cluster_summary.get("stable_train_sample_count"),
         "val_sample_count": int(val_indices.shape[0]),
         "test_sample_count": int(test_indices.shape[0]),
         "feature_names": list(feature_columns),
         "condition_feature_names": list(condition_feature_names),
+        "cluster_feature_names": cluster_summary.get("cluster_feature_names", []),
+        "feature_weights": cluster_summary.get("feature_weights", {}),
         "condition_label_mapping": cluster_summary.get("condition_label_mapping", {}),
         "cluster_sample_count": cluster_summary.get("cluster_sample_count", {}),
+        "kmeans_cluster_sample_count": cluster_summary.get("kmeans_cluster_sample_count", {}),
         "cluster_train_sample_count": cluster_summary.get("cluster_train_sample_count", {}),
         "cluster_positive_ratio": cluster_positive_ratio,
         "cluster_split_distribution": cluster_split_distribution,
         "cluster_feature_summary": cluster_summary.get("cluster_feature_summary", {}),
+        "anchor_summary": cluster_summary.get("anchor_summary", {}),
+        "raw_feature_trace": raw_feature_trace,
         "warnings": warnings,
     }
 
@@ -339,11 +408,27 @@ def build_model_info(
             "max_iter": int(config.max_iter),
             "n_init": int(config.n_init),
             "auto_label": bool(config.auto_label),
+            "stable_fit_enabled": bool(config.stable_fit_enabled),
+            "stable_filter_quantile": float(config.stable_filter_quantile),
+            "rule_anchor_enabled": bool(config.rule_anchor_enabled),
         },
         "condition_feature_names": list(condition_feature_names),
+        "cluster_feature_names": list(cluster_result.cluster_feature_names or cluster_result.feature_names),
+        "feature_weights": dict(cluster_result.feature_weights or {}),
         "condition_label_mapping": dict(cluster_result.condition_label_mapping),
         "cluster_centers": cluster_result.cluster_centers,
         "cluster_centers_original_scale": cluster_result.cluster_centers_original_scale,
+        "condition_feature_scaler": cluster_result.condition_feature_scaler,
+        "kmeans": cluster_result.kmeans_model,
+        "kmeans_model": cluster_result.kmeans_model,
+        "condition_model": cluster_result.kmeans_model,
+        "stable_train_indices": cluster_result.stable_train_indices,
+        "anchor_summary": cluster_result.anchor_summary,
+        "rule_condition_config": {
+            "enabled": bool(config.rule_anchor_enabled),
+            "labels": ["出站加速", "高速巡航", "进站减速"],
+            "source": "raw_base_window",
+        },
         "summary": condition_summary,
     }
 
@@ -356,8 +441,13 @@ def print_summary(summary: dict, output_dir: Path, verbose: bool = False) -> Non
     print(f"n_clusters: {summary['n_clusters']}")
     print(f"sample_count: {summary['sample_count']}")
     print(f"train_sample_count: {summary['train_sample_count']}")
+    if summary.get("stable_train_sample_count") is not None:
+        print(f"stable_train_sample_count: {summary['stable_train_sample_count']}")
     print(f"val_sample_count: {summary['val_sample_count']}")
     print(f"test_sample_count: {summary['test_sample_count']}")
+    anchor_summary = summary.get("anchor_summary") or {}
+    if anchor_summary:
+        print(f"rule_anchor_status: {anchor_summary.get('status')}")
 
     print()
     print("condition distribution:")
@@ -382,8 +472,8 @@ def print_summary(summary: dict, output_dir: Path, verbose: bool = False) -> Non
         return
 
     print()
-    print("condition_feature_names:")
-    for feature_name in summary["condition_feature_names"]:
+    print("cluster_feature_names:")
+    for feature_name in summary.get("cluster_feature_names") or []:
         print(f"- {feature_name}")
 
     print()
@@ -414,6 +504,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     train_indices = inputs["train_indices"]
     val_indices = inputs["val_indices"]
     test_indices = inputs["test_indices"]
+    scaler_summary = inputs["scaler_summary"]
 
     validate_loaded_inputs(
         X=X,
@@ -425,7 +516,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         test_indices=test_indices,
     )
 
-    feature_result = ConditionFeatureExtractor().extract(X, feature_columns)
+    raw_X, raw_feature_trace = restore_raw_feature_scale_if_possible(
+        X=X,
+        feature_columns=feature_columns,
+        scaler_summary=scaler_summary,
+    )
+
+    feature_result = ConditionFeatureExtractor().extract(raw_X, feature_columns)
 
     config = ConditionClusterConfig(
         n_clusters=args.n_clusters,
@@ -441,6 +538,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         val_indices=val_indices,
         test_indices=test_indices,
         config=config,
+        raw_windows=raw_X,
+        raw_feature_columns=feature_columns,
     )
 
     warnings = list(feature_result.warnings) + list(cluster_result.warnings)
@@ -466,6 +565,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         condition_feature_names=feature_result.feature_names,
         cluster_summary=cluster_result.summary,
         warnings=warnings,
+        raw_feature_trace=raw_feature_trace,
     )
 
     model_info = build_model_info(

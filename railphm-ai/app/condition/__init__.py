@@ -10,6 +10,7 @@ from app.condition.kmeans_cluster import (
     ConditionClusterResult,
     ConditionKMeansClusterer,
 )
+from app.condition.rule_condition import RuleConditionClassifier, RuleConditionResult
 
 __all__ = [
     "ConditionFeatureExtractor",
@@ -17,4 +18,6 @@ __all__ = [
     "ConditionClusterConfig",
     "ConditionClusterResult",
     "ConditionKMeansClusterer",
+    "RuleConditionClassifier",
+    "RuleConditionResult",
 ]
