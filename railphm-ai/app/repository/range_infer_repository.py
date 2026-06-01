@@ -7,6 +7,7 @@ import numpy as np
 
 from flask import current_app
 
+from app.condition.condition_timeline_smoother import ConditionTimelineSmoother
 from app.core.errors import BusinessException
 from app.dataset.feature_processor import FeatureProcessor
 from app.repository.infer_repository import InferRepository
@@ -196,6 +197,11 @@ class RangeInferRepository:
                     "trace": trace,
                 }
             )
+
+        results = ConditionTimelineSmoother(
+            min_confirm_points=5,
+            min_segment_points=5,
+        ).smooth(results)
 
         return {
             "device_id": payload["device_id"],

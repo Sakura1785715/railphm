@@ -779,6 +779,9 @@ class PredictionService:
         existing_trace = existing_record.get("trace")
         if not isinstance(existing_trace, dict):
             existing_trace = {}
+        transient_trace = transient_record.get("trace")
+        if not isinstance(transient_trace, dict):
+            transient_trace = {}
 
         risk_result_id = existing_record.get("risk_result_id")
         risk_score = existing_record.get("risk_score")
@@ -795,9 +798,11 @@ class PredictionService:
 
         trace = {
             **existing_trace,
+            **transient_trace,
             "persist_status": persist_status,
             "risk_result_id": risk_result_id,
             "range_infer_existing_record_reused": True,
+            "existing_condition_label": existing_record.get("condition_label"),
         }
 
         return {
@@ -820,7 +825,7 @@ class PredictionService:
             "health_level": existing_record.get("health_level"),
             "health_status": existing_record.get("health_status"),
             "health_description": existing_record.get("health_description"),
-            "condition_label": existing_record.get("condition_label"),
+            "condition_label": transient_record.get("condition_label") or existing_record.get("condition_label"),
             "window_start_time": window_start_time,
             "window_end_time": window_end_time,
             "ts_end": ts_end,
@@ -944,6 +949,7 @@ class PredictionService:
                 "health_description": record.get("health_description"),
                 "condition_label": record.get("condition_label"),
                 "persist_status": record.get("persist_status"),
+                "trace": record.get("trace") or {},
             }
             risk_series.append(risk_point)
             prediction_records.append(record)

@@ -5,6 +5,7 @@
 """
 
 from app.condition.condition_features import ConditionFeatureExtractor, ConditionFeatureResult
+from app.condition.condition_timeline_smoother import ConditionTimelineSmoother
 from app.condition.kmeans_cluster import (
     ConditionClusterConfig,
     ConditionClusterResult,
@@ -15,6 +16,7 @@ from app.condition.rule_condition import RuleConditionClassifier, RuleConditionR
 __all__ = [
     "ConditionFeatureExtractor",
     "ConditionFeatureResult",
+    "ConditionTimelineSmoother",
     "ConditionClusterConfig",
     "ConditionClusterResult",
     "ConditionKMeansClusterer",

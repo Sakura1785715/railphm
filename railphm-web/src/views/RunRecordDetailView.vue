@@ -205,6 +205,7 @@
               :key="segment.key"
               :class="['condition-segment', `condition-segment--${getSegmentTone(index)}`, { 'condition-segment--active': isFocusSegment(segment) }]"
               :style="{ flexBasis: `${segment.width}%` }"
+              :title="formatConditionSegmentTitle(segment)"
             >
               {{ displayText(segment.label, '--') }}
             </article>
@@ -213,7 +214,10 @@
             <article v-for="(segment, index) in conditionSegments" :key="`${segment.key}-legend`">
               <span :class="['condition-dot', `condition-dot--${getSegmentTone(index)}`]" aria-hidden="true"></span>
               <strong>{{ displayText(segment.label, '--') }}</strong>
-              <small>{{ formatDateTime(segment.start, '--') }} ~ {{ formatDateTime(segment.end, '--') }} / {{ segment.count }} 点</small>
+              <small>
+                {{ formatDateTime(segment.start, '--') }} ~ {{ formatDateTime(segment.end, '--') }} / {{ segment.count }} 点
+                <template v-if="segment.smoothAppliedCount"> / 平滑 {{ segment.smoothAppliedCount }} 点</template>
+              </small>
             </article>
           </div>
         </div>
@@ -558,6 +562,7 @@ const riskTooltipDetails = computed(() =>
     { label: '窗口结束', value: formatDateTime(point.window_end_time || point.time, '--') },
     { label: '风险波动', value: formatPercent(point.risk_std, 2, '--') },
     { label: '工况', value: displayText(point.condition_label, '--') },
+    ...buildConditionTraceDetails(point),
     { label: '持久化', value: formatPersistStatus(point.persist_status) }
   ])
 )
@@ -581,6 +586,9 @@ const conditionSegments = computed(() => {
   conditionSourceRows.value.forEach((row, index) => {
     const label = row.condition_label || '未标注'
     const time = row.time || row.window_end_time || row.sample_time
+    const trace = getConditionTrace(row)
+    const rawLabel = trace.raw_condition_label_before_smooth || label
+    const smoothApplied = Boolean(trace.condition_smooth_applied)
     if (!active || active.label !== label) {
       if (active) {
         segments.push(active)
@@ -590,11 +598,19 @@ const conditionSegments = computed(() => {
         label,
         start: time,
         end: time,
-        count: 1
+        count: 1,
+        smoothAppliedCount: smoothApplied ? 1 : 0,
+        rawLabels: new Set(rawLabel ? [rawLabel] : [])
       }
     } else {
       active.end = time
       active.count += 1
+      if (smoothApplied) {
+        active.smoothAppliedCount += 1
+      }
+      if (rawLabel) {
+        active.rawLabels.add(rawLabel)
+      }
     }
   })
   if (active) segments.push(active)
@@ -602,6 +618,7 @@ const conditionSegments = computed(() => {
   const totalCount = limitedSegments.reduce((sum, segment) => sum + segment.count, 0)
   return limitedSegments.map((segment) => ({
     ...segment,
+    rawLabelsText: Array.from(segment.rawLabels).join(' / '),
     width: totalCount > 0 ? Math.max(8, (segment.count / totalCount) * 100) : 100 / limitedSegments.length
   }))
 })
@@ -1004,6 +1021,54 @@ function getSegmentTone(index) {
 function isFocusSegment(segment) {
   const focusLabel = riskRows.value[0]?.condition_label || riskSeries.value.find((row) => row.condition_label)?.condition_label
   return Boolean(focusLabel && segment?.label === focusLabel)
+}
+
+function getConditionTrace(point) {
+  const trace = point?.trace
+  return trace && typeof trace === 'object' && !Array.isArray(trace) ? trace : {}
+}
+
+function buildConditionTraceDetails(point) {
+  const trace = getConditionTrace(point)
+  const rawLabel = trace.raw_condition_label_before_smooth
+  const reason = trace.condition_smooth_reason
+  const details = []
+
+  if (rawLabel && rawLabel !== point?.condition_label) {
+    details.push({ label: '平滑前工况', value: displayText(rawLabel, '--') })
+  }
+  if (reason) {
+    details.push({ label: '工况平滑原因', value: formatConditionSmoothReason(reason) })
+  }
+
+  return details
+}
+
+function formatConditionSmoothReason(reason) {
+  const normalizedReason = reason === null || reason === undefined ? '' : String(reason).trim()
+  const reasonMap = {
+    confirmed_transition: '连续确认切换',
+    short_segment_absorbed: '短片段吸收',
+    cruise_sandwich_guard: '高速巡航扰动保护',
+    terminal_segment_preserved: '边界片段保留',
+    unchanged: '未调整'
+  }
+
+  return reasonMap[normalizedReason] || displayText(normalizedReason, '--')
+}
+
+function formatConditionSegmentTitle(segment) {
+  if (!segment) {
+    return ''
+  }
+
+  return [
+    `主工况：${displayText(segment.label, '--')}`,
+    `时间：${formatDateTime(segment.start, '--')} ~ ${formatDateTime(segment.end, '--')}`,
+    `点数：${formatInteger(segment.count)}`,
+    `平滑替换：${formatInteger(segment.smoothAppliedCount)}`,
+    `原始标签：${displayText(segment.rawLabelsText, '--')}`
+  ].join('\n')
 }
 
 function formatPersistStatus(status) {

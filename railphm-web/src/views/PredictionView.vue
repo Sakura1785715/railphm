@@ -228,6 +228,49 @@
       </div>
     </section>
 
+    <section class="monitor-section prediction-panel prediction-condition-section">
+      <div class="monitor-section__header">
+        <div>
+          <p class="section-tag">工况变化</p>
+          <h3>主工况时间轴</h3>
+        </div>
+        <p>按连续相同工况合并展示，风险曲线仍保留逐点变化。</p>
+      </div>
+
+      <div v-if="!rangeInferResult" class="state-panel empty-state">
+        执行区间推理后，这里会展示本次主工况阶段。
+      </div>
+
+      <div v-else-if="rangeConditionSegments.length" class="range-condition-timeline">
+        <div class="condition-timeline__bar">
+          <article
+            v-for="(segment, index) in rangeConditionSegments"
+            :key="segment.key"
+            :class="['condition-segment', `condition-segment--${getConditionSegmentTone(segment, index)}`]"
+            :style="{ flexGrow: segment.count, flexBasis: '0%' }"
+            :title="formatRangeConditionSegmentTitle(segment)"
+          >
+            <span>{{ displayText(segment.label) }}</span>
+          </article>
+        </div>
+
+        <div class="condition-timeline__legend">
+          <article v-for="(segment, index) in rangeConditionSegments" :key="`${segment.key}-legend`">
+            <span :class="['condition-dot', `condition-dot--${getConditionSegmentTone(segment, index)}`]" aria-hidden="true"></span>
+            <strong>{{ displayText(segment.label) }}</strong>
+            <small>
+              {{ formatDateTime(segment.start) }} ~ {{ formatDateTime(segment.end) }} / {{ segment.count }} 点
+              <template v-if="segment.smoothAppliedCount"> / 平滑 {{ segment.smoothAppliedCount }} 点</template>
+            </small>
+          </article>
+        </div>
+      </div>
+
+      <div v-else class="state-panel empty-state">
+        本次区间推理未返回可展示的工况标签。
+      </div>
+    </section>
+
     <section class="monitor-section prediction-panel prediction-alert-section">
       <div class="monitor-section__header">
         <div>
@@ -804,6 +847,11 @@ const rangeRiskSeries = computed(() =>
   Array.isArray(rangeInferResult.value?.risk_series) ? rangeInferResult.value.risk_series : []
 )
 
+const rangeConditionSegments = computed(() => buildRangeConditionSegments(rangeRiskSeries.value))
+const rangeConditionSmoothCount = computed(() =>
+  rangeRiskSeries.value.filter((item) => item.condition_smooth_applied).length
+)
+
 const rangeSkippedWindows = computed(() =>
   Array.isArray(rangeInferResult.value?.skipped_windows) ? rangeInferResult.value.skipped_windows : []
 )
@@ -847,7 +895,8 @@ const rangeRiskTooltipDetails = computed(() =>
     { label: '健康度平滑值', value: formatHealthScore(item.health_score_smoothed, 2) },
     { label: '风险标准差', value: formatPercent(item.risk_std, 2) },
     { label: '阈值', value: formatPercent(item.threshold, 2) },
-    { label: '工况标签', value: displayText(item.condition_label) }
+    { label: '工况标签', value: displayText(item.condition_label) },
+    ...buildRangeConditionTraceDetails(item)
   ])
 )
 
@@ -1111,6 +1160,23 @@ const rangeAdvancedGroups = computed(() => {
         { key: 'skipped_preview_1', label: '跳过示例 1', value: formatSkippedWindow(rangeSkippedPreview.value[0]) },
         { key: 'skipped_preview_2', label: '跳过示例 2', value: formatSkippedWindow(rangeSkippedPreview.value[1]) },
         { key: 'skipped_preview_3', label: '跳过示例 3', value: formatSkippedWindow(rangeSkippedPreview.value[2]) }
+      ]
+    },
+    {
+      title: '工况平滑',
+      fields: [
+        { key: 'condition_segment_count', label: '主工况片段', value: formatInteger(rangeConditionSegments.value.length) },
+        { key: 'condition_smooth_count', label: '平滑替换点', value: formatInteger(rangeConditionSmoothCount.value) },
+        {
+          key: 'first_raw_condition',
+          label: '首点原始工况',
+          value: displayText(firstPoint.raw_condition_label_before_smooth || firstPoint.condition_label)
+        },
+        {
+          key: 'latest_smooth_reason',
+          label: '最新平滑原因',
+          value: formatConditionSmoothReason(latestPoint.condition_smooth_reason)
+        }
       ]
     }
   ]
@@ -1542,6 +1608,10 @@ function normalizePayload(result) {
   return payload
 }
 
+function normalizeTrace(trace) {
+  return trace && typeof trace === 'object' && !Array.isArray(trace) ? trace : {}
+}
+
 function normalizeLatest(record) {
   if (!record || typeof record !== 'object') {
     return null
@@ -1728,6 +1798,12 @@ function normalizeRangeAlertSegment(record, index) {
 function normalizeRangeRiskPoint(item, index) {
   const source = item && typeof item === 'object' ? item : {}
   const time = source.time || source.window_end_time || ''
+  const trace = normalizeTrace(source.trace)
+  const rawConditionLabel =
+    trace.raw_condition_label_before_smooth ?? source.raw_condition_label_before_smooth ?? ''
+  const smoothedConditionLabel =
+    trace.smoothed_condition_label ?? source.smoothed_condition_label ?? source.condition_label ?? ''
+  const conditionSmoothReason = trace.condition_smooth_reason || source.condition_smooth_reason || ''
 
   return {
     key: `${time}-${source.risk_result_id ?? index}`,
@@ -1744,7 +1820,14 @@ function normalizeRangeRiskPoint(item, index) {
     health_score: toFiniteNumber(source.health_score),
     health_level: source.health_level || '',
     health_status: source.health_status || '',
-    condition_label: source.condition_label || ''
+    condition_label: source.condition_label || smoothedConditionLabel || rawConditionLabel || '',
+    trace,
+    raw_condition_label_before_smooth: rawConditionLabel,
+    smoothed_condition_label: smoothedConditionLabel,
+    condition_smooth_applied: Boolean(
+      trace.condition_smooth_applied ?? source.condition_smooth_applied
+    ),
+    condition_smooth_reason: conditionSmoothReason
   }
 }
 
@@ -1760,6 +1843,67 @@ function normalizeRangeHealthPoint(item, index) {
     health_level: source.health_level || '',
     health_status: source.health_status || ''
   }
+}
+
+function buildRangeConditionSegments(rows = []) {
+  const segments = []
+  let activeSegment = null
+
+  rows.forEach((row, index) => {
+    const label = row.condition_label || row.smoothed_condition_label || row.raw_condition_label_before_smooth || '未标注'
+    const time = getRangePointTime(row)
+    const rawLabel = row.raw_condition_label_before_smooth || label
+    const smoothApplied = Boolean(row.condition_smooth_applied)
+
+    if (!activeSegment || activeSegment.label !== label) {
+      if (activeSegment) {
+        segments.push(activeSegment)
+      }
+      activeSegment = {
+        key: `${label}-${time || index}-${index}`,
+        label,
+        start: time,
+        end: time,
+        count: 1,
+        smoothAppliedCount: smoothApplied ? 1 : 0,
+        rawLabels: new Set(rawLabel ? [rawLabel] : [])
+      }
+      return
+    }
+
+    activeSegment.end = time || activeSegment.end
+    activeSegment.count += 1
+    if (smoothApplied) {
+      activeSegment.smoothAppliedCount += 1
+    }
+    if (rawLabel) {
+      activeSegment.rawLabels.add(rawLabel)
+    }
+  })
+
+  if (activeSegment) {
+    segments.push(activeSegment)
+  }
+
+  return segments.map((segment) => ({
+    ...segment,
+    rawLabelsText: Array.from(segment.rawLabels).join(' / ')
+  }))
+}
+
+function buildRangeConditionTraceDetails(item) {
+  const details = []
+  const rawLabel = item.raw_condition_label_before_smooth
+  const smoothReason = item.condition_smooth_reason
+
+  if (rawLabel && rawLabel !== item.condition_label) {
+    details.push({ label: '平滑前工况', value: displayText(rawLabel) })
+  }
+  if (smoothReason) {
+    details.push({ label: '工况平滑原因', value: formatConditionSmoothReason(smoothReason) })
+  }
+
+  return details
 }
 
 function extractHistoryRecords(source) {
@@ -1826,6 +1970,41 @@ function formatSuppressReason(reason) {
   }
 
   return reasonMap[normalizedReason] || displayText(normalizedReason)
+}
+
+function formatConditionSmoothReason(reason) {
+  const normalizedReason = reason === null || reason === undefined ? '' : String(reason).trim()
+  const reasonMap = {
+    confirmed_transition: '连续确认切换',
+    short_segment_absorbed: '短片段吸收',
+    cruise_sandwich_guard: '高速巡航扰动保护',
+    terminal_segment_preserved: '边界片段保留',
+    unchanged: '未调整'
+  }
+
+  return reasonMap[normalizedReason] || displayText(normalizedReason)
+}
+
+function getConditionSegmentTone(segment, index) {
+  const label = segment?.label || ''
+  if (label.includes('出站') || label.includes('加速')) return 'primary'
+  if (label.includes('巡航')) return 'success'
+  if (label.includes('进站') || label.includes('减速')) return 'warning'
+  return ['notice', 'muted'][index % 2]
+}
+
+function formatRangeConditionSegmentTitle(segment) {
+  if (!segment) {
+    return ''
+  }
+
+  return [
+    `主工况：${displayText(segment.label)}`,
+    `时间：${formatDateTime(segment.start)} ~ ${formatDateTime(segment.end)}`,
+    `点数：${formatInteger(segment.count)}`,
+    `平滑替换：${formatInteger(segment.smoothAppliedCount)}`,
+    `原始标签：${displayText(segment.rawLabelsText)}`
+  ].join('\n')
 }
 
 function formatSuppressedStatus(value) {
@@ -2012,6 +2191,121 @@ function normalizeQueryDeviceId(value) {
 
 .range-chart-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.prediction-condition-section {
+  min-width: 0;
+}
+
+.range-condition-timeline {
+  display: grid;
+  gap: 14px;
+}
+
+.condition-timeline__bar {
+  display: flex;
+  min-height: 48px;
+  overflow-x: auto;
+  border: 1px solid var(--rail-border);
+  border-radius: var(--rail-radius-md);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.condition-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.88);
+  color: var(--rail-text-strong);
+  font-size: 0.9rem;
+  font-weight: 820;
+  text-align: center;
+}
+
+.condition-segment:last-child {
+  border-right: 0;
+}
+
+.condition-segment span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.condition-segment--primary {
+  background: rgba(37, 99, 235, 0.14);
+}
+
+.condition-segment--warning {
+  background: rgba(217, 119, 6, 0.18);
+}
+
+.condition-segment--success {
+  background: rgba(22, 163, 74, 0.17);
+}
+
+.condition-segment--notice {
+  background: rgba(14, 165, 233, 0.14);
+}
+
+.condition-segment--muted {
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.condition-timeline__legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.condition-timeline__legend article {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.condition-timeline__legend strong,
+.condition-timeline__legend small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.condition-timeline__legend strong {
+  color: var(--rail-text-strong);
+}
+
+.condition-timeline__legend small {
+  color: var(--rail-text-muted);
+}
+
+.condition-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0ea5e9;
+}
+
+.condition-dot--primary {
+  background: #2563eb;
+}
+
+.condition-dot--warning {
+  background: #d97706;
+}
+
+.condition-dot--success {
+  background: #16a34a;
+}
+
+.condition-dot--muted {
+  background: #64748b;
 }
 
 .range-checkbox-field {
@@ -2322,6 +2616,7 @@ function normalizeQueryDeviceId(value) {
   .prediction-mini-grid,
   .prediction-alert-summary-grid,
   .range-chart-grid,
+  .condition-timeline__legend,
   .prediction-detail-groups,
   .prediction-detail-grid {
     grid-template-columns: 1fr;

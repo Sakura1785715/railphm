@@ -105,6 +105,12 @@ def test_range_infer_builds_online_windows_and_uses_feature_processor(client, mo
     assert first_result["trace"]["scaler_mode"] == "full"
     assert first_result["trace"]["rule_condition_status"] == "evaluated"
     assert first_result["trace"]["final_condition_source"] in {"rule_anchor", "kmeans"}
+    assert first_result["trace"]["raw_condition_label_before_smooth"] == first_result["trace"]["condition_label"]
+    assert first_result["trace"]["smoothed_condition_label"] == first_result["condition_label"]
+    assert first_result["trace"]["condition_smooth_config"] == {
+        "min_confirm_points": 5,
+        "min_segment_points": 5,
+    }
 
 
 def test_range_infer_skips_insufficient_window(client, monkeypatch):
