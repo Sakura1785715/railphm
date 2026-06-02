@@ -1,4 +1,9 @@
 
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
 def test_get_monitor_series_success(client):
     """测试完整合法参数下的成功查询，使用真实的2015年Mock范围"""
     params = {
@@ -6,7 +11,7 @@ def test_get_monitor_series_success(client):
         "start_time": "2015-01-09 10:20:00",
         "end_time": "2015-01-09 10:25:00"
     }
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 200
     
     json_data = response.get_json()
@@ -25,21 +30,21 @@ def test_get_monitor_series_success(client):
 def test_get_monitor_series_missing_device_id(client):
     """测试缺少 device_id 参数"""
     params = {"start_time": "2015-01-09 10:20:00", "end_time": "2015-01-09 10:25:00"}
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "device_id 不能为空" in response.get_json()["message"]
 
 def test_get_monitor_series_missing_start_time(client):
     """测试缺少 start_time 参数"""
     params = {"device_id": "1", "end_time": "2015-01-09 10:25:00"}
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "start_time 不能为空" in response.get_json()["message"]
 
 def test_get_monitor_series_missing_end_time(client):
     """测试缺少 end_time 参数"""
     params = {"device_id": "1", "start_time": "2015-01-09 10:20:00"}
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "end_time 不能为空" in response.get_json()["message"]
 
@@ -50,7 +55,7 @@ def test_get_monitor_series_invalid_time_format(client):
         "start_time": "2015/01/09", 
         "end_time": "2015-01-09 10:25:00"
     }
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "时间格式非法" in response.get_json()["message"]
 
@@ -61,7 +66,7 @@ def test_get_monitor_series_invalid_time_range(client):
         "start_time": "2015-01-09 10:30:00",
         "end_time": "2015-01-09 10:20:00"
     }
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "早于结束时间" in response.get_json()["message"]
 
@@ -72,7 +77,7 @@ def test_get_monitor_series_empty_result(client):
         "start_time": "2010-01-01 10:00:00",
         "end_time": "2010-01-01 11:00:00"
     }
-    response = client.get('/api/v1/monitor/series', query_string=params)
+    response = client.get('/api/v1/monitor/series', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 200
     data = response.get_json()["data"]
     assert len(data["series"]) == 3

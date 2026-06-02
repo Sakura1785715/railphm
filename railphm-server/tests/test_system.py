@@ -1,3 +1,8 @@
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
 def test_system_ping(client):
     """
     测试系统连通性 ping 接口
@@ -5,7 +10,7 @@ def test_system_ping(client):
       1. 接口是否存在并返回 200
       2. 是否正确返回指定的 system-ping 键值对
     """
-    response = client.get('/api/v1/system/ping')
+    response = client.get('/api/v1/system/ping', headers=OPS_HEADERS)
     
     assert response.status_code == 200
     

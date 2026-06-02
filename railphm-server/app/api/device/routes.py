@@ -1,5 +1,5 @@
 from flask import Blueprint, request
-from app.core.auth import require_roles
+from app.core.auth import BUSINESS_ROLES, ROLE_ADMIN, require_roles
 from app.core.response import success_response
 from app.service.device_service import DeviceService
 
@@ -7,6 +7,7 @@ from app.service.device_service import DeviceService
 device_bp = Blueprint('device', __name__)
 
 @device_bp.route('', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_devices():
     """
     获取设备列表
@@ -40,7 +41,7 @@ def get_devices():
     return success_response(data=data)
 
 @device_bp.route('', methods=['POST'])
-@require_roles("ADMIN")
+@require_roles(ROLE_ADMIN)
 def create_device():
     """
     新增设备台账
@@ -50,6 +51,7 @@ def create_device():
     return success_response(data=data)
 
 @device_bp.route('/<int:device_id>', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_device(device_id):
     """
     获取单个设备详情
@@ -58,7 +60,7 @@ def get_device(device_id):
     return success_response(data=data)
 
 @device_bp.route('/<int:device_id>', methods=['PUT'])
-@require_roles("ADMIN")
+@require_roles(ROLE_ADMIN)
 def update_device(device_id):
     """
     编辑设备台账

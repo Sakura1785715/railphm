@@ -231,7 +231,10 @@ def test_me_invalid_authorization_format(client):
     assert body["code"] == 401
 
 def test_logout_success(client):
-    response = client.post('/api/v1/auth/logout')
+    response = client.post(
+        '/api/v1/auth/logout',
+        headers={"Authorization": "Bearer mock-token-admin"}
+    )
     body = response.get_json()
 
     assert response.status_code == 200

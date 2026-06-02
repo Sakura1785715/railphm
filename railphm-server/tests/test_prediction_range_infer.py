@@ -5,6 +5,11 @@ from app.repository.monitor_repository import MonitorRepository
 from app.repository.prediction_repository import PredictionRepository
 
 
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
 def _build_monitor_rows(count=91):
     base_dt = datetime(2026, 5, 18, 8, 59, 30)
     return [
@@ -111,6 +116,7 @@ def test_prediction_range_infer_success_and_persist(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/range-infer",
+        headers=OPS_HEADERS,
         json={
             "device_code": "ATP001",
             "start_time": "2026-05-18 09:00:00",
@@ -156,6 +162,7 @@ def test_prediction_range_infer_skips_existing_rows(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/range-infer",
+        headers=OPS_HEADERS,
         json={
             "device_code": "ATP001",
             "start_time": "2026-05-18 09:00:00",
@@ -175,6 +182,7 @@ def test_prediction_range_infer_skips_existing_rows(client, monkeypatch):
 def test_prediction_range_infer_boundaries(client):
     response = client.post(
         "/api/v1/predictions/range-infer",
+        headers=OPS_HEADERS,
         json={
             "device_code": "ATP001",
             "start_time": "2026-05-18 10:00:00",
@@ -186,6 +194,7 @@ def test_prediction_range_infer_boundaries(client):
 
     response = client.post(
         "/api/v1/predictions/range-infer",
+        headers=OPS_HEADERS,
         json={
             "device_code": "ATP001",
             "end_time": "2026-05-18 10:00:00",
@@ -210,6 +219,7 @@ def test_prediction_range_infer_ai_unavailable(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/range-infer",
+        headers=OPS_HEADERS,
         json={
             "device_code": "ATP001",
             "end_time": "2026-05-18 10:00:00",

@@ -1,11 +1,12 @@
 from flask import Blueprint, request
-from app.core.auth import require_roles
+from app.core.auth import BUSINESS_ROLES, require_roles
 from app.core.response import success_response
 from app.service.alert_service import AlertService
 
 alert_bp = Blueprint('alert', __name__)
 
 @alert_bp.route('', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_alerts():
     """获取告警列表（带分页与筛选）"""
     page = request.args.get('page', 1)
@@ -18,12 +19,14 @@ def get_alerts():
     return success_response(data=data)
 
 @alert_bp.route('/<int:alert_id>', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_alert_detail(alert_id):
     """获取单条告警详情"""
     data = AlertService.get_alert_detail(alert_id)
     return success_response(data=data)
 
 @alert_bp.route('/<int:alert_id>/diagnosis', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_alert_diagnosis(alert_id):
     """获取单条告警研判详情"""
     context_seconds = request.args.get('context_seconds')
@@ -31,7 +34,7 @@ def get_alert_diagnosis(alert_id):
     return success_response(data=data)
 
 @alert_bp.route('/<int:alert_id>/status', methods=['PATCH'])
-@require_roles("OPS", "ADMIN")
+@require_roles(*BUSINESS_ROLES)
 def update_alert_status(alert_id):
     """更新告警状态"""
     payload = request.get_json(silent=True)

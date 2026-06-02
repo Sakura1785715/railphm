@@ -1,5 +1,6 @@
 from flask import Blueprint, request
 
+from app.core.auth import BUSINESS_ROLES, require_roles
 from app.core.response import success_response
 from app.service.realtime_stream_service import RealtimeStreamService
 
@@ -17,30 +18,35 @@ def _read_optional_json_body():
 
 
 @realtime_bp.route("/start", methods=["POST"])
+@require_roles(*BUSINESS_ROLES)
 def start_realtime_stream():
     data = realtime_stream_service.start(_read_optional_json_body())
     return success_response(data=data)
 
 
 @realtime_bp.route("/stop", methods=["POST"])
+@require_roles(*BUSINESS_ROLES)
 def stop_realtime_stream():
     data = realtime_stream_service.stop()
     return success_response(data=data)
 
 
 @realtime_bp.route("/reset", methods=["POST"])
+@require_roles(*BUSINESS_ROLES)
 def reset_realtime_stream():
     data = realtime_stream_service.reset(_read_optional_json_body())
     return success_response(data=data)
 
 
 @realtime_bp.route("/state", methods=["GET"])
+@require_roles(*BUSINESS_ROLES)
 def get_realtime_stream_state():
     data = realtime_stream_service.state()
     return success_response(data=data)
 
 
 @realtime_bp.route("/next", methods=["GET"])
+@require_roles(*BUSINESS_ROLES)
 def next_realtime_prediction():
     data = realtime_stream_service.next()
     return success_response(data=data)

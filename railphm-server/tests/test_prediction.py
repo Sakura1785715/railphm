@@ -1,4 +1,9 @@
 # tests/test_prediction.py
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
 def expected_health_score(risk_score):
     clamped_risk_score = max(0.0, min(1.0, float(risk_score)))
     return round((1 - clamped_risk_score) * 100, 1)
@@ -14,7 +19,7 @@ def expected_alert_level(health_score):
 
 def test_get_latest_prediction_success(client):
     """测试获取最新结果成功"""
-    response = client.get('/api/v1/predictions/latest?device_id=1')
+    response = client.get('/api/v1/predictions/latest?device_id=1', headers=OPS_HEADERS)
     assert response.status_code == 200
     data = response.get_json()["data"]
     
@@ -32,13 +37,13 @@ def test_get_latest_prediction_success(client):
 
 def test_get_latest_prediction_missing_device_id(client):
     """测试缺少 device_id 触发异常"""
-    response = client.get('/api/v1/predictions/latest')
+    response = client.get('/api/v1/predictions/latest', headers=OPS_HEADERS)
     assert response.status_code == 400
     assert "不能为空" in response.get_json()["message"]
 
 def test_get_latest_prediction_empty_result(client):
     """测试设备合法但无结果"""
-    response = client.get('/api/v1/predictions/latest?device_id=999')
+    response = client.get('/api/v1/predictions/latest?device_id=999', headers=OPS_HEADERS)
     assert response.status_code == 200
     # 按照设计语义，查不到时明确返回 null
     assert response.get_json()["data"] is None
@@ -46,7 +51,7 @@ def test_get_latest_prediction_empty_result(client):
 def test_get_prediction_history_success(client):
     """测试获取历史趋势成功"""
     params = {"device_id": "1", "start_time": "2026-04-01 08:00:00", "end_time": "2026-04-01 09:30:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 200
     
     data = response.get_json()["data"]
@@ -67,7 +72,7 @@ def test_get_prediction_history_success(client):
 def test_get_prediction_history_items_sorted(client):
     """测试历史结果是否按升序排列"""
     params = {"device_id": "1", "start_time": "2026-04-01 08:00:00", "end_time": "2026-04-01 11:00:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     items = response.get_json()["data"]["items"]
     # 验证升序 (前一个的时间应该小于或等于后一个的时间)
     for i in range(len(items) - 1):
@@ -75,35 +80,35 @@ def test_get_prediction_history_items_sorted(client):
 
 def test_get_prediction_history_missing_device_id(client):
     params = {"start_time": "2026-04-01 08:00:00", "end_time": "2026-04-01 09:30:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
 
 def test_get_prediction_history_missing_start_time(client):
     params = {"device_id": "1", "end_time": "2026-04-01 09:30:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
 
 def test_get_prediction_history_missing_end_time(client):
     params = {"device_id": "1", "start_time": "2026-04-01 08:00:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
 
 def test_get_prediction_history_invalid_time_format(client):
     params = {"device_id": "1", "start_time": "2026/04/01 08:00:00", "end_time": "2026-04-01 09:30:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "时间格式非法" in response.get_json()["message"]
 
 def test_get_prediction_history_invalid_time_range(client):
     params = {"device_id": "1", "start_time": "2026-04-01 10:00:00", "end_time": "2026-04-01 09:30:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 400
     assert "早于结束时间" in response.get_json()["message"]
 
 def test_get_prediction_history_empty_result(client):
     """测试合法参数无数据时稳定结构返回"""
     params = {"device_id": "999", "start_time": "2026-04-01 08:00:00", "end_time": "2026-04-01 09:30:00"}
-    response = client.get('/api/v1/predictions/history', query_string=params)
+    response = client.get('/api/v1/predictions/history', headers=OPS_HEADERS, query_string=params)
     assert response.status_code == 200
     data = response.get_json()["data"]
     assert data["items"] == [] 

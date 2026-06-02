@@ -3,6 +3,7 @@
 """
 from flask import Blueprint, request
 
+from app.core.auth import BUSINESS_ROLES, require_roles
 from app.core.response import success_response
 from app.service.run_record_service import RunRecordService
 
@@ -11,6 +12,7 @@ run_record_bp = Blueprint("run_record", __name__)
 
 # 查询运行记录列表接口
 @run_record_bp.route("", methods=["GET"])
+@require_roles(*BUSINESS_ROLES)
 def list_run_records():
     data = RunRecordService.list_records(
         # 从URL中去参数，传给Service
@@ -26,6 +28,7 @@ def list_run_records():
 
 # 随机获取运行记录接口
 @run_record_bp.route("/random", methods=["GET"])
+@require_roles(*BUSINESS_ROLES)
 def get_random_run_record():
     data = RunRecordService.get_random(
         device_code=request.args.get("device_code", default="", type=str).strip() or None,
@@ -35,6 +38,7 @@ def get_random_run_record():
 
 # 获取运行记录详情接口
 @run_record_bp.route("/<int:run_record_id>", methods=["GET"])
+@require_roles(*BUSINESS_ROLES)
 def get_run_record_detail(run_record_id: int):
     data = RunRecordService.get_detail(run_record_id)
     return success_response(data=data)
@@ -42,6 +46,7 @@ def get_run_record_detail(run_record_id: int):
 
 # 获取运行记录监测数据接口
 @run_record_bp.route("/<int:run_record_id>/monitor", methods=["GET"])
+@require_roles(*BUSINESS_ROLES)
 def get_run_record_monitor(run_record_id: int):
     data = RunRecordService.get_monitor_history(
         run_record_id=run_record_id,
@@ -52,6 +57,7 @@ def get_run_record_monitor(run_record_id: int):
 
 # 执行运行记录预测接口
 @run_record_bp.route("/<int:run_record_id>/infer", methods=["POST"])
+@require_roles(*BUSINESS_ROLES)
 def infer_run_record(run_record_id: int):
     data = RunRecordService.infer_record(
         run_record_id=run_record_id,
@@ -62,6 +68,7 @@ def infer_run_record(run_record_id: int):
 
 # 生成运行记录告警接口
 @run_record_bp.route("/<int:run_record_id>/alert", methods=["POST"])
+@require_roles(*BUSINESS_ROLES)
 def generate_run_record_alert(run_record_id: int):
     data = RunRecordService.generate_record_alert(
         run_record_id=run_record_id,

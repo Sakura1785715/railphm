@@ -233,6 +233,11 @@ async function handleDeviceFormSubmit(payload) {
     return
   }
 
+  if (!canManageDevice.value) {
+    formError.value = '当前角色无设备维护权限'
+    return
+  }
+
   formSubmitting.value = true
   formError.value = ''
 

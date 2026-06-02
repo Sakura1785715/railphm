@@ -1,9 +1,11 @@
 # 实现系统管理相关接口
 from flask import Blueprint
+from app.core.auth import BUSINESS_ROLES, require_roles
 from app.core.response import success_response
 
 system_bp = Blueprint('system', __name__)
 
 @system_bp.route('ping', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def ping():
     return success_response(data={"system-ping" : "system-pong"})

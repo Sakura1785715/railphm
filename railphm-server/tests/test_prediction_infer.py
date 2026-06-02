@@ -1,6 +1,11 @@
 from app.clients.ai_client import AIClient, AIServiceUnavailableError
 
 
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
 def build_ai_result():
     return {
         "device_id": "ATP001",
@@ -33,6 +38,7 @@ def test_prediction_infer_success(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -81,6 +87,7 @@ def test_prediction_infer_defaults_optional_params(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -118,6 +125,7 @@ def test_prediction_infer_missing_device_id(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "ts_end": "2026-05-01 10:00:30",
         },
@@ -139,6 +147,7 @@ def test_prediction_infer_missing_ts_end(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
         },
@@ -152,6 +161,7 @@ def test_prediction_infer_missing_ts_end(client, monkeypatch):
 def test_prediction_infer_invalid_window_minutes(client):
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -166,6 +176,7 @@ def test_prediction_infer_invalid_window_minutes(client):
 def test_prediction_infer_invalid_sample_index(client):
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -178,6 +189,7 @@ def test_prediction_infer_invalid_sample_index(client):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -192,6 +204,7 @@ def test_prediction_infer_invalid_sample_index(client):
 def test_prediction_infer_invalid_mc_samples(client):
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -211,6 +224,7 @@ def test_prediction_infer_ai_unavailable(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -235,6 +249,7 @@ def test_prediction_infer_ai_missing_risk_score(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -250,6 +265,7 @@ def test_prediction_infer_ai_missing_risk_score(client, monkeypatch):
 def test_prediction_infer_non_json_body(client):
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         data="not-json",
         content_type="text/plain",
     )
@@ -268,6 +284,7 @@ def test_prediction_infer_fallback_when_enabled(client, app, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -301,6 +318,7 @@ def test_prediction_infer_medium_alert(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",
@@ -329,6 +347,7 @@ def test_prediction_infer_high_alert(client, monkeypatch):
 
     response = client.post(
         "/api/v1/predictions/infer",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "ts_end": "2026-05-01 10:00:30",

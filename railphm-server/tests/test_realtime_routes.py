@@ -4,6 +4,11 @@ from app.service.prediction_service import PredictionService
 from app.api.realtime.routes import realtime_stream_service
 
 
+OPS_HEADERS = {
+    "Authorization": "Bearer mock-token-ops"
+}
+
+
 def build_prediction_result(request_data):
     return {
         "device_id": request_data["device_id"],
@@ -39,7 +44,7 @@ def reset_realtime_route_state():
 
 
 def test_realtime_start_route(client):
-    response = client.post("/api/v1/realtime/start", json={})
+    response = client.post("/api/v1/realtime/start", headers=OPS_HEADERS, json={})
 
     assert response.status_code == 200
     payload = response.get_json()
@@ -51,13 +56,14 @@ def test_realtime_start_route(client):
 def test_realtime_state_route(client):
     client.post(
         "/api/v1/realtime/start",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "start_sample_index": 4,
         },
     )
 
-    response = client.get("/api/v1/realtime/state")
+    response = client.get("/api/v1/realtime/state", headers=OPS_HEADERS)
 
     assert response.status_code == 200
     data = response.get_json()["data"]
@@ -76,6 +82,7 @@ def test_realtime_next_route(client, monkeypatch):
     monkeypatch.setattr(PredictionService, "infer_prediction", staticmethod(fake_infer))
     client.post(
         "/api/v1/realtime/start",
+        headers=OPS_HEADERS,
         json={
             "device_id": "ATP001",
             "start_sample_index": 2,
@@ -83,7 +90,7 @@ def test_realtime_next_route(client, monkeypatch):
         },
     )
 
-    response = client.get("/api/v1/realtime/next")
+    response = client.get("/api/v1/realtime/next", headers=OPS_HEADERS)
 
     assert response.status_code == 200
     data = response.get_json()["data"]
@@ -98,9 +105,9 @@ def test_realtime_next_route(client, monkeypatch):
 
 
 def test_realtime_stop_route(client):
-    client.post("/api/v1/realtime/start", json={})
+    client.post("/api/v1/realtime/start", headers=OPS_HEADERS, json={})
 
-    response = client.post("/api/v1/realtime/stop")
+    response = client.post("/api/v1/realtime/stop", headers=OPS_HEADERS)
 
     assert response.status_code == 200
     data = response.get_json()["data"]
@@ -108,9 +115,9 @@ def test_realtime_stop_route(client):
 
 
 def test_realtime_reset_route(client):
-    client.post("/api/v1/realtime/start", json={"start_sample_index": 10})
+    client.post("/api/v1/realtime/start", headers=OPS_HEADERS, json={"start_sample_index": 10})
 
-    response = client.post("/api/v1/realtime/reset", json={"sample_index": 12})
+    response = client.post("/api/v1/realtime/reset", headers=OPS_HEADERS, json={"sample_index": 12})
 
     assert response.status_code == 200
     data = response.get_json()["data"]
@@ -121,6 +128,7 @@ def test_realtime_reset_route(client):
 def test_realtime_start_invalid_param(client):
     response = client.post(
         "/api/v1/realtime/start",
+        headers=OPS_HEADERS,
         json={
             "start_sample_index": 2,
             "end_sample_index": 1,
@@ -134,6 +142,7 @@ def test_realtime_start_invalid_param(client):
 def test_realtime_start_non_json_body(client):
     response = client.post(
         "/api/v1/realtime/start",
+        headers=OPS_HEADERS,
         data="not-json",
         content_type="text/plain",
     )
@@ -143,7 +152,7 @@ def test_realtime_start_non_json_body(client):
 
 
 def test_realtime_next_when_not_started(client):
-    response = client.get("/api/v1/realtime/next")
+    response = client.get("/api/v1/realtime/next", headers=OPS_HEADERS)
 
     assert response.status_code == 400
     assert "未启动" in response.get_json()["message"]

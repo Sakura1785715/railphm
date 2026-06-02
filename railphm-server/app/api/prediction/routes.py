@@ -1,10 +1,12 @@
 from flask import Blueprint, request
+from app.core.auth import BUSINESS_ROLES, require_roles
 from app.core.response import success_response
 from app.service.prediction_service import PredictionService
 
 prediction_bp = Blueprint('prediction', __name__)
 
 @prediction_bp.route('/latest', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_latest():
     """获取最新一次风险分析结果"""
     device_id = request.args.get('device_id')
@@ -12,6 +14,7 @@ def get_latest():
     return success_response(data=data)
 
 @prediction_bp.route('/history', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_history():
     """获取历史风险结果序列"""
     device_id = request.args.get('device_id')
@@ -23,6 +26,7 @@ def get_history():
 
 
 @prediction_bp.route('/health-curve', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_health_curve():
     """获取设备风险与健康度曲线。"""
     device_id = request.args.get('device_id')
@@ -35,6 +39,7 @@ def get_health_curve():
 
 
 @prediction_bp.route('/infer', methods=['POST'])
+@require_roles(*BUSINESS_ROLES)
 def infer_prediction():
     """
     触发一次即时推理。
@@ -46,6 +51,7 @@ def infer_prediction():
 
 
 @prediction_bp.route('/range-infer', methods=['POST'])
+@require_roles(*BUSINESS_ROLES)
 def range_infer_prediction():
     """
     基于 InfluxDB 监测数据触发在线区间推理。

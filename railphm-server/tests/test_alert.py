@@ -14,7 +14,7 @@ INVALID_HEADERS = {
 
 def test_get_alerts_success(client):
     """场景1：测试默认列表查询与完整结构"""
-    response = client.get('/api/v1/alerts')
+    response = client.get('/api/v1/alerts', headers=OPS_HEADERS)
     assert response.status_code == 200
     data = response.get_json()["data"]
     
@@ -27,7 +27,7 @@ def test_get_alerts_success(client):
 
 def test_get_alerts_pagination_success(client):
     """场景2：测试分页切片"""
-    response = client.get('/api/v1/alerts?page=1&size=2')
+    response = client.get('/api/v1/alerts?page=1&size=2', headers=OPS_HEADERS)
     assert response.status_code == 200
     data = response.get_json()["data"]
     
@@ -38,7 +38,7 @@ def test_get_alerts_pagination_success(client):
 
 def test_get_alerts_filter_success(client):
     """场景3：测试筛选条件"""
-    response = client.get('/api/v1/alerts?alert_level=HIGH&alert_status=PENDING')
+    response = client.get('/api/v1/alerts?alert_level=HIGH&alert_status=PENDING', headers=OPS_HEADERS)
     assert response.status_code == 200
     data = response.get_json()["data"]
     
@@ -48,7 +48,7 @@ def test_get_alerts_filter_success(client):
 
 def test_get_alerts_empty_result(client):
     """场景4：测试合法过滤条件但无数据时的稳定结构"""
-    response = client.get('/api/v1/alerts?device_id=9999')
+    response = client.get('/api/v1/alerts?device_id=9999', headers=OPS_HEADERS)
     assert response.status_code == 200
     data = response.get_json()["data"]
     
@@ -58,7 +58,7 @@ def test_get_alerts_empty_result(client):
 
 def test_get_alert_detail_success(client):
     """场景5：测试详情查询"""
-    response = client.get('/api/v1/alerts/1001')
+    response = client.get('/api/v1/alerts/1001', headers=OPS_HEADERS)
     assert response.status_code == 200
     data = response.get_json()["data"]
     
@@ -68,20 +68,20 @@ def test_get_alert_detail_success(client):
 
 def test_get_alert_detail_not_found(client):
     """场景6：测试不存在的记录，拦截 404"""
-    response = client.get('/api/v1/alerts/999999')
+    response = client.get('/api/v1/alerts/999999', headers=OPS_HEADERS)
     assert response.status_code == 404
     assert response.get_json()["code"] == 404
     assert "未找到" in response.get_json()["message"]
 
 def test_get_alerts_invalid_page(client):
     """场景7：测试分页参数异常 page <= 0"""
-    response = client.get('/api/v1/alerts?page=0')
+    response = client.get('/api/v1/alerts?page=0', headers=OPS_HEADERS)
     assert response.status_code == 400
     assert "正整数" in response.get_json()["message"]
 
 def test_get_alerts_invalid_size(client):
     """场景8：测试分页参数异常 size 不是数字"""
-    response = client.get('/api/v1/alerts?size=abc')
+    response = client.get('/api/v1/alerts?size=abc', headers=OPS_HEADERS)
     assert response.status_code == 400
     assert "正整数" in response.get_json()["message"]
 

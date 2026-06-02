@@ -21,7 +21,7 @@ def build_device_payload(car_no="CR400AF-AUTH-01"):
 
 def test_get_devices_success(client):
     """测试获取设备列表成功与分页结构"""
-    response = client.get('/api/v1/devices')
+    response = client.get('/api/v1/devices', headers=OPS_HEADERS)
     assert response.status_code == 200
     
     json_data = response.get_json()
@@ -42,7 +42,7 @@ def test_get_devices_success(client):
 
 def test_get_device_detail_success(client):
     """测试获取单个设备成功"""
-    response = client.get('/api/v1/devices/1')
+    response = client.get('/api/v1/devices/1', headers=OPS_HEADERS)
     assert response.status_code == 200
     
     json_data = response.get_json()
@@ -55,7 +55,7 @@ def test_get_device_detail_success(client):
 
 def test_get_devices_with_filters_success(client):
     """测试设备列表最小筛选能力"""
-    response = client.get('/api/v1/devices?device_id=1&car_no=0201&device_status=1')
+    response = client.get('/api/v1/devices?device_id=1&car_no=0201&device_status=1', headers=OPS_HEADERS)
     assert response.status_code == 200
 
     json_data = response.get_json()
@@ -70,7 +70,7 @@ def test_get_devices_with_filters_success(client):
 
 def test_get_devices_filter_by_status_success(client):
     """测试设备列表按设备状态筛选"""
-    response = client.get('/api/v1/devices?device_status=0')
+    response = client.get('/api/v1/devices?device_status=0', headers=OPS_HEADERS)
     json_data = response.get_json()
     data = json_data["data"]
 
@@ -81,7 +81,7 @@ def test_get_devices_filter_by_status_success(client):
 
 def test_get_devices_with_filters_empty_result(client):
     """测试设备筛选无结果时仍返回统一结构"""
-    response = client.get('/api/v1/devices?car_no=NOT-EXISTS')
+    response = client.get('/api/v1/devices?car_no=NOT-EXISTS', headers=OPS_HEADERS)
     assert response.status_code == 200
 
     json_data = response.get_json()
@@ -93,7 +93,7 @@ def test_get_devices_with_filters_empty_result(client):
 
 def test_get_device_detail_not_found(client):
     """测试获取不存在的设备，验证全局异常链路和统一 JSON 返回"""
-    response = client.get('/api/v1/devices/999999')
+    response = client.get('/api/v1/devices/999999', headers=OPS_HEADERS)
     
     # 断言 HTTP 层面返回合理的 404，而不是 Flask 默认 HTML 404
     assert response.status_code == 404
@@ -133,11 +133,11 @@ def test_create_device_then_can_query_list_and_detail(client):
     )
     created = create_response.get_json()["data"]
 
-    list_response = client.get('/api/v1/devices?car_no=CREATED-LOOKUP')
+    list_response = client.get('/api/v1/devices?car_no=CREATED-LOOKUP', headers=OPS_HEADERS)
     list_body = list_response.get_json()
     list_items = list_body["data"]["items"]
 
-    detail_response = client.get(f'/api/v1/devices/{created["device_id"]}')
+    detail_response = client.get(f'/api/v1/devices/{created["device_id"]}', headers=OPS_HEADERS)
     detail_body = detail_response.get_json()
 
     assert create_response.status_code == 200
@@ -185,7 +185,7 @@ def test_update_device_then_detail_returns_updated_fields(client):
         "attach_bureau": "成都局",
         "device_status": 0
     })
-    detail_response = client.get('/api/v1/devices/1')
+    detail_response = client.get('/api/v1/devices/1', headers=OPS_HEADERS)
     detail_body = detail_response.get_json()
 
     assert response.status_code == 200

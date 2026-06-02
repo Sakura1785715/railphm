@@ -1,4 +1,5 @@
 from flask import Blueprint, current_app, request
+from app.core.auth import require_login
 from app.core.response import success_response
 from app.service.auth_service import AuthService
 from app.service.captcha_service import CaptchaService
@@ -20,6 +21,7 @@ def login():
     return success_response(data=data)
 
 @auth_bp.route('/me', methods=['GET'])
+@require_login
 def me():
     """获取当前登录用户"""
     auth_header = request.headers.get('Authorization', '')
@@ -27,6 +29,7 @@ def me():
     return success_response(data=data)
 
 @auth_bp.route('/logout', methods=['POST'])
+@require_login
 def logout():
     """退出登录"""
     data = AuthService.logout()

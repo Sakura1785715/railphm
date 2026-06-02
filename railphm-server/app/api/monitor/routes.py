@@ -1,10 +1,12 @@
 from flask import Blueprint, request
+from app.core.auth import BUSINESS_ROLES, require_roles
 from app.core.response import success_response
 from app.service.monitor_service import MonitorService
 
 monitor_bp = Blueprint('monitor', __name__)
 
 @monitor_bp.route('/series', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_monitor_series():
     """
     获取历史监测数据曲线
@@ -29,6 +31,7 @@ def get_monitor_series():
 
 
 @monitor_bp.route('/history', methods=['GET'])
+@require_roles(*BUSINESS_ROLES)
 def get_monitor_history():
     """
     获取 InfluxDB 历史监测数据

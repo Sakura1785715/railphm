@@ -8,6 +8,9 @@ from app.repository.auth_repository import AuthRepository
 
 AUTH_ERROR_MESSAGE = "未登录或登录状态无效"
 FORBIDDEN_ERROR_MESSAGE = "权限不足"
+ROLE_OPS = "OPS"
+ROLE_ADMIN = "ADMIN"
+BUSINESS_ROLES = (ROLE_OPS, ROLE_ADMIN)
 
 
 def _raise_auth_error():

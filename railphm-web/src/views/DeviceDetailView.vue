@@ -12,6 +12,7 @@
       <div class="device-detail-topbar__actions">
         <span :class="['status-pill', `status-pill--${topbarStatus.tone}`]">{{ topbarStatus.label }}</span>
         <span v-if="device" class="device-detail-topbar__chip">设备编号 {{ displayValue(device.device_code || device.device_id) }}</span>
+        <RouterLink v-if="canManageDevice && device" :to="editInLedgerRoute" class="secondary-link">编辑设备</RouterLink>
         <RouterLink :to="backToList" class="secondary-link">返回设备台账</RouterLink>
       </div>
     </div>
@@ -191,6 +192,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { getAlertList } from '../api/alert'
 import { getDeviceDetail } from '../api/device'
 import { getLatestPrediction } from '../api/prediction'
+import { isAdmin } from '../utils/auth'
 import { formatAlertLevel, formatAlertStatus, formatDeviceStatus, formatHealthScore, formatPercent } from '../utils/formatters'
 
 const route = useRoute()
@@ -212,10 +214,18 @@ const isNotFound = ref(false)
 let detailRequestId = 0
 
 const routeDeviceId = computed(() => parseDeviceId(route.params.id))
+const canManageDevice = computed(() => isAdmin())
 
 const backToList = computed(() => ({
   name: 'devices',
   query: route.query
+}))
+
+const editInLedgerRoute = computed(() => ({
+  name: 'devices',
+  query: {
+    device_code: String(device.value?.device_code || routeDeviceId.value || '')
+  }
 }))
 
 const deviceTitle = computed(() => {
