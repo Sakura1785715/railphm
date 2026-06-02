@@ -183,13 +183,29 @@
           height="360px"
         />
         <div v-else class="position-analysis-grid">
-          <LineTrendChart
-            :x-axis-data="monitorXAxis"
-            :series="positionSeries"
-            :loading="loading"
-            :empty="monitorRows.length === 0"
-            height="320px"
-          />
+          <div class="position-chart-grid">
+            <LineTrendChart
+              title="里程"
+              description="里程表示列车在线路坐标体系下的绝对位置，单位为 km。"
+              unit="km"
+              :x-axis-data="monitorXAxis"
+              :series="mileageSeries"
+              :loading="loading"
+              :empty="monitorRows.length === 0"
+              height="300px"
+            />
+
+            <LineTrendChart
+              title="运行距离"
+              description="运行距离表示当前告警关联监测片段内从起点开始累计行驶的相对距离，单位为 km。"
+              unit="km"
+              :x-axis-data="monitorXAxis"
+              :series="runDistanceSeries"
+              :loading="loading"
+              :empty="monitorRows.length === 0"
+              height="300px"
+            />
+          </div>
           <dl class="position-summary">
             <div v-for="item in positionSummary" :key="item.key">
               <dt>{{ item.label }}</dt>
@@ -595,15 +611,21 @@ const environmentSeries = computed(() => [
   }
 ])
 
-const positionSeries = computed(() => [
+const mileageSeries = computed(() => [
   {
-    name: 'mileage',
+    name: '里程',
+    unit: 'km',
     data: sampledMonitorRows.value.map((row) => toFiniteNumber(row.mileage)),
     area: true
-  },
+  }
+])
+
+const runDistanceSeries = computed(() => [
   {
-    name: 'run_distance',
-    data: sampledMonitorRows.value.map((row) => toFiniteNumber(row.run_distance))
+    name: '运行距离',
+    unit: 'km',
+    data: sampledMonitorRows.value.map((row) => toFiniteNumber(row.run_distance)),
+    area: true
   }
 ])
 
@@ -1196,6 +1218,13 @@ function displayValue(value) {
   align-items: start;
 }
 
+.position-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  min-width: 0;
+}
+
 .position-summary {
   padding: var(--space-4);
   border: 1px solid var(--color-border);
@@ -1422,6 +1451,7 @@ function displayValue(value) {
   .trend-grid,
   .handle-grid,
   .overview-metric-grid,
+  .position-chart-grid,
   .condition-timeline__legend {
     grid-template-columns: 1fr;
   }

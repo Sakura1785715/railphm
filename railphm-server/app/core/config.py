@@ -74,7 +74,7 @@ class BaseConfig:
     )
     RANGE_INFER_MAX_POINTS: int = int(os.getenv("RANGE_INFER_MAX_POINTS", "200"))
     RUN_RECORD_INFER_DEFAULT_STRIDE_SECONDS: int = int(
-        os.getenv("RUN_RECORD_INFER_DEFAULT_STRIDE_SECONDS", "1")
+        os.getenv("RUN_RECORD_INFER_DEFAULT_STRIDE_SECONDS", "5") # 预测步长
     )
     RUN_RECORD_INFER_MIN_STRIDE_SECONDS: int = int(
         os.getenv("RUN_RECORD_INFER_MIN_STRIDE_SECONDS", "1")

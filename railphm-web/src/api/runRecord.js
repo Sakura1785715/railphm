@@ -7,7 +7,7 @@ export const DEFAULT_RUN_RECORD_INFER_PAYLOAD = {
   mc_samples: 20, // MC Dropout推理次数
   persist: true, // 是否把预测结果保存到数据库
   generate_alert: false, // 执行预测时默认不生成告警
-  inference_stride_seconds: 1 // 每 1 秒生成一个预测点
+  inference_stride_seconds: 5 // 每 1 秒生成一个预测点
 }
 
 // 查询运行记录列表
@@ -39,7 +39,7 @@ export function inferRunRecord(runRecordId, payload = {}) {
     {
       ...DEFAULT_RUN_RECORD_INFER_PAYLOAD,
       ...payload,
-      inference_stride_seconds: 1
+      inference_stride_seconds: 5
     },
     {
       timeout: RUN_RECORD_INFER_TIMEOUT_MS

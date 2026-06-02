@@ -421,7 +421,7 @@ import {
 } from '../utils/formatters'
 import { DEFAULT_EMA_ALPHA, applyEmaToPoints } from '../utils/seriesSmoothing'
 
-const DEFAULT_INFERENCE_STRIDE_SECONDS = 1
+const DEFAULT_INFERENCE_STRIDE_SECONDS = 5
 const RISK_TREND_EMA_ALPHA = DEFAULT_EMA_ALPHA
 
 const route = useRoute()
