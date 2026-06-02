@@ -5,7 +5,7 @@
         <p class="section-tag">设备列表</p>
         <h3>设备台账清单</h3>
         <p class="device-table-card__description">
-          当前展示设备基础档案字段，支持查看详情与维护设备基础信息。
+          当前展示设备当前状态与基础档案字段，支持查看详情与维护设备基础信息。
         </p>
       </div>
 
@@ -27,7 +27,8 @@
             <th>设备名称</th>
             <th>设备类型</th>
             <th>车号</th>
-            <th>设备状态</th>
+            <th>当前状态</th>
+            <th>台账状态</th>
             <th>更新时间</th>
             <th>操作</th>
           </tr>
@@ -35,7 +36,7 @@
 
         <tbody v-if="loading">
           <tr>
-            <td colspan="7" class="device-table__placeholder">
+            <td colspan="8" class="device-table__placeholder">
               <LoadingBlock text="正在加载设备台账数据..." type="inline" />
             </td>
           </tr>
@@ -49,8 +50,15 @@
             <td>{{ row.car_no || '暂无' }}</td>
             <td>
               <StatusTag
-                :label="row.device_status_text || row.status_text || getDeviceStatusMeta(row.device_status).label"
-                :type="getDeviceStatusMeta(row.device_status).tone"
+                :label="row.current_status_text || row.status_text || getDeviceStatusMeta(row.current_status ?? row.device_status).label"
+                :type="getDeviceStatusMeta(row.current_status ?? row.device_status).tone"
+                size="small"
+              />
+            </td>
+            <td>
+              <StatusTag
+                :label="row.ledger_status_text || row.device_status_text || getDeviceStatusMeta(row.ledger_status ?? row.device_status).label"
+                :type="getDeviceStatusMeta(row.ledger_status ?? row.device_status).tone"
                 size="small"
               />
             </td>
@@ -75,7 +83,7 @@
 
         <tbody v-else>
           <tr>
-            <td colspan="7" class="device-table__placeholder">
+            <td colspan="8" class="device-table__placeholder">
               <EmptyState title="暂无设备数据" :description="emptyText" />
             </td>
           </tr>
@@ -259,7 +267,7 @@ function buildDetailRoute(deviceId) {
 
 .device-table {
   width: 100%;
-  min-width: 860px;
+  min-width: 960px;
   border-collapse: collapse;
 }
 

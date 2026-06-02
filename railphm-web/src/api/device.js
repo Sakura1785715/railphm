@@ -8,6 +8,10 @@ export function getDeviceDetail(deviceId) {
   return http.get(`/v1/devices/${deviceId}`)
 }
 
+export function getNextDeviceCode() {
+  return http.get('/v1/devices/next-code')
+}
+
 export function createDevice(payload) {
   return http.post('/v1/devices', payload)
 }

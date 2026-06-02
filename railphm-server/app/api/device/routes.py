@@ -24,6 +24,7 @@ def get_devices():
     train_no = request.args.get('train_no', default='', type=str).strip() or None
     attach_bureau = request.args.get('attach_bureau', default='', type=str).strip() or None
     device_status = request.args.get('device_status')
+    current_status = request.args.get('current_status')
 
     data = DeviceService.get_device_list(
         page=page,
@@ -36,8 +37,18 @@ def get_devices():
         atp_type=atp_type,
         train_no=train_no,
         attach_bureau=attach_bureau,
-        device_status=device_status
+        device_status=device_status,
+        current_status=current_status
     )
+    return success_response(data=data)
+
+@device_bp.route('/next-code', methods=['GET'])
+@require_roles(ROLE_ADMIN)
+def get_next_device_code():
+    """
+    生成下一个设备编号
+    """
+    data = DeviceService.get_next_device_code()
     return success_response(data=data)
 
 @device_bp.route('', methods=['POST'])

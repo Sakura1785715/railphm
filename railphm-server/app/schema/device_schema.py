@@ -20,6 +20,8 @@ class DeviceSchema:
         if not device:
             return {}
         device_status = device.get("device_status")
+        ledger_status = device.get("ledger_status", device_status)
+        current_status = device.get("current_status", device_status)
         return {
             "device_id": device.get("device_id"),
             "device_code": device.get("device_code"),
@@ -27,6 +29,25 @@ class DeviceSchema:
             "device_type": device.get("device_type"),
             "device_status": device_status,
             "device_status_text": DeviceSchema.DEVICE_STATUS_TEXT.get(device_status, "未知"),
+            "ledger_status": ledger_status,
+            "ledger_status_text": device.get("ledger_status_text") or DeviceSchema.DEVICE_STATUS_TEXT.get(ledger_status, "未知"),
+            "current_status": current_status,
+            "current_status_text": device.get("current_status_text") or DeviceSchema.DEVICE_STATUS_TEXT.get(current_status, "未知"),
+            "status_source": device.get("status_source") or "device_status",
+            "current_risk_score": device.get("current_risk_score"),
+            "current_health_score": device.get("current_health_score"),
+            "current_alert_level": device.get("current_alert_level"),
+            "current_alert_status": device.get("current_alert_status"),
+            "latest_prediction_time": DeviceSchema._format_datetime(device.get("latest_prediction_time")),
+            "active_alert_count": device.get("active_alert_count"),
+            "current_event_time": DeviceSchema._format_datetime(device.get("current_event_time")),
+            "current_message": device.get("current_message"),
+            "current_risk_result_id": device.get("current_risk_result_id"),
+            "highest_active_alert_level": device.get("highest_active_alert_level"),
+            "highest_active_alert_time": DeviceSchema._format_datetime(device.get("highest_active_alert_time")),
+            "latest_alert_id": device.get("latest_alert_id"),
+            "latest_alert_message": device.get("latest_alert_message"),
+            "latest_alert_status": device.get("latest_alert_status"),
             "atp_type": device.get("atp_type"),
             "car_no": device.get("car_no"),
             "train_no": device.get("train_no"),

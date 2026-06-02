@@ -5,7 +5,7 @@
         <p class="section-tag">筛选查询</p>
         <h3>基础查询条件</h3>
       </div>
-      <p class="device-filter-card__hint">按设备编号、车号和设备状态定位台账记录，点击查询后发起请求。</p>
+      <p class="device-filter-card__hint">按设备编号、车号和当前状态定位台账记录，点击查询后发起请求。</p>
     </div>
 
     <form class="device-filter-form" @submit.prevent="$emit('search')">
@@ -32,7 +32,7 @@
       </label>
 
       <label class="filter-field">
-        <span>设备状态</span>
+        <span>当前状态</span>
         <select
           :value="deviceStatus"
           :disabled="loading"

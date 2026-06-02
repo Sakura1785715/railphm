@@ -25,11 +25,13 @@
             <input
               v-model.trim="form.deviceCode"
               type="text"
-              placeholder="请输入设备编号，如 ATP001"
+              placeholder="设备编号由系统生成"
+              readonly
               :disabled="submitting"
               :aria-invalid="Boolean(fieldErrors.deviceCode)"
             />
             <small v-if="fieldErrors.deviceCode">{{ fieldErrors.deviceCode }}</small>
+            <small v-else class="device-form__hint">设备编号由系统生成，不可修改</small>
           </label>
 
           <label class="device-form__field">
@@ -103,7 +105,7 @@
           </label>
 
           <label class="device-form__field">
-            <span>设备状态</span>
+            <span>台账状态</span>
             <select
               v-model="form.deviceStatus"
               :disabled="submitting"
@@ -150,6 +152,10 @@ const props = defineProps({
     type: Object,
     default: null
   },
+  nextDeviceCode: {
+    type: String,
+    default: ''
+  },
   submitting: {
     type: Boolean,
     default: false
@@ -185,12 +191,12 @@ const fieldErrors = reactive({
 
 const modalTitle = computed(() => (props.mode === 'edit' ? '编辑设备' : '新增设备'))
 const modalDescription = computed(() =>
-  props.mode === 'edit' ? '调整设备基础档案字段，保存后自动刷新台账列表。' : '录入设备基础档案，设备 ID 由后端生成。'
+  props.mode === 'edit' ? '调整设备基础档案字段，保存后自动刷新台账列表。' : '录入设备基础档案，设备编号由系统生成。'
 )
 const displayError = computed(() => validationError.value || props.errorMessage)
 
 watch(
-  () => [props.visible, props.mode, props.initialDevice],
+  () => [props.visible, props.mode, props.initialDevice, props.nextDeviceCode],
   () => {
     if (props.visible) {
       syncForm()
@@ -214,7 +220,7 @@ function syncForm() {
     return
   }
 
-  form.deviceCode = ''
+  form.deviceCode = props.nextDeviceCode ? String(props.nextDeviceCode) : ''
   form.deviceName = ''
   form.deviceType = 'ATP'
   form.carNo = ''
@@ -246,7 +252,7 @@ function handleSubmit() {
 
 function validateForm() {
   if (!form.deviceCode.trim()) {
-    fieldErrors.deviceCode = '请输入设备编号'
+    fieldErrors.deviceCode = '设备编号生成失败，请关闭后重试'
   }
 
   if (!form.deviceName.trim()) {
@@ -391,6 +397,10 @@ function resetErrors() {
   line-height: 1.5;
 }
 
+.device-form__field small.device-form__hint {
+  color: var(--color-text-muted);
+}
+
 .device-form__field input,
 .device-form__field select {
   width: 100%;
@@ -421,6 +431,12 @@ function resetErrors() {
 .device-form__field select:disabled {
   opacity: 0.72;
   cursor: wait;
+}
+
+.device-form__field input[readonly] {
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  cursor: default;
 }
 
 .device-form__error {

@@ -175,17 +175,31 @@
         />
       </div>
 
-      <LineTrendChart
-        v-else
-        title="位置与运行"
-        description="展示 mileage 与 run_distance 的运行变化。"
-        :x-axis-data="monitorXAxis"
-        :series="positionSeries"
-        :loading="monitorLoading"
-        :empty="monitorRows.length === 0"
-        :error="monitorError"
-        height="340px"
-      />
+      <div v-else class="detail-chart-grid">
+        <LineTrendChart
+          title="里程"
+          description="里程表示列车在线路坐标体系下的绝对位置，单位为 km。"
+          unit="km"
+          :x-axis-data="monitorXAxis"
+          :series="mileageSeries"
+          :loading="monitorLoading"
+          :empty="monitorRows.length === 0"
+          :error="monitorError"
+          height="300px"
+        />
+
+        <LineTrendChart
+          title="运行距离"
+          description="运行距离表示当前 source_segment 片段内从起点开始累计行驶的相对距离，单位为 km。"
+          unit="km"
+          :x-axis-data="monitorXAxis"
+          :series="runDistanceSeries"
+          :loading="monitorLoading"
+          :empty="monitorRows.length === 0"
+          :error="monitorError"
+          height="300px"
+        />
+      </div>
     </section>
 
     <section class="detail-grid">
@@ -489,15 +503,20 @@ const humiditySeries = computed(() => [
     area: true
   }
 ])
-const positionSeries = computed(() => [
+const mileageSeries = computed(() => [
   {
     name: '里程',
+    unit: 'km',
     data: monitorRows.value.map((row) => toNumberOrNull(row.mileage)),
     area: true
-  },
+  }
+])
+const runDistanceSeries = computed(() => [
   {
     name: '运行距离',
-    data: monitorRows.value.map((row) => toNumberOrNull(row.run_distance))
+    unit: 'km',
+    data: monitorRows.value.map((row) => toNumberOrNull(row.run_distance)),
+    area: true
   }
 ])
 const riskSeries = computed(() => {

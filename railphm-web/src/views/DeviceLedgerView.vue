@@ -12,10 +12,10 @@
           v-if="canManageDevice"
           class="primary-button"
           type="button"
-          :disabled="loading"
+          :disabled="loading || nextCodeLoading"
           @click="openCreateDeviceForm"
         >
-          新增设备
+          {{ nextCodeLoading ? '生成编号中...' : '新增设备' }}
         </button>
       </template>
     </PageHeader>
@@ -53,6 +53,7 @@
       :visible="formVisible"
       :mode="formMode"
       :initial-device="editingDevice"
+      :next-device-code="nextDeviceCode"
       :submitting="formSubmitting"
       :error-message="formError"
       @submit="handleDeviceFormSubmit"
@@ -69,13 +70,14 @@ import StatusTag from '../components/common/StatusTag.vue'
 import DeviceFilterBar from '../components/device/DeviceFilterBar.vue'
 import DeviceFormModal from '../components/device/DeviceFormModal.vue'
 import DeviceTable from '../components/device/DeviceTable.vue'
-import { createDevice, getDeviceList, updateDevice } from '../api/device'
+import { createDevice, getDeviceList, getNextDeviceCode, updateDevice } from '../api/device'
 import { isAdmin, isOps } from '../utils/auth'
 
 const route = useRoute()
 const router = useRouter()
 
 const filters = reactive({
+  deviceId: '',
   deviceCode: '',
   carNo: '',
   deviceStatus: ''
@@ -94,12 +96,18 @@ const formVisible = ref(false)
 const formMode = ref('create')
 const editingDevice = ref(null)
 const formSubmitting = ref(false)
+const nextCodeLoading = ref(false)
 const formError = ref('')
+const nextDeviceCode = ref('')
 const operationMessage = ref('')
 const canManageDevice = computed(() => isAdmin())
-const rolePermissionMessage = computed(() =>
-  isOps() ? '当前账号为运维用户，可查看设备台账与详情；新增和编辑设备需要系统管理员权限。' : ''
-)
+const rolePermissionMessage = computed(() => {
+  if (!canManageDevice.value && route.query.action === 'edit') {
+    return '当前账号可查看设备台账，编辑设备需要系统管理员权限。'
+  }
+
+  return isOps() ? '当前账号为运维用户，可查看设备台账与详情；新增和编辑设备需要系统管理员权限。' : ''
+})
 
 const statusOptions = [
   { label: '正常', value: '1' },
@@ -109,7 +117,7 @@ const statusOptions = [
 ]
 
 const hasActiveFilters = computed(
-  () => Boolean(filters.deviceCode.trim() || filters.carNo.trim() || filters.deviceStatus !== '')
+  () => Boolean(filters.deviceId.trim() || filters.deviceCode.trim() || filters.carNo.trim() || filters.deviceStatus !== '')
 )
 
 const emptyText = computed(() =>
@@ -180,6 +188,7 @@ async function fetchDevices() {
     pagination.total = typeof payload.total === 'number' ? payload.total : devices.value.length
     pagination.page = typeof payload.page === 'number' ? payload.page : pagination.page
     pagination.size = typeof payload.size === 'number' ? payload.size : pagination.size
+    await consumeEditActionIfNeeded()
   } catch (error) {
     devices.value = []
     pagination.total = 0
@@ -189,7 +198,7 @@ async function fetchDevices() {
   }
 }
 
-function openCreateDeviceForm() {
+async function openCreateDeviceForm() {
   if (!canManageDevice.value) {
     operationMessage.value = ''
     formError.value = '当前角色无设备维护权限'
@@ -198,9 +207,21 @@ function openCreateDeviceForm() {
 
   formMode.value = 'create'
   editingDevice.value = null
+  nextDeviceCode.value = ''
   formError.value = ''
   operationMessage.value = ''
-  formVisible.value = true
+  nextCodeLoading.value = true
+
+  try {
+    const result = await getNextDeviceCode()
+    nextDeviceCode.value = result?.data?.device_code ? String(result.data.device_code) : ''
+    formVisible.value = true
+  } catch (error) {
+    formError.value = getErrorMessage(error, '设备编号生成失败，请稍后重试')
+    formVisible.value = true
+  } finally {
+    nextCodeLoading.value = false
+  }
 }
 
 function openEditDeviceForm(device) {
@@ -212,6 +233,7 @@ function openEditDeviceForm(device) {
 
   formMode.value = 'edit'
   editingDevice.value = device
+  nextDeviceCode.value = ''
   formError.value = ''
   operationMessage.value = ''
   formVisible.value = true
@@ -225,6 +247,7 @@ function closeDeviceForm() {
   formVisible.value = false
   formMode.value = 'create'
   editingDevice.value = null
+  nextDeviceCode.value = ''
   formError.value = ''
 }
 
@@ -274,6 +297,7 @@ async function refreshCreatedDevicePage(createdDevice = {}) {
   const createdDeviceId = createdDevice.device_id ? String(createdDevice.device_id) : ''
   const createdDeviceCode = createdDevice.device_code ? String(createdDevice.device_code) : ''
 
+  filters.deviceId = ''
   filters.deviceCode = createdDeviceCode
   filters.carNo = ''
   filters.deviceStatus = ''
@@ -307,6 +331,7 @@ async function handleSearch() {
 async function handleReset() {
   operationMessage.value = ''
   filters.deviceCode = ''
+  filters.deviceId = ''
   filters.carNo = ''
   filters.deviceStatus = ''
   pagination.page = 1
@@ -360,9 +385,10 @@ function handleSizeChange(nextSize) {
 }
 
 function syncStateFromRoute(query) {
-  filters.deviceCode = normalizeQueryValue(query.device_code || query.device_id)
+  filters.deviceCode = normalizeQueryValue(query.device_code)
+  filters.deviceId = normalizeQueryValue(query.device_id)
   filters.carNo = normalizeQueryValue(query.car_no)
-  filters.deviceStatus = normalizeDeviceStatusQuery(query.device_status)
+  filters.deviceStatus = normalizeDeviceStatusQuery(query.current_status || query.device_status)
   pagination.page = toPositiveInteger(query.page, 1)
   pagination.size = toPositiveInteger(query.size, 10)
 }
@@ -377,12 +403,16 @@ function buildApiParams() {
     params.device_code = filters.deviceCode.trim()
   }
 
+  if (filters.deviceId.trim()) {
+    params.device_id = filters.deviceId.trim()
+  }
+
   if (filters.carNo.trim()) {
     params.car_no = filters.carNo.trim()
   }
 
   if (filters.deviceStatus !== '') {
-    params.device_status = Number(filters.deviceStatus)
+    params.current_status = Number(filters.deviceStatus)
   }
 
   return params
@@ -397,12 +427,16 @@ function buildRouteQuery(overrides = {}) {
     query.device_code = filters.deviceCode.trim()
   }
 
+  if (filters.deviceId.trim() && !filters.deviceCode.trim()) {
+    query.device_id = filters.deviceId.trim()
+  }
+
   if (filters.carNo.trim()) {
     query.car_no = filters.carNo.trim()
   }
 
   if (filters.deviceStatus !== '') {
-    query.device_status = filters.deviceStatus
+    query.current_status = filters.deviceStatus
   }
 
   if (currentPage > 1) {
@@ -414,6 +448,44 @@ function buildRouteQuery(overrides = {}) {
   }
 
   return query
+}
+
+async function consumeEditActionIfNeeded() {
+  if (route.query.action !== 'edit') {
+    return
+  }
+
+  if (!canManageDevice.value) {
+    return
+  }
+
+  const targetCode = normalizeQueryValue(route.query.device_code)
+  const targetId = normalizeQueryValue(route.query.device_id)
+  const matchedDevice = devices.value.find((device) => {
+    if (targetCode) {
+      return String(device.device_code || '') === targetCode
+    }
+
+    if (targetId) {
+      return String(device.device_id || '') === targetId
+    }
+
+    return false
+  })
+
+  if (matchedDevice) {
+    openEditDeviceForm(matchedDevice)
+  }
+
+  const nextQuery = {
+    ...route.query
+  }
+  delete nextQuery.action
+
+  await router.replace({
+    name: 'devices',
+    query: nextQuery
+  })
 }
 
 function normalizeQueryValue(value) {

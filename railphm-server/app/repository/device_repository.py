@@ -49,6 +49,50 @@ class DeviceRepository:
         return items
 
     @classmethod
+    def find_filtered_all(
+        cls,
+        device_id: Optional[int] = None,
+        device_code: Optional[str] = None,
+        device_name: Optional[str] = None,
+        device_type: Optional[str] = None,
+        car_no: Optional[str] = None,
+        atp_type: Optional[str] = None,
+        train_no: Optional[str] = None,
+        attach_bureau: Optional[str] = None,
+        device_status: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """按设备台账字段筛选全部真实设备列表，不分页。"""
+        where_sql, params = cls._build_filter_where(
+            device_id=device_id,
+            device_code=device_code,
+            device_name=device_name,
+            device_type=device_type,
+            car_no=car_no,
+            atp_type=atp_type,
+            train_no=train_no,
+            attach_bureau=attach_bureau,
+            device_status=device_status,
+        )
+
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {cls._DEVICE_SELECT_FIELDS}
+                    FROM phm_device
+                    {where_sql}
+                    ORDER BY device_id ASC
+                    """,
+                    params,
+                )
+                items = cursor.fetchall()
+        finally:
+            connection.close()
+
+        return [cls._normalize_device_record(item) for item in items]
+
+    @classmethod
     def find_filtered(
         cls,
         page: int = 1,
@@ -150,6 +194,25 @@ class DeviceRepository:
         return cls._normalize_device_record(record) if record else None
 
     @classmethod
+    def find_all_device_codes(cls) -> List[str]:
+        """查询全部设备业务编号，用于生成下一个设备编号。"""
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT device_code
+                    FROM phm_device
+                    WHERE device_code IS NOT NULL AND device_code <> ''
+                    """
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+
+        return [str(row.get("device_code")) for row in rows or [] if row.get("device_code")]
+
+    @classmethod
     def create_device(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
         """新增真实设备台账记录。"""
         cls._check_device_code_conflict(payload["device_code"])
@@ -201,7 +264,6 @@ class DeviceRepository:
         """编辑真实设备台账记录。"""
         if cls.find_by_id(device_id) is None:
             return None
-        cls._check_device_code_conflict(payload["device_code"], exclude_device_id=device_id)
 
         params = {
             **payload,
@@ -214,14 +276,14 @@ class DeviceRepository:
                     """
                     UPDATE phm_device
                     SET
-                        device_code = %(device_code)s,
                         device_name = %(device_name)s,
                         device_type = %(device_type)s,
                         device_status = %(device_status)s,
                         atp_type = %(atp_type)s,
                         car_no = %(car_no)s,
                         train_no = %(train_no)s,
-                        attach_bureau = %(attach_bureau)s
+                        attach_bureau = %(attach_bureau)s,
+                        update_time = NOW()
                     WHERE device_id = %(device_id)s
                     """,
                     params,
